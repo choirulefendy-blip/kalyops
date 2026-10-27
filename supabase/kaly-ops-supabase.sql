@@ -3279,6 +3279,7 @@ create or replace function public.alert_roles(p_kind text) returns text[] langua
     when p_kind in ('fraud', 'shift_open', 'shift_close', 'day_close', 'po_paid', 'po_wait') then array['owner']
     when p_kind in ('po_done', 'po_recv', 'tf_in', 'stock_low', 'opname') then array['owner', 'gudang']
     when p_kind in ('k_new', 'k_add', 'k_void', 'k_move') then array['owner', 'dapur']   -- 2.5: untuk layar dapur
+    when p_kind = 'res_seat' then array['owner', 'kasir']   -- 2.10: tamu dibooking service → kasir membuka bill
     else null end;
 $$;
 
@@ -4344,6 +4345,25 @@ select engine.policy('orders', 'ubah', 'update', 'public.is_staff(array[''owner'
 select engine.policy('order_lines', 'tambah', 'insert', null, 'public.is_staff(array[''owner'',''kasir'']) and public.can_order(order_id)');
 select engine.policy('order_lines', 'ubah draft', 'update', 'public.is_staff(array[''owner'',''kasir'']) and public.can_order(order_id)');
 select engine.policy('order_lines', 'hapus draft', 'delete', 'public.is_staff(array[''owner'',''kasir'']) and public.can_order(order_id)');
+
+-- 2.10 · Service mem-booking meja / menandai tamu reservasi datang → kasir dikabari untuk membuka bill
+create or replace function engine.tg_alert_res_seat() returns trigger language plpgsql security definer set search_path = public as $$
+declare v_who public.staff; v_loc text;
+begin
+  if new.status <> 'datang' or new.table_id is null or new.order_id is not null then return null; end if;
+  if tg_op = 'UPDATE' and old.status = 'datang' then return null; end if;
+  select * into v_who from staff where user_id = auth.uid() and active;
+  if v_who.id is null or v_who.role = 'kasir' then return null; end if;   -- kasir sendiri langsung membuka bill
+  select location_id into v_loc from dining_tables where id = new.table_id;
+  perform engine.alert('res_seat', coalesce(v_loc, 'L1'), 'Meja ' || array_to_string(array[new.table_id] || coalesce(new.join_tables, '{}'), '+') || ' · tamu sudah duduk',
+    new.name || ' · ' || new.pax || ' orang' || case when new.source = 'walk-in' then ' (walk-in)' else ' (reservasi ' || to_char(new.time, 'HH24:MI') || ')' end
+      || coalesce('. Catatan: ' || nullif(trim(new.note), ''), '') || '. Dicatat ' || v_who.name || '. Silakan buka bill di Kaly POS.',
+    null, new.table_id, new.id);
+  return null;
+end $$;
+drop trigger if exists alert_res_seat on public.reservations;
+create trigger alert_res_seat after insert or update of status on public.reservations for each row execute function engine.tg_alert_res_seat();
+revoke all on function engine.tg_alert_res_seat() from public;
 
 
 -- =====================================================================

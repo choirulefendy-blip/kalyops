@@ -167,6 +167,7 @@ Warna grafik memakai turunan warna brand KALY dan sudah diuji dengan validator b
 
 - Policy `orders` (buat/ubah) dan `order_lines` (tambah/ubah/hapus draft) kini hanya untuk Owner & Kasir. Fungsi `pos_send` dan `order_set_member` juga hanya Owner & Kasir.
 - Service tetap bisa membaca pesanan, `serve_line`/`serve_ready`, `table_move`, `table_clear`, dan `reservation_create` (Kaly Book).
+- Notifikasi baru `res_seat` (Owner & Kasir): dibuat trigger `alert_res_seat` saat service/Owner mencatat tamu walk-in langsung `datang` atau menandai reservasi `datang` di meja yang belum punya bill. Kasir membuka bill dari notifikasi (`#/pos?seat=<meja>`), nama tamu & reservasi ikut tersambung ke bill.
 - Database lama: jalankan `kaly-ops-update-2.10.sql`.
 
 ## Baru di 2.9: kasir tablet, anggota shift, laporan per shift

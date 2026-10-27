@@ -35,6 +35,12 @@ function upcomingRes(db, tableId) {
   return db.reservations.find((r) => D.resTables(r).includes(tableId) && ['menunggu', 'dikonfirmasi', 'datang'].includes(r.status) && D.resStart(r) - now < 120 * 60000 && D.resStart(r) - now > -(r.status === 'datang' ? 180 : 45) * 60000);
 }
 
+// 2.10 · Tamu yang dibooking service (sudah duduk): bill langsung dibuka dengan nama & reservasinya
+function seatBill(db, r, id) {
+  ui.orderId = null; ui.tab = 'meja';
+  ui.pending = { table: r.table || id, merged: (r.join || []).filter((x) => x !== (r.table || id)), res: r.id, cust: { name: r.name, phone: r.phone }, mem: r.mem || (D.findMemberByPhone(db, r.phone)?.id ?? null) };
+  toast(`Bill meja ${r.table || id} untuk ${r.name} (${r.pax} orang)${r.note ? ' · ' + r.note : ''}`, 'info', 4000);
+}
 function ensureOrder(d, ctx) {
   let o = ui.orderId && D.order(d, ui.orderId);
   if (o && o.status === 'open') return o;
@@ -87,20 +93,22 @@ function tablesPanel(ctx) {
   const busy = db.tables.filter((t) => t.loc === L && (tableOrder(db, L, t.id) || t.hold)).length;
   const held = heldTables(db, L).length;
   return `<div class="tb-top"><div class="chips">${['all', ...areas].map((a) => `<button class="chip ${ui.area === a ? 'on' : ''}" data-a="area" data-v="${esc(a)}">${a === 'all' ? 'Semua area' : esc(a)}</button>`).join('')}</div>
-    <div class="row-xs tb-head"><span class="tb-legend"><i class="lg free"></i>Kosong <i class="lg busy"></i>Terisi <i class="lg ready"></i>Siap antar <i class="lg res"></i>Reservasi</span><b class="tb-count">${busy}/${db.tables.filter((t) => t.loc === L).length} terisi</b>${held ? `<button class="btn btn-sm btn-paid" data-a="heldList" title="Meja sudah dibayar, belum dikosongkan">${ic('armchair', 15)} ${held} lunas</button>` : ''}<a class="btn btn-sm" href="#/denah">${ic('map', 15)} Denah</a></div></div>
+    <div class="row-xs tb-head"><span class="tb-legend"><i class="lg free"></i>Kosong <i class="lg busy"></i>Terisi <i class="lg ready"></i>Siap antar <i class="lg seat"></i>Tamu duduk <i class="lg res"></i>Reservasi</span><b class="tb-count">${busy}/${db.tables.filter((t) => t.loc === L).length} terisi</b>${held ? `<button class="btn btn-sm btn-paid" data-a="heldList" title="Meja sudah dibayar, belum dikosongkan">${ic('armchair', 15)} ${held} lunas</button>` : ''}<a class="btn btn-sm" href="#/denah">${ic('map', 15)} Denah</a></div></div>
     <p class="muted sm tb-help">Ketuk meja untuk membuka bill. Menu tampil di kiri, bill di kanan.</p>
     <div class="tables big">${tables.map((t) => {
       const o = tableOrder(db, L, t.id);
       const r = !o && upcomingRes(db, t.id);
       const ks = o && (D.kitchenLines(o).some((l) => l.s === 'ready') ? 'ready' : D.kitchenState(o));
       const held = !o && t.hold;
-      const cls = o ? (ks === 'ready' ? 'ready' : 'busy') : held ? 'paid' : r ? 'res' : 'free';
+      const seat = r && r.status === 'datang';   // 2.10: tamu sudah duduk (dibooking service), bill belum dibuka
+      const cls = o ? (ks === 'ready' ? 'ready' : 'busy') : held ? 'paid' : seat ? 'seat' : r ? 'res' : 'free';
       const sel = (o && o.id === ui.orderId) || ui.pending?.table === t.id;
       const tot = o ? D.bill(db, o).total : 0;
       return `<button class="tb ${cls} ${sel ? 'sel' : ''}" data-a="table" data-id="${t.id}" aria-label="Meja ${t.id}${held ? ', sudah dibayar, belum dikosongkan' : ''}">
         <span class="tb-n">${t.id}</span><span class="tb-s">${t.seats} kursi</span>
         ${o ? `<span class="tb-o">${esc(o.no)}${o.merged?.length ? ' +' + o.merged.join('+') : ''}</span><span class="tb-t" data-since="${o.created}" data-fmt="min"></span><span class="tb-v">${rp(tot)}</span>${ks === 'ready' ? `<span class="tb-flag">Siap antar</span>` : ''}`
           : held ? `<span class="tb-o" title="Sudah dibayar, meja belum dikosongkan service">Lunas</span><span class="tb-t" data-since="${t.hold.at}" data-fmt="min"></span><span class="tb-v">Kosongkan</span>`
+          : seat ? `<span class="tb-o">Tamu duduk</span><span class="tb-v">${esc(r.name)}, ${r.pax} org</span><span class="tb-flag">Buka bill</span>`
           : r ? `<span class="tb-o">Reservasi ${esc(r.time)}</span><span class="tb-v">${esc(r.name)}, ${r.pax} org</span>` : `<span class="tb-o muted">Kosong</span>`}
       </button>`;
     }).join('')}</div>`;
@@ -388,6 +396,14 @@ export default {
     const db = ctx.db;
     if (isOwner(ctx)) return ownerView(ctx);
     // Dibuka dari notifikasi: #/pos?order=… (buka bill itu) atau #/pos?tab=siap
+    if (ctx.q.seat) {   // dari notifikasi "tamu duduk"
+      const tid = ctx.q.seat, o = tableOrder(db, ctx.outlet, tid), r = !o && upcomingRes(db, tid);
+      if (o) { ui.orderId = o.id; ui.pending = null; ui.tab = homeTab(ctx); }
+      else if (r && r.status === 'datang') seatBill(db, r, tid);
+      else ui.tab = homeTab(ctx);
+      delete ctx.q.seat;
+      try { history.replaceState(null, '', '#/pos'); } catch {}
+    }
     if (ctx.q.order || ctx.q.tab) {
       const o = ctx.q.order && D.order(db, ctx.q.order);
       if (o && o.status === 'open' && o.loc === ctx.outlet) { ui.orderId = o.id; ui.pending = null; ui.tab = homeTab(ctx); }
@@ -443,6 +459,7 @@ export default {
       const tb = db.tables.find((x) => x.id === id);
       if (tb?.hold) return heldDialog(ctx, id, { newBill: () => { ui.orderId = null; ui.pending = { table: id }; rerender(); }, done: () => rerender() });
       const r = upcomingRes(db, id);
+      if (r && r.status === 'datang') { seatBill(db, r, id); return rerender(); }
       if (r) {
         return openModal({
           title: `Meja ${id} sudah direservasi`, size: 'sm',

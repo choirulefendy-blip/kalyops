@@ -1718,6 +1718,7 @@ create or replace function public.alert_roles(p_kind text) returns text[] langua
     when p_kind in ('fraud', 'shift_open', 'shift_close', 'day_close', 'po_paid', 'po_wait') then array['owner']
     when p_kind in ('po_done', 'po_recv', 'tf_in', 'stock_low', 'opname') then array['owner', 'gudang']
     when p_kind in ('k_new', 'k_add', 'k_void', 'k_move') then array['owner', 'dapur']   -- 2.5: untuk layar dapur
+    when p_kind = 'res_seat' then array['owner', 'kasir']   -- 2.10: tamu dibooking service → kasir membuka bill
     else null end;
 $$;
 

@@ -41,6 +41,8 @@ export const KINDS = {
     say: (a) => `Meja ${tableTxt(a.table)} sudah dibayar.`, act: (a) => ({ label: 'Buka denah', href: `#/denah?t=${a.table || ''}` }) },
   table_move: { group: 'order', push: true, label: 'Tamu pindah meja', icon: 'arrow-left-right', roles: ['owner', 'service', 'kasir'], on: ['service', 'kasir'], sound: 'soft', outlet: true, notSelf: true,
     say: (a) => String(a.title || '').replace(/meja (\S+)/gi, (m, t) => 'meja ' + tableTxt(t)) + '.', act: (a, role) => ({ label: 'Lihat meja', href: role === 'kasir' ? '#/pos?tab=meja' : `#/denah?t=${a.table || ''}` }) },
+  res_seat: { group: 'order', push: true, label: 'Tamu sudah duduk (dibooking service), siap dibuatkan bill', icon: 'concierge-bell', roles: ['owner', 'kasir'], on: ['kasir'], sound: 'order', outlet: true,
+    say: (a) => `Meja ${tableTxt(a.table)}, tamu sudah duduk. Silakan buka bill.`, act: (a, role) => (role === 'kasir' ? { label: 'Buka bill', href: `#/pos?seat=${encodeURIComponent(a.table || '')}` } : { label: 'Lihat meja', href: `#/denah?t=${a.table || ''}` }) },
   res_new: { group: 'order', push: true, label: 'Reservasi baru dari pelanggan', icon: 'calendar-check', roles: ['owner', 'kasir', 'service'], on: ['owner', 'kasir', 'service'], sound: 'soft', outlet: true,
     say: () => 'Ada reservasi baru.', act: () => ({ label: 'Lihat reservasi', href: '#/book-admin' }) },
   ticket: { label: 'Bunyi pendek saat item baru muncul (bila notifikasi dari kasir dimatikan)', icon: 'chef-hat', roles: ['owner', 'dapur'], on: ['owner', 'dapur'], sound: 'ticket', group: 'dapur' },

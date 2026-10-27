@@ -4,7 +4,7 @@
 import { local, getDb } from '../store.js';
 import * as API from '../api.js';
 import * as C from '../cloud.js';
-import { esc, ic, rp, toast, openModal, confirmBox, fmtTime } from '../lib.js';
+import { esc, ic, rp, toast, openModal, confirmBox, fmtTime, dayKey } from '../lib.js';
 import * as D from '../domain.js';
 
 // Pesanan yang menempati meja: bill terbuka, atau sudah dibayar di muka (QR/online) tapi makanannya belum selesai diantar
@@ -155,6 +155,38 @@ export function heldListDialog(ctx, { done } = {}) {
           await clearTable(null, L); paint(m); done?.();
         }
       });
+    },
+  });
+}
+
+// ---------- 2.10 · Service mem-booking meja untuk tamu yang datang sekarang → kasir melanjutkan bill ----------
+const hhmm = (t) => { const d = new Date(t); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+export function bookNowDialog(ctx, tableId, { done } = {}) {
+  const db = getDb(), t = db.tables.find((x) => x.id === tableId);
+  if (!t) return;
+  const next = db.reservations.find((r) => D.resTables(r).includes(tableId) && ['menunggu', 'dikonfirmasi'].includes(r.status) && D.resStart(r) > Date.now() && D.resStart(r) - Date.now() < db.settings.resDuration * 60000);
+  openModal({
+    title: `Book meja ${tableId} sekarang`, size: 'sm',
+    body: `<p class="muted sm">Untuk tamu yang sudah datang dan duduk. Kasir langsung mendapat notifikasi, lalu membuka bill meja ini di Kaly POS.</p>
+      ${next ? `<p class="banner warn sm">${ic('triangle-alert', 16)} Meja ini direservasi ${esc(next.name)} pukul ${esc(next.time)}.</p>` : ''}
+      <label class="fld"><span>Nama tamu</span><input name="name" maxlength="60" autofocus placeholder="Contoh: Pak Budi"></label>
+      <div class="grid2"><label class="fld"><span>Jumlah tamu</span><input name="pax" type="number" min="1" max="60" value="${t.seats}"></label>
+      <label class="fld"><span>No. HP (opsional)</span><input name="phone" inputmode="tel" placeholder="08…"></label></div>
+      <label class="fld"><span>Catatan untuk kasir (opsional)</span><input name="note" maxlength="120" placeholder="Contoh: bawa kursi bayi, ulang tahun"></label>`,
+    footer: `<button class="btn" data-close>Batal</button><button class="btn btn-pri" data-ok>${ic('concierge-bell', 16)} Book & kabari kasir</button>`,
+    onMount(m, api) {
+      m.querySelector('[data-ok]').onclick = async (ev) => {
+        const f = Object.fromEntries([...m.querySelectorAll('[name]')].map((i) => [i.name, i.value.trim()]));
+        if (!f.name) return toast('Isi nama tamu', 'warn');
+        const pax = Math.max(1, Number(f.pax) || 1);
+        ev.currentTarget.disabled = true;
+        try {
+          const r = await API.reservationCreate({ name: f.name, phone: f.phone || '', date: dayKey(), time: hhmm(Date.now()), pax, area: t.area, table: tableId, join: [], note: f.note || '', status: 'datang', source: 'walk-in' });
+          await C.refresh('reservations');
+          api.close(); toast(`Meja ${tableId} dibooking untuk ${f.name}. Kasir sudah dikabari untuk membuat bill.`, 'ok', 5000);
+          done?.(r);
+        } catch (e) { ev.currentTarget.disabled = false; toast(e.message, 'err', 5000); }
+      };
     },
   });
 }

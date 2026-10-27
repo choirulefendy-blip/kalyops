@@ -43,6 +43,13 @@ YANG BARU DI 2.10 (Kaly POS khusus kasir, service mencatat reservasi)
    - Service mendapat Kaly Book: jadwal meja, daftar reservasi, tambah reservasi baru (telepon,
      WhatsApp, walk-in), konfirmasi, tandai tamu datang / no-show / batal.
    - Service tetap: Denah meja, antar item, pindah meja, kosongkan meja, check-in tamu reservasi.
+   - SERVICE BOOK MEJA → KASIR LANJUT BILL:
+       1. Service: Denah Meja > ketuk meja kosong > "Book meja ini (tamu datang)" > isi nama,
+          jumlah tamu, catatan > "Book & kabari kasir". (Tamu reservasi: "Tandai tamu datang".)
+       2. Kasir: muncul notifikasi "Meja G3 · tamu sudah duduk" (dengan suara), dan meja tampil
+          biru "Tamu duduk" di Kaly POS.
+       3. Kasir ketuk "Buka bill" (atau ketuk mejanya): bill langsung terbuka dengan nama tamu,
+          lalu kasir mencatat pesanan seperti biasa.
 
 YANG BARU DI 2.9 (kasir tablet landscape, anggota shift, laporan per shift)
    - Kaly POS untuk tablet Android mendatar: layar utama berisi pilihan meja (besar, memenuhi layar).

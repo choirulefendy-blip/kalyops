@@ -7,7 +7,7 @@ import { $, esc, ic, rp, toast, openModal, formData, confirmBox, clamp, fmtTime,
 import * as D from '../domain.js';
 import { rerender, go, can } from '../app.js';
 import { openFromDenah } from './pos.js';
-import { moveDialog, clearTable } from './table-actions.js';
+import { moveDialog, clearTable, bookNowDialog } from './table-actions.js';
 
 const IMG = { src: 'assets/denah.png', w: 2174, h: 1710 };
 const AR = IMG.w / IMG.h;
@@ -104,11 +104,12 @@ function detail(db, t, s, ctx) {
     body = `<div class="dn-o"><div class="row sb"><b class="dn-no">${esc(r.time)}</b><span class="badge b-info">${r.status === 'datang' ? 'Tamu datang' : esc(r.status)}</span></div>
       <dl class="kv sm"><dt>Nama</dt><dd>${esc(r.name)}</dd><dt>Tamu</dt><dd>${r.pax} orang</dd><dt>Meja</dt><dd>${esc(D.resTableLabel(r))}</dd><dt>No. HP</dt><dd>${esc(r.phone)}</dd>${r.note ? `<dt>Catatan</dt><dd>${esc(r.note)}</dd>` : ''}<dt>Kode</dt><dd>${esc(r.code)}</dd></dl></div>
       <div class="dn-act">${pos ? `<button class="btn btn-pri btn-block" data-a="checkin" data-r="${r.id}" data-pos="1">${ic('concierge-bell', 18)} Check-in & buka bill</button>` : ''}
-      ${r.status !== 'datang' ? `<button class="btn btn-block" data-a="checkin" data-r="${r.id}">${ic('check', 18)} Tandai tamu datang</button>` : ''}</div>`;
+      ${r.status !== 'datang' ? `<button class="btn btn-block" data-a="checkin" data-r="${r.id}">${ic('check', 18)} Tandai tamu datang</button>` : ''}</div>
+      ${r.status === 'datang' && !pos ? `<p class="hint">${ic('concierge-bell', 14)} Tamu sudah duduk. Kasir sudah dikabari dan membuka bill meja ini di Kaly POS.</p>` : r.status !== 'datang' && !pos ? `<p class="hint">Setelah ditandai datang, kasir langsung dikabari untuk membuat bill.</p>` : ''}`;
   } else {
     const later = db.reservations.filter((r) => D.resTables(r).includes(t.id) && D.RES_ACTIVE.includes(r.status) && r.date === dayKey() && D.resStart(r) > Date.now()).sort((a, b) => D.resStart(a) - D.resStart(b)).slice(0, 3);
     body = `<p class="muted">Meja kosong dan siap dipakai.</p>${later.length ? `<p class="sm">Reservasi nanti: ${later.map((r) => `${esc(r.time)} ${esc(r.name)}`).join(', ')}</p>` : ''}
-      <div class="dn-act">${pos ? `<button class="btn btn-pri btn-block" data-a="openPos" data-t="${esc(t.id)}">${ic('plus', 18)} Buka bill di meja ini</button>` : ''}</div>`;
+      <div class="dn-act">${pos ? `<button class="btn btn-pri btn-block" data-a="openPos" data-t="${esc(t.id)}">${ic('plus', 18)} Buka bill di meja ini</button>` : ctx.user.role === 'service' ? `<button class="btn btn-pri btn-block" data-a="bookNow" data-t="${esc(t.id)}">${ic('concierge-bell', 18)} Book meja ini (tamu datang)</button><p class="hint">Kasir langsung dikabari untuk membuat bill.</p>` : ''}</div>`;
   }
   return head + body + (owner ? `<button class="btn btn-ghost btn-sm dn-edit-one" data-a="editTable" data-id="${esc(t.id)}">${ic('square-pen', 15)} Atur meja ini</button>` : '');
 }
@@ -380,7 +381,7 @@ export default {
       if (el.dataset.pos) {
         openFromDenah({ table: r.table, merged: (r.join || []).filter((x) => x !== r.table), res: r.id, cust: { name: r.name, phone: r.phone }, mem: r.mem || (D.findMemberByPhone(db, r.phone)?.id ?? null) });
         go('pos');
-      } else toast(`${r.name} sudah datang. Antar ke meja ${D.resTableLabel(r)}.`);
+      } else toast(`${r.name} sudah datang. Antar ke meja ${D.resTableLabel(r)}. Kasir sudah dikabari untuk membuat bill.`, 'ok', 5000);
     },
     async clearTable(el) {
       const id = el.dataset.id;
@@ -392,6 +393,7 @@ export default {
       const id = el.dataset.id;
       moveDialog({ ...ctx, outlet: 'L1' }, id, { done: (to) => { if (ui.sel === id) ui.sel = to; rerender(); } });
     },
+    bookNow(el, e, ctx) { bookNowDialog(ctx, el.dataset.t, { done: () => rerender() }); },
     openPos(el) {
       if (el.dataset.o) openFromDenah({ orderId: el.dataset.o });
       else openFromDenah({ table: el.dataset.t });
