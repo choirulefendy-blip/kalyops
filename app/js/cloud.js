@@ -289,10 +289,10 @@ const LOADERS = {
   printers: { roles: ALL, fn: async () => {
     // 2.2 menambah ip/port/paper/mode, 2.3 conn/bt_addr/usb_id; database lama belum punya kolomnya
     const q = (cols) => run(sb.from('print_stations').select(`id, name, location_id, active, ${cols}print_station_seen(last_seen)`).order('created_at'));
-    const rows = await q('ip, port, paper, mode, conn, bt_addr, usb_id, ').catch(() => q('ip, port, paper, mode, ')).catch(() => q('')).catch(() => []);
+    const rows = await q('ip, port, paper, mode, conn, bt_addr, usb_id, model, ').catch(() => q('ip, port, paper, mode, conn, bt_addr, usb_id, ')).catch(() => q('ip, port, paper, mode, ')).catch(() => q('')).catch(() => []);
     db.printers = rows.map((r) => { const sn = Array.isArray(r.print_station_seen) ? r.print_station_seen[0] : r.print_station_seen;
       return { id: r.id, name: r.name, loc: r.location_id, active: r.active !== false, seen: T(sn?.last_seen), conn: r.conn || (r.ip ? 'lan' : 'pc'), ip: r.ip || null, port: r.port || 9100,
-        bt: r.bt_addr || null, usb: r.usb_id || null, paper: r.paper || null, mode: r.mode || 'raster' }; });
+        bt: r.bt_addr || null, usb: r.usb_id || null, paper: r.paper || null, mode: r.mode || 'raster', model: r.model || 'umum' }; });
   } },
   printJobs: { roles: ALL, fn: async () => {
     const rows = await run(sb.from('print_jobs').select('id, station_id, location_id, order_id, kind, label, status, created_at, queued_at, printed_at, error, created_by')

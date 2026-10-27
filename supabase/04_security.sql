@@ -864,3 +864,7 @@ create trigger kitchen_move after update of table_id on public.orders for each r
 
 revoke all on function engine.tg_kitchen_lines_upd(), engine.tg_kitchen_lines_ins(), engine.tg_kitchen_move(),
   engine.k_where(public.orders), engine.k_item(numeric, text, text), engine.k_station(text) from public;
+
+-- 2.8
+revoke execute on function public.print_station_model(text, text) from public, anon;
+grant execute on function public.print_station_model(text, text) to authenticated;

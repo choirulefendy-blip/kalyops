@@ -168,3 +168,4 @@ export const pushSubscribe = (endpoint, p256dh, auth, kinds, label) => rpc('push
 export const pushKinds = (endpoint, kinds) => rpc('push_kinds', { p_endpoint: endpoint, p_kinds: kinds });
 export const pushUnsubscribe = (endpoint) => rpc('push_unsubscribe', { p_endpoint: endpoint });
 export const pushTest = () => rpc('push_test', {});
+export const printStationModel = (id, model) => rpc('print_station_model', { p_id: id, p_model: model || 'umum' });

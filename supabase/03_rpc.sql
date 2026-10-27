@@ -1816,3 +1816,12 @@ create or replace function public.push_vapid_save(p_public text, p_private jsonb
 begin
   update app_secrets set vapid_public = p_public, vapid_private = p_private where id = 1 and vapid_public is null;
 end $$;
+
+-- 2.8 · Simpan model printer (hanya Owner)
+create or replace function public.print_station_model(p_id text, p_model text) returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform engine.require_role(array['owner']);
+  if coalesce(p_model, '') not in ('umum', 'epson_t82x', 'rongta_rpp02n') then raise exception 'Model printer tidak dikenal: %', p_model; end if;
+  update print_stations set model = p_model where id = p_id;
+  if not found then raise exception 'Printer tidak ditemukan'; end if;
+end $$;

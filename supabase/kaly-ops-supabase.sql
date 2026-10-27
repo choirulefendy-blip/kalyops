@@ -1,5 +1,5 @@
 -- =====================================================================
--- Kaly Ops 2.5 · Database Supabase · SEMUA DALAM SATU FILE
+-- Kaly Ops 2.8 · Database Supabase · SEMUA DALAM SATU FILE
 -- Isi: 01 struktur tabel, 02 mesin bisnis, 03 fungsi aplikasi, 04 keamanan, 05 laporan, 06 data master.
 -- Cara pakai: Supabase > SQL Editor > New query > tempel seluruh isi file ini > Run. Lalu buat Owner: select public.kaly_setup_owner('emailanda@gmail.com', 'Nama Anda'); Lihat README.md.
 -- =====================================================================
@@ -889,6 +889,10 @@ alter table public.settings add column if not exists push_url text;
 comment on column public.settings.push_url is 'Alamat Edge Function kaly-push (https://<project>.supabase.co/functions/v1/kaly-push). Kosong = notifikasi saat aplikasi tertutup belum aktif.';
 alter table public.app_secrets add column if not exists vapid_public text;
 alter table public.app_secrets add column if not exists vapid_private jsonb;
+
+-- 2.8 · Model printer (lebar titik & pemotong kertas per model)
+alter table public.print_stations add column if not exists model text not null default 'umum' check (model in ('umum', 'epson_t82x', 'rongta_rpp02n'));
+comment on column public.print_stations.model is 'Model printer: umum, epson_t82x (80 mm, 512 titik, pemotong), rongta_rpp02n (58 mm, 384 titik, Bluetooth, tanpa pemotong).';
 
 
 -- =====================================================================
@@ -3356,6 +3360,15 @@ begin
   update app_secrets set vapid_public = p_public, vapid_private = p_private where id = 1 and vapid_public is null;
 end $$;
 
+-- 2.8 · Simpan model printer (hanya Owner)
+create or replace function public.print_station_model(p_id text, p_model text) returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform engine.require_role(array['owner']);
+  if coalesce(p_model, '') not in ('umum', 'epson_t82x', 'rongta_rpp02n') then raise exception 'Model printer tidak dikenal: %', p_model; end if;
+  update print_stations set model = p_model where id = p_id;
+  if not found then raise exception 'Printer tidak ditemukan'; end if;
+end $$;
+
 
 -- =====================================================================
 -- Kaly Ops · Database Supabase · 04 Keamanan: peran, RLS, penjaga data, realtime, storage
@@ -4223,6 +4236,10 @@ create trigger kitchen_move after update of table_id on public.orders for each r
 
 revoke all on function engine.tg_kitchen_lines_upd(), engine.tg_kitchen_lines_ins(), engine.tg_kitchen_move(),
   engine.k_where(public.orders), engine.k_item(numeric, text, text), engine.k_station(text) from public;
+
+-- 2.8
+revoke execute on function public.print_station_model(text, text) from public, anon;
+grant execute on function public.print_station_model(text, text) to authenticated;
 
 
 -- =====================================================================

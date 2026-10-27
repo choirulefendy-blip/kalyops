@@ -8,7 +8,7 @@ import { rerender, ctxNow } from '../app.js';
 import { KINDS, KIND_LABEL, stationOnline, seenText, printersAt, testSlipHtml, paperOf } from '../printing.js';
 import * as DN from '../devnotify.js';
 import { deviceStatus, openPrefs } from '../notify.js';
-import { isApp, printDirect, checkPrinter, isDirect, connOf, connText, CONN_LABEL, listDevices, appFeatures } from '../escpos.js';
+import { isApp, printDirect, checkPrinter, isDirect, connOf, connText, CONN_LABEL, listDevices, appFeatures, MODELS, modelOf } from '../escpos.js';
 
 // ---------- Printer & tujuan cetak (2.1; LAN 2.2; Bluetooth & USB 2.3 untuk aplikasi Android) ----------
 const prStatus = (p, now) => (isDirect(p) ? `${connText(p)}${p.paper ? ` · ${p.paper} mm` : ''}${p.mode === 'escstar' ? ' · ESC *' : ''}${p.seen ? ' · stasiun ' + seenText(p, now).toLowerCase() : ''}` : `PC / stasiun cetak · ${seenText(p, now)}`);
@@ -30,8 +30,8 @@ function printerPanel(p, i, R, L, now, copies) {
   return `<section class="pr-panel ${mine.length ? '' : 'idle'}" data-pr="${p.id}">
     <header class="pr-ph"><span class="pr-no">${i + 1}</span><span class="pr-pn"><b>${esc(p.name)}</b><small><span class="dot ${online ? 'on' : ''}"></span>${esc(prStatus(p, now))}</small></span>
       <span class="row-xs">${isDirect(p) && isApp() ? `<button class="btn btn-sm btn-ghost" data-a="prPing" data-id="${p.id}">Cek</button>` : ''}<button class="btn btn-sm btn-ghost" data-a="prTest" data-id="${p.id}">Cetak tes</button><button class="btn btn-sm" data-a="prEdit" data-id="${p.id}">${ic('settings', 14)} Atur</button></span></header>
-    <dl class="pr-spec"><div><dt>Sambungan</dt><dd>${esc(CONN_LABEL[connOf(p)] || connOf(p))}</dd></div>${addr ? `<div><dt>${connOf(p) === 'lan' ? 'Alamat IP' : connOf(p) === 'bt' ? 'Bluetooth' : 'USB'}</dt><dd>${esc(addr)}</dd></div>` : ''}
-      <div><dt>Kertas</dt><dd>${p.paper ? p.paper + ' mm' : 'ikut Tampilan nota'}</dd></div>${isDirect(p) ? `<div><dt>Cara kirim</dt><dd>${p.mode === 'escstar' ? 'Printer lama (ESC *)' : 'Standar'}</dd></div>` : ''}</dl>
+    <dl class="pr-spec">${modelOf(p) !== 'umum' ? `<div><dt>Model</dt><dd>${esc(MODELS[modelOf(p)].label)}</dd></div>` : ''}<div><dt>Sambungan</dt><dd>${esc(CONN_LABEL[connOf(p)] || connOf(p))}</dd></div>${addr ? `<div><dt>${connOf(p) === 'lan' ? 'Alamat IP' : connOf(p) === 'bt' ? 'Bluetooth' : 'USB'}</dt><dd>${esc(addr)}</dd></div>` : ''}
+      <div><dt>Kertas</dt><dd>${p.paper ? p.paper + ' mm' : 'ikut Tampilan nota'}${MODELS[modelOf(p)].cut === false ? ' · disobek manual' : ''}</dd></div>${isDirect(p) ? `<div><dt>Cara kirim</dt><dd>${p.mode === 'escstar' ? 'Printer lama (ESC *)' : 'Standar'}</dd></div>` : ''}</dl>
     <p class="pr-lbl">Lembar yang dicetak di printer ini</p>
     ${slipChips(R, p.id, L, copies)}
     ${mine.length ? '' : '<p class="hint">Belum ada lembar. Ketuk lembar di atas untuk mengarahkannya ke printer ini.</p>'}
@@ -75,7 +75,9 @@ function printerForm(db, p, L) {
   const opt = (k, t) => `<option value="${k}" ${conn0 === k ? 'selected' : ''}>${t}</option>`;
   const finder = (k) => (app && feat.includes(k) ? `<button type="button" class="btn btn-sm" data-find="${k}">${ic('search', 14)} Cari di tablet ini</button>` : '');
   openModal({ title: p ? `Ubah ${p.name}` : 'Tambah printer', size: 'sm',
-    body: `<label class="fld"><span>Nama printer</span><input name="name" maxlength="40" value="${esc(p?.name || '')}" placeholder="mis. Printer Bar" autofocus></label>
+    body: `<label class="fld"><span>Model printer</span><select name="model" data-model>${Object.entries(MODELS).map(([k, m]) => `<option value="${k}" ${modelOf(p) === k ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select></label>
+      <p class="hint pr-mhint" data-mhint></p>
+      <label class="fld"><span>Nama printer</span><input name="name" maxlength="40" value="${esc(p?.name || '')}" placeholder="mis. Printer Bar" autofocus></label>
       <div class="grid2"><label class="fld"><span>Outlet</span><select name="loc">${outs.map((l) => `<option value="${l.id}" ${l.id === (p?.loc || L) ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>
         <label class="fld"><span>Sambungan</span><select name="conn" data-conn>${opt('lan', 'LAN / Wi-Fi')}${opt('bt', 'Bluetooth')}${opt('usb', 'USB ke tablet')}${opt('pc', 'PC / stasiun cetak')}</select></label></div>
       <div class="pr-lan" data-for="lan"><div class="grid2"><label class="fld"><span>Alamat IP printer</span><input name="ip" value="${esc(p?.ip || '')}" placeholder="mis. 192.168.1.31" inputmode="decimal" autocomplete="off"></label>
@@ -98,6 +100,18 @@ function printerForm(db, p, L) {
       const sel = m.querySelector('[data-conn]');
       const show = () => m.querySelectorAll('[data-for]').forEach((el) => { el.hidden = !el.dataset.for.split(' ').includes(sel.value); });
       sel.onchange = show; show();
+      // Model: isi otomatis kertas & sambungan yang lazim, plus petunjuk khusus model
+      const msel = m.querySelector('[data-model]'), mh = m.querySelector('[data-mhint]');
+      const paintModel = (apply) => {
+        const M = MODELS[msel.value] || MODELS.umum;
+        mh.textContent = M.hint || 'Printer thermal ESC/POS 58 atau 80 mm. Pakai Cetak tes untuk memastikan hasilnya.'; 
+        if (!apply) return;
+        if (M.paper) m.querySelector('[name=paper]').value = String(M.paper);
+        if (M.conn && !p) { sel.value = M.conn; show(); }
+        m.querySelector('[name=mode]').value = 'raster';
+        const nm = m.querySelector('[name=name]'); if (!nm.value.trim() && M.paper) nm.value = M.label;
+      };
+      msel.onchange = () => paintModel(true); paintModel(false);
       m.addEventListener('click', async (e) => {
         const b = e.target.closest('[data-find]');
         if (b) {
@@ -121,6 +135,7 @@ function printerForm(db, p, L) {
         if (active && c === 'usb' && !/^[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}$/.test(f.usb.trim())) return toast('Pilih printer USB dari tablet yang tersambung', 'warn');
         try {
           const id = await API.printStationSave(p?.id, name, f.loc, active, { conn: c, ip: f.ip.trim(), port: f.port, bt: f.bt.trim(), usb: f.usb.trim(), paper: f.paper, mode: f.mode });
+          if (active && id && (f.model || 'umum') !== modelOf(p)) await API.printStationModel(id, f.model).catch((e) => toast('Model printer belum tersimpan: jalankan SQL Kaly Ops 2.8 di Supabase. ' + e.message, 'warn', 8000));
           if (active && id) {   // lembar yang dicentang diarahkan ke printer ini; yang dilepas kembali ke perangkat kasir
             await C.refresh('org');
             const loc = db.locations.find((l) => l.id === f.loc), R0 = { ...(loc?.route || {}) }, R1 = { ...R0 };

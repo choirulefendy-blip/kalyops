@@ -882,3 +882,7 @@ alter table public.settings add column if not exists push_url text;
 comment on column public.settings.push_url is 'Alamat Edge Function kaly-push (https://<project>.supabase.co/functions/v1/kaly-push). Kosong = notifikasi saat aplikasi tertutup belum aktif.';
 alter table public.app_secrets add column if not exists vapid_public text;
 alter table public.app_secrets add column if not exists vapid_private jsonb;
+
+-- 2.8 · Model printer (lebar titik & pemotong kertas per model)
+alter table public.print_stations add column if not exists model text not null default 'umum' check (model in ('umum', 'epson_t82x', 'rongta_rpp02n'));
+comment on column public.print_stations.model is 'Model printer: umum, epson_t82x (80 mm, 512 titik, pemotong), rongta_rpp02n (58 mm, 384 titik, Bluetooth, tanpa pemotong).';

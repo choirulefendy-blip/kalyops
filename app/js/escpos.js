@@ -23,6 +23,16 @@ export function connText(p) {
 const target = (p) => ({ lan: p.ip, bt: p.bt, usb: p.usb })[connOf(p)];
 
 export const DOTS = { 58: 384, 80: 576 };          // lebar cetak printer 203 dpi: 48 mm dan 72 mm
+// 2.8: model printer di lapangan. Lebar titik & pemotong kertas berbeda per model.
+export const MODELS = {
+  umum: { label: 'Printer thermal lain (ESC/POS)', cut: true },
+  epson_t82x: { label: 'Epson TM-T82X', paper: 80, dots: { 80: 512, 58: 360 }, cut: true, conn: 'lan',
+    hint: 'Epson TM-T82X: kertas 80 mm, 180 dpi (lebar cetak 512 titik), pemotong otomatis. Pakai LAN (model Ethernet; IP tercetak saat tombol FEED ditahan ketika printer dinyalakan, bawaan 192.168.192.168) atau USB ke tablet. Cocok untuk nota pelanggan & salinan.' },
+  rongta_rpp02n: { label: 'Rongta RPP02N', paper: 58, dots: { 58: 384 }, cut: false, conn: 'bt',
+    hint: 'Rongta RPP02N: printer portabel 58 mm, 203 dpi (384 titik), Bluetooth (PIN biasanya 0000 atau 1234) atau USB, tanpa pemotong: kertas disobek manual. Isi baterai penuh; matikan mode hemat daya bila sering putus. Cocok untuk slip Bar / Dapur.' },
+};
+export const modelOf = (p) => (p && MODELS[p.model] ? p.model : 'umum');
+export const dotsFor = (p, paper) => MODELS[modelOf(p)].dots?.[paper] || DOTS[paper] || DOTS[58];
 const PX_PER_DOT = 96 / 25.4 / 8;                    // 1 titik printer = 1/8 mm
 
 // ---------- Jembatan ke aplikasi Android ----------
@@ -75,9 +85,9 @@ async function rasterSvg(el, scale) {
   }
 }
 // Setiap .slip menjadi satu kanvas selebar kertas (satu potongan kertas)
-export async function renderSlips(html, paper = 58) {
+export async function renderSlips(html, paper = 58, dotsOverride = null) {
   const H = await loadH2C();
-  const dots = DOTS[paper] || DOTS[58];
+  const dots = dotsOverride || DOTS[paper] || DOTS[58];
   const wpx = +(dots * PX_PER_DOT).toFixed(2);
   const tmp = document.createElement('div'); tmp.innerHTML = html;
   let slips = [...tmp.querySelectorAll('.slip')];
@@ -152,11 +162,12 @@ function escStar(img) {                               // ESC * 33: 24 titik per 
   return parts;
 }
 // Satu pekerjaan cetak: inisialisasi, setiap lembar diikuti 4 baris kosong dan potong kertas
-export function escposJob(images, mode = 'raster') {
+export function escposJob(images, mode = 'raster', cut = true) {
   const parts = [Uint8Array.of(0x1b, 0x40)];
   for (const img of images) {
     parts.push(...(mode === 'escstar' ? escStar(img) : gsv0(img)));
-    parts.push(Uint8Array.of(0x1b, 0x64, 0x04, 0x1d, 0x56, 0x42, 0x00));
+    // printer dengan pemotong: maju 4 baris lalu potong; tanpa pemotong (mis. Rongta RPP02N): maju 5 baris untuk disobek
+    parts.push(cut ? Uint8Array.of(0x1b, 0x64, 0x04, 0x1d, 0x56, 0x42, 0x00) : Uint8Array.of(0x1b, 0x64, 0x05));
   }
   const n = parts.reduce((s, p) => s + p.length, 0);
   const out = new Uint8Array(n);
@@ -179,9 +190,10 @@ function needApp(p) {
 // Cetak HTML (satu atau beberapa .slip) langsung ke printer LAN/Bluetooth/USB. Hasil: jumlah lembar.
 export async function printDirect(printer, html, paperDefault = 58) {
   const c = needApp(printer);
-  const paper = printer.paper || paperDefault || 58;
-  const imgs = (await renderSlips(html, paper)).map(({ canvas, dots }) => toMono(canvas, dots));
-  const b64 = toBase64(escposJob(imgs, printer.mode));
+  const M = MODELS[modelOf(printer)];
+  const paper = printer.paper || M.paper || paperDefault || 58;
+  const imgs = (await renderSlips(html, paper, dotsFor(printer, paper))).map(({ canvas, dots }) => toMono(canvas, dots));
+  const b64 = toBase64(escposJob(imgs, printer.mode, M.cut !== false));
   if (c === 'lan' && typeof native()?.send !== 'function') await call('printRaw', [printer.ip, printer.port || 9100, b64]);   // aplikasi 1.0
   else await call('send', [c, target(printer), printer.port || 9100, b64], c === 'bt' ? 90000 : 30000);
   return imgs.length;
