@@ -1,0 +1,53 @@
+# Terbitkan aplikasi Kaly Ops (folder app/) ke GitHub Pages setiap ada perubahan di branch main.
+# Sekali saja: Settings › Pages › Build and deployment › Source: GitHub Actions.
+name: Terbitkan Kaly Ops ke GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ['app/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  terbit:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Periksa config.js memakai kunci publik (bukan service_role)
+        run: |
+          python3 - <<'PY'
+          import re, base64, json, sys
+          s = open('app/js/config.js').read()
+          m = re.search(r"SUPABASE_ANON_KEY\s*=\s*'([^']*)'", s)
+          key = m.group(1) if m else ''
+          bad = key.startswith('sb_secret_')
+          if key.count('.') == 2:
+              p = key.split('.')[1]; p += '=' * (-len(p) % 4)
+              bad = bad or json.loads(base64.urlsafe_b64decode(p)).get('role') == 'service_role'
+          if bad:
+              print('::error::app/js/config.js berisi kunci rahasia (service_role / secret). Pakai anon / publishable key.'); sys.exit(1)
+          print('config.js aman: kunci publik')
+          PY
+      - name: Nomor build baru (perangkat yang terbuka mendapat pemberitahuan versi baru)
+        run: |
+          V=$(sed -n "s/.*APP_VERSION = '\([^']*\)'.*/\1/p" app/js/store.js)
+          echo "{ \"build\": \"${V}-$(date -u +%Y%m%d%H%M)-${GITHUB_SHA::7}\" }" > app/version.json
+          cat app/version.json
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: app
+      - id: deploy
+        uses: actions/deploy-pages@v4

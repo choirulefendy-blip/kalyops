@@ -1,0 +1,81 @@
+KALY OPS UNTUK ANDROID 1.3 - APLIKASI TABLET KASIR
+==================================================
+
+Aplikasi ini membuka Kaly Ops (https://choirulefendy-blip.github.io/kalyops/) di layar penuh dan menambah
+kemampuan yang tidak dimiliki browser biasa:
+  - mencetak LANGSUNG ke printer thermal tanpa jendela cetak dan tanpa PC, lewat:
+      LAN/Wi-Fi (alamat IP, port 9100), Bluetooth (printer yang sudah dipasangkan),
+      atau USB (kabel OTG ke tablet);
+  - jendela cetak Android untuk printer tanpa IP;
+  - menyimpan file unduhan (Excel/CSV) lewat jendela simpan Android;
+  - suara pemberitahuan memakai mesin suara Android (Bahasa Indonesia bila terpasang);
+  - (1.2) notifikasi Android: pesanan QR/online, meja, reservasi, dll. muncul di bilah notifikasi
+    saat kasir membuka aplikasi lain (mis. aplikasi EDC/QRIS). Ketuk untuk kembali ke halaman terkait;
+  - layar tidak mati sendiri selama aplikasi terbuka. Tombol Kembali di halaman awal hanya
+    menyembunyikan aplikasi (tetap berjalan supaya notifikasi masuk).
+Isi Kaly Ops tetap diperbarui lewat Netlify. APK cukup dipasang sekali.
+
+MEMASANG DI TABLET
+  1. Di tablet, buka Kaly Ops di Chrome > menu Stasiun cetak > Unduh aplikasi Android (APK)
+     (atau salin file kaly-ops.apk ke tablet).
+  2. Buka file kaly-ops.apk. Bila diminta, izinkan "Instal aplikasi tidak dikenal" untuk Chrome/File.
+     Bila Play Protect memperingatkan aplikasi tidak dikenal, pilih Detail > Tetap instal.
+  3. Buka aplikasi Kaly Ops, masuk dengan akun staf seperti biasa.
+  Syarat: Android 5.0 atau lebih baru. Printer LAN: tablet dan printer di jaringan yang sama.
+
+MEMPERBARUI DARI VERSI 1.0 / 1.1 / 1.2
+  1.3: alamat Kaly Ops pindah ke GitHub Pages (https://choirulefendy-blip.github.io/kalyops/);
+  aplikasi lama yang masih memakai alamat Netlify otomatis pindah setelah diperbarui.
+  Pasang kaly-ops.apk versi 1.3 di atas aplikasi lama (tidak perlu dihapus). Login dan pengaturan tetap.
+
+MENYALAKAN NOTIFIKASI (1.2)
+  Di aplikasi: tombol speaker di bilah atas > Aktifkan notifikasi di perangkat ini.
+  Android 13+ meminta izin notifikasi: Izinkan. Pilih jenis notifikasi di jendela yang sama.
+  Notifikasi muncul selama aplikasi berjalan (juga di latar). Bila aplikasi ditutup paksa atau
+  dibersihkan dari daftar aplikasi terbaru, notifikasi berhenti sampai aplikasi dibuka lagi.
+  HP pribadi Owner/Manajer sebaiknya memakai Kaly Ops di Chrome: notifikasi tetap masuk
+  walau Kaly Ops ditutup (perlu server notifikasi kaly-push, lihat BACA-DULU aplikasi web).
+
+MENYIAPKAN PRINTER BLUETOOTH
+  1. Nyalakan printer, lalu di tablet: Pengaturan > Bluetooth > pasangkan (pair) printer.
+     PIN biasanya 0000 atau 1234.
+  2. Owner (di aplikasi): Pengaturan > Printer & tujuan cetak > Tambah printer > Sambungan: Bluetooth
+     > Cari di tablet ini > pilih printernya. Android 12+ akan meminta izin "Perangkat sekitar": Izinkan.
+  3. Satu printer Bluetooth sebaiknya hanya dipakai satu tablet (Bluetooth hanya bisa satu sambungan).
+
+MENYIAPKAN PRINTER USB
+  1. Colok printer ke tablet kasir dengan kabel USB OTG.
+  2. Owner (di aplikasi): Tambah printer > Sambungan: USB ke tablet > Cari di tablet ini > pilih.
+     Saat pertama mencetak, Android meminta izin memakai printer USB: centang "selalu", lalu OK.
+
+MENYIAPKAN PRINTER LAN
+  1. Beri setiap printer alamat IP tetap (atur di printer atau "DHCP reservation" di router),
+     mis. Printer Kasir 192.168.1.30, Printer Bar 192.168.1.31, Printer Dapur 192.168.1.32.
+     IP printer biasanya tercetak saat tombol FEED ditahan ketika printer dinyalakan (self-test).
+  2. Owner: Pengaturan > Printer & tujuan cetak > Tambah printer: isi nama, alamat IP, port 9100,
+     lebar kertas (58/80 mm). Lalu pilih tujuan setiap lembar (nota, salinan, slip Bar, slip Dapur).
+  3. Di tablet (aplikasi): Pengaturan > Cek / Cetak tes untuk setiap printer.
+  4. Lembar bertujuan "Perangkat kasir" dicetak ke printer tablet itu: menu Stasiun cetak >
+     Printer tablet ini.
+  Bila hasil cetak tes berupa huruf acak: ubah "Cara kirim gambar" printer itu ke Printer lama (ESC *).
+
+MEMBANGUN ULANG APK (untuk pengembang)
+  Folder ini berisi kode sumber lengkap (Java, tanpa Gradle).
+  Ubuntu 24.04:  sudo apt install android-sdk-platform-23 aapt dalvik-exchange zipalign apksigner openjdk-21-jdk
+  Lalu:          KS_PASS=<sandi di keystore/KATA-SANDI.txt> VERSION_NAME=1.3 VERSION_CODE=4 ./build.sh   (versi berikutnya: naikkan keduanya)
+  Hasil:         build/kaly-ops.apk
+  Bisa juga dibuka di Android Studio (buat proyek baru, salin src/ dan res/ serta AndroidManifest.xml).
+
+  PENTING: simpan keystore/kaly-ops.jks dan sandinya. Pembaruan APK harus ditandatangani dengan
+  keystore yang sama. Bila hilang, aplikasi lama di tablet harus dihapus dulu sebelum memasang yang baru.
+
+ISI FOLDER
+  AndroidManifest.xml          izin: Internet, status jaringan, Bluetooth (sambung ke printer terpasang), notifikasi
+  src/id/kaly/ops/MainActivity.java   WebView, unggah/simpan file, jendela cetak Android, suara, notifikasi Android
+  src/id/kaly/ops/Bridge.java         window.KalyAndroid: send/check/list (LAN, Bluetooth, USB), systemPrint, saveFile, speak, notify
+  res/drawable-*/ic_notify.png        ikon kecil notifikasi (putih, transparan)
+  src/id/kaly/ops/PrinterClient.java  kirim ESC/POS lewat TCP (bisa diuji di komputer biasa)
+  src/id/kaly/ops/BtPrinter.java      printer Bluetooth (SPP), izin Perangkat sekitar
+  src/id/kaly/ops/UsbPrinter.java     printer USB (bulk OUT), izin USB
+  src/id/kaly/ops/OfflinePage.java    halaman "coba lagi" bila internet putus
+  test/                         printer tiruan & uji PrinterClient

@@ -1,0 +1,9 @@
+# Rahasia & hasil build
+android/keystore/*.jks
+android/keystore/KATA-SANDI.txt
+android/build/
+android/test/cls/
+android/test/out/
+*.zip
+.DS_Store
+node_modules/
