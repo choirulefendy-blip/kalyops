@@ -1,0 +1,224 @@
+KALY OPS 2.5 - CARA MEMASANG
+============================
+
+Folder ini adalah aplikasi Kaly Ops yang siap diunggah ke Netlify.
+Aplikasi menyimpan semua data di database Supabase milik Anda.
+
+1. Pasang database dulu (sekali saja)
+   Ikuti README.md di paket kaly-ops-supabase.zip:
+   - SQL Editor: jalankan kaly-ops-supabase.sql
+   - SQL Editor: select public.kaly_setup_owner('emailanda@gmail.com', 'Nama Anda');
+   - Authentication > Users > Add user: email yang sama, centang Auto Confirm User
+
+2. js/config.js SUDAH DIISI
+   Project URL dan anon key project zfrsznekongittxhuvej sudah terpasang.
+   Tidak perlu diubah lagi. JANGAN ganti dengan service_role / secret key.
+
+3. Unggah ke Netlify
+   app.netlify.com > project kaly-ops > Deploys > drag folder ini ke area upload.
+   Tunggu status Published, lalu buka https://kaly-ops.netlify.app
+
+4. Masuk sebagai Owner
+   Pakai email dan kata sandi dari langkah 1. Tambahkan staf di Pengaturan,
+   lalu buat akun login mereka di Supabase dengan email yang sama.
+
+Tidak ada akun demo. Setiap staf masuk dengan email dan kata sandinya sendiri.
+
+SUDAH MEMAKAI VERSI SEBELUMNYA? CARA UPDATE KE 2.5
+   Versi 2.5 punya SQL baru (sudah termasuk isi SQL 1.7 sampai 2.4). Urutannya penting:
+   a. Supabase > SQL Editor > New query: jalankan kaly-ops-supabase.sql versi 2.5
+      (paket kaly-ops-supabase.zip yang baru). Aman dijalankan ulang, data tidak hilang.
+   b. Netlify > project kaly-ops > Deploys: drag folder ini.
+   c. Perangkat yang sedang terbuka akan menampilkan "Versi aplikasi baru
+      tersedia". Tekan Muat ulang.
+   d. Bila server notifikasi (Edge Function kaly-push) sudah dipasang: perbarui isinya dengan
+      functions/kaly-push/index.ts versi 2.5 (notifikasi dapur membuka layar dapur saat diketuk).
+
+YANG BARU DI 2.5 (layar dapur menerima notifikasi dari kasir)
+   - Layar dapur diberi tahu setiap kali kasir: mengirim pesanan baru, menambah item,
+     membatalkan item/bill yang sudah di dapur, atau memindah meja / split / gabung bill.
+   - Kartu BATAL berbunyi peringatan dan tidak hilang sendiri sampai ditekan "Oke, dimengerti".
+     Item yang dibatalkan tetap tampil dicoret di tiket selama 30 menit.
+   - Lonceng di bilah atas layar dapur sekarang berisi "Notifikasi dari kasir" (bukan lagi
+     "pesanan siap dari dapur"), lengkap dengan angka yang belum dibaca.
+   - Layar dapur yang memilih stasiun Bar hanya menerima item Bar (dan sebaliknya).
+   - Pengaturan di tombol speaker > kelompok "Dapur (dari kasir)".
+
+YANG BARU DI 2.4 (notifikasi di perangkat masing-masing)
+   - Notifikasi baru untuk Owner/Manajer: laporan tutup shift (penjualan, tunai, selisih kas,
+     bill batal), ringkasan penjualan harian saat semua shift outlet ditutup, shift dibuka
+     (mati bawaan), pembayaran supplier, barang PO diterima, stock opname selesai. Ditambah
+     yang sudah ada: fraud, stok menipis, PO, mutasi, pesanan QR/online, reservasi.
+   - Gudang: PO disetujui/ditolak, barang PO diterima, mutasi masuk, stok menipis, opname.
+   - Tombol speaker di bilah atas sekarang membuka jendela "Notifikasi": pilih jenis notifikasi
+     per kelompok (Pesanan, Laporan shift & penjualan, Keuangan & pembelian, Bahan & stok,
+     Fraud) dan tombol "Aktifkan notifikasi di perangkat ini".
+   - Setelah aktif, notifikasi muncul di bilah notifikasi HP/laptop seperti aplikasi lain:
+       * selama Kaly Ops terbuka (termasuk saat pindah tab/aplikasi): langsung jalan;
+       * saat Kaly Ops DITUTUP: perlu server notifikasi (Edge Function kaly-push), sekali pasang.
+     Ketuk notifikasi untuk membuka halaman terkait (mis. Kaly Core > Laporan / Deteksi fraud).
+   - Notifikasi fraud, keuangan, dan shift hanya bisa dilihat Owner (dijaga database).
+   - Setiap perangkat memilih sendiri; keluar akun menghentikan notifikasi di perangkat itu.
+
+   MEMASANG SERVER NOTIFIKASI (sekali saja, oleh Owner)
+   1. Jalankan SQL 2.4 (langkah a di atas). SQL ini juga menyalakan ekstensi pg_net.
+   2. Supabase > Edge Functions > Deploy a new function > Via Editor.
+      Nama fungsi: kaly-push. Hapus contoh kode, tempel isi file
+      functions/kaly-push/index.ts dari paket kaly-ops-supabase.zip, lalu Deploy.
+   3. Buka fungsi kaly-push > Details: MATIKAN "Verify JWT" (Enforce JWT verification), simpan.
+      (Lewat Supabase CLI: supabase functions deploy kaly-push --no-verify-jwt)
+   4. Kaly Ops > Pengaturan > Notifikasi di perangkat > Sambungkan.
+   5. Di setiap HP/laptop: tombol speaker > Aktifkan notifikasi di perangkat ini > Kirim tes.
+   Tidak perlu Firebase atau kunci tambahan. Kunci pengiriman (VAPID) dibuat otomatis.
+
+   HP & BROWSER
+   - Android: Chrome, Edge, Samsung Internet, Firefox. Laptop: Chrome, Edge, Firefox, Safari.
+   - iPhone/iPad (iOS 16.4+): buka Kaly Ops di Safari > Bagikan > Tambah ke Layar Utama,
+     lalu buka Kaly Ops dari ikon itu dan aktifkan notifikasi di sana.
+   - Aplikasi Android Kaly Ops 1.2 (tablet kasir): notifikasi Android selama aplikasinya
+     berjalan, termasuk saat kasir membuka aplikasi lain. Untuk HP pribadi Owner/Manajer,
+     pakai Chrome agar notifikasi tetap masuk saat Kaly Ops ditutup.
+   - Bila notifikasi tidak muncul: cek izin notifikasi browser/aplikasi, mode Jangan Ganggu,
+     dan penghemat baterai (Android: Pengaturan > Aplikasi > Chrome > Baterai > Tidak dibatasi).
+
+YANG BARU DI 2.3 (sambungan printer: Bluetooth, USB, LAN/Wi-Fi, PC)
+   - Tambah/Ubah printer punya pilihan Sambungan: LAN / Wi-Fi, Bluetooth, USB ke tablet,
+     atau PC / stasiun cetak. Kolom yang tampil mengikuti pilihannya.
+   - Bluetooth: pasangkan printer di Pengaturan > Bluetooth tablet, lalu di Kaly Ops
+     (aplikasi Android) tekan Cari di tablet ini dan pilih printernya.
+   - USB: colok printer ke tablet dengan kabel OTG, Cari di tablet ini, pilih. Izinkan
+     pemakaian USB saat Android bertanya.
+   - Perlu aplikasi Android Kaly Ops 1.1 (android/kaly-ops.apk, pasang di atas versi 1.0).
+     Aplikasi 1.0 tetap bisa LAN; untuk Bluetooth/USB kasir diminta memperbarui aplikasi.
+   - Printer LAN dari 2.2 otomatis tercatat sebagai LAN / Wi-Fi.
+
+YANG BARU DI 2.2 (aplikasi Android untuk tablet kasir + printer LAN)
+   - Aplikasi Android Kaly Ops (file android/kaly-ops.apk, ikut terunggah ke Netlify).
+     Tablet kasir mencetak LANGSUNG ke printer thermal LAN/Wi-Fi lewat alamat IP:
+     nota pelanggan & salinan ke Printer Kasir, slip Bar ke Printer Bar, slip Dapur ke
+     Printer Dapur. Tanpa PC, tanpa jendela cetak.
+   - Pasang: di tablet buka Kaly Ops di Chrome > Stasiun cetak > Unduh aplikasi Android,
+     buka file APK, izinkan pemasangan, lalu masuk seperti biasa.
+   - Owner: Pengaturan > Printer & tujuan cetak > Tambah/Ubah printer: isi Alamat IP
+     (mis. 192.168.1.31), port 9100, lebar kertas. Beri printer IP tetap di router.
+   - Di aplikasi: tombol Cek dan Cetak tes per printer. Bila printer mati, kasir ditanya:
+     Coba lagi, Cetak lewat Android, atau Lewati (printer lain tetap tercetak).
+   - Lembar "Perangkat kasir" dari tablet: pilih printernya di Stasiun cetak > Printer tablet ini.
+   - Printer lama yang mencetak huruf acak: ubah Cara kirim gambar ke Printer lama (ESC *).
+   - Di aplikasi, unduhan Excel/CSV disimpan lewat jendela simpan Android, dan suara
+     pemberitahuan memakai suara Android.
+
+YANG BARU DI 2.1 (printer & stasiun cetak)
+   - Nota pelanggan, salinan kasir, slip Bar, dan slip Dapur bisa dicetak ke printer
+     yang berbeda. Owner: Pengaturan > Printer & tujuan cetak > Tambah printer
+     (mis. Printer Bar, Printer Dapur), lalu pilih tujuan tiap lembar. Bawaannya
+     "Perangkat kasir" = dicetak oleh perangkat yang menekan Cetak, seperti sebelumnya.
+   - Printer selain perangkat kasir dijalankan oleh STASIUN CETAK: PC/laptop yang
+     tersambung ke printer itu membuka menu Stasiun cetak, memilih printernya, dan
+     mencetak antreannya otomatis, di halaman apa pun (mis. sambil membuka Kaly Kitchen).
+   - Supaya langsung keluar tanpa jendela cetak: buat shortcut Chrome dengan
+     --kiosk-printing dan --user-data-dir berbeda per printer. Teks shortcut siap
+     disalin ada di halaman Stasiun cetak. Satu PC bisa melayani beberapa printer.
+   - Bila printer tujuan belum aktif, kasir ditanya: biarkan di antrean (tercetak
+     saat stasiun menyala) atau cetak di perangkat kasir. Tidak dicetak dua kali.
+   - Halaman Stasiun cetak: status, Cetak tes, riwayat 12 jam, dan Cetak lagi.
+
+YANG BARU DI 2.0 (Kaly POS untuk Manajer/Owner, impor Excel, tampilan nota)
+   - Akun Owner tidak lagi memakai Kaly POS untuk transaksi. Kaly POS Owner berisi
+     daftar menu per kategori: ketuk menu untuk mengubah harga, kategori, stasiun,
+     gambar, status habis/nonaktif, dan resep. Tombol Tambah di tiap kategori
+     dan Menu baru untuk menambah menu. Transaksi, meja, bayar, shift, deposit,
+     dan checker tetap di akun kasir. Denah Owner juga tanpa tombol buka bill.
+   - Impor dari Excel: pilih file .xlsx (atau .csv) dengan kolom Kategori,
+     Nama menu, Harga, dan bila ada Deskripsi, Stasiun (Dapur/Bar/Langsung),
+     Outlet (Resto/Play Corner/Keduanya), Status (Aktif/Habis/Nonaktif).
+     Sebelum disimpan tampil pratinjau: berapa menu baru, diperbarui,
+     dinonaktifkan, dan tidak berubah. Hanya yang berubah yang disimpan.
+   - Unduh Excel: daftar menu sekarang dalam format yang sama. Cara termudah
+     mengubah banyak harga: unduh, ubah di Excel, lalu impor lagi.
+   - Tampilan nota (Kaly POS Owner, atau Pengaturan > Cetak nota): logo, nama
+     usaha, alamat/WA/IG/NPWP, nama outlet, kasir, member & poin, pesan bawah,
+     QRIS di tagihan sementara, lebar kertas 58/80 mm, ukuran huruf. Ada
+     pratinjau nota lunas, tagihan sementara, dan slip dapur, serta Cetak contoh.
+     Setelah disimpan berlaku untuk semua kasir di cetakan berikutnya.
+
+YANG BARU DI 1.9 (cetak nota rangkap)
+   - Tombol Cetak di bawah tagihan Kaly POS mencetak sekaligus:
+     1. nota pelanggan, 2. salinan kasir (bertanda SALINAN KASIR),
+     3. slip Bar: minuman & dessert, 4. slip Dapur: main dish & snack.
+     Slip Bar/Dapur tanpa harga, nomor meja besar, plus catatan menu.
+   - Bila ada item baru, tombolnya "Kirim & cetak": item dikirim ke dapur
+     lalu langsung dicetak. Pesanan tambahan hanya mencetak menu baru di slip
+     Bar/Dapur, jadi dapur tidak membuat menu yang sama dua kali.
+   - Pengaturan > Cetak nota: jumlah lembar tiap jenis (0-5, bawaan 1).
+   - Menu aksi bill: Cetak ulang slip Bar & Dapur (bila kertas macet).
+   - Supaya langsung tercetak tanpa jendela cetak: jadikan printer thermal
+     sebagai printer bawaan, lalu buka Chrome dengan --kiosk-printing.
+
+YANG BARU DI 1.8
+   - Kaly Kitchen kembali satu kolom per nota, dengan checker per item: setiap
+     menu di dalam nota punya tombol Siap sendiri (ketuk nama menu = Dimasak).
+     Satu menu yang Siap langsung diberitahukan ke pramusaji & kasir dan bisa
+     diantar tanpa menunggu menu lain di nota itu. Menu yang sudah diantar
+     tercoret. Ada juga tombol Siap semua per nota.
+   - Kaly POS: tab Siap diganti tab Checker. Setiap nota yang belum selesai
+     tampil dengan status tiap menunya (Antre, Dimasak, Siap) dan tombol Antar
+     per menu. Tombol Antar juga ada di setiap menu pada bill yang dibuka.
+     Menu yang belum ditandai Siap oleh dapur tetap bisa diantar kasir.
+
+YANG BARU DI 1.7
+   - Takeaway & delivery dihapus. Kasir Resto selalu memilih meja dulu (tombol
+     Pesanan takeaway dan pilihan Dine-in/Takeaway hilang). Play Corner tetap
+     menjual tanpa meja dengan label "Langsung".
+   - Pesan dari HP hanya lewat QR di meja dan pre-order reservasi. Link
+     "Pesan online" dihapus dari Beranda, halaman masuk, dan kartu member.
+     Pengaturan ongkir di Kaly Order dihapus.
+   - Pengaturan > Integrasi Kaly Core: saklar per outlet (Resto, Play Corner).
+     Dimatikan = penjualan tidak memotong stok Bahan & Bumbu, tanpa HPP
+     penjualan, menu tidak habis karena bahan, peringatan stok di dapur
+     disembunyikan. Bawaannya tetap terhubung.
+   - Notifikasi siap per item: pramusaji & kasir mendapat "Meja G1 · 2x Es
+     Kopi siap" untuk setiap menu yang siap. Scan barcode nota dihapus.
+   - Denah Meja & tab Siap di Kaly POS: tombol Diantar per item.
+
+YANG BARU DI 1.6 (pas di semua layar)
+   - Tampilan menyesuaikan lebar dan rasio layar setiap perangkat, dari HP kecil
+     (lebar 320) sampai TV: tidak perlu geser kanan-kiri dan tidak perlu zoom.
+   - Layar tidak lagi membesar sendiri saat mengetik di iPhone/iPad, dan tidak
+     ikut membesar saat tombol diketuk dua kali cepat.
+   - Tinggi halaman mengikuti layar yang benar-benar terlihat (bilah alamat
+     browser HP dan keyboard tidak lagi menutupi tombol bawah).
+   - Aman untuk layar berponi/bersudut (iPhone, HP mendatar).
+   - Lounge dan Layar pelanggan membesar-mengecil mengikuti ukuran TV
+     (Full HD maupun 4K, mendatar maupun tegak).
+   Tips: buka di Chrome/Safari dengan zoom browser 100%, jangan centang
+   "Situs desktop", lalu Tambahkan ke layar utama supaya tampil penuh.
+
+YANG BARU DI 1.5
+   - Warna tampilan per peran (turunan Brand Guideline KALY): Manajer hijau
+     olive, Kasir oranye, Service biru kolam, Dapur kuning kunyit, Gudang biru nila.
+   - Kasir: Kaly POS selalu paling atas, menu Kaly Kitchen dihapus. Bagian atas
+     Kaly POS menampilkan Lounge: Sedang disiapkan & Siap diambil, dengan tombol
+     Diambil / Diantar.
+   - Menu samping bisa disembunyikan di semua halaman (ikon panel di kiri judul).
+   - Kategori Layar dihapus dari menu samping; Lounge, Layar pelanggan, dan
+     halaman pesan dibuka dari Beranda.
+
+YANG BARU DI 1.4
+   - Kaly Core > Laporan: semua laporan kini punya grafik (arahkan kursor /
+     ketuk untuk melihat angka), plus tiga laporan baru:
+     * Nota & jam      : rekap transaksi per nota dan jam penjualan
+     * Kategori & jam  : rekap penjualan per kategori menu dan jam
+     * Aktivitas meja  : kunjungan, lama duduk, keterisian per jam, aktivitas
+                         staf (antar, pindah, kosongkan), dan log meja
+   - Laporan baru dihitung di database, jadi periode panjang tetap lengkap.
+
+YANG BARU DI 1.3
+   - Kasir bisa mengosongkan meja Lunas langsung dari Kaly POS: ketuk meja
+     Lunas, tombol "N lunas" di atas daftar meja, atau tombol Kosongkan meja
+     di jendela Pembayaran berhasil.
+   - Pindah meja untuk meja yang sudah terisi, dari Kasir (ikon panah dua arah
+     di kepala bill) dan dari Service (tombol Pindah ke meja lain di Denah).
+     Bill, pesanan yang masih dimasak, tanda Lunas, dan reservasi ikut pindah.
+   - Notifikasi suara "Tamu pindah meja" untuk service dan kasir.
+
