@@ -1,5 +1,5 @@
 -- =====================================================================
--- Kaly Ops 2.8 · Database Supabase · SEMUA DALAM SATU FILE
+-- Kaly Ops 2.9 · Database Supabase · SEMUA DALAM SATU FILE
 -- Isi: 01 struktur tabel, 02 mesin bisnis, 03 fungsi aplikasi, 04 keamanan, 05 laporan, 06 data master.
 -- Cara pakai: Supabase > SQL Editor > New query > tempel seluruh isi file ini > Run. Lalu buat Owner: select public.kaly_setup_owner('emailanda@gmail.com', 'Nama Anda'); Lihat README.md.
 -- =====================================================================
@@ -893,6 +893,24 @@ alter table public.app_secrets add column if not exists vapid_private jsonb;
 -- 2.8 · Model printer (lebar titik & pemotong kertas per model)
 alter table public.print_stations add column if not exists model text not null default 'umum' check (model in ('umum', 'epson_t82x', 'rongta_rpp02n'));
 comment on column public.print_stations.model is 'Model printer: umum, epson_t82x (80 mm, 512 titik, pemotong), rongta_rpp02n (58 mm, 384 titik, Bluetooth, tanpa pemotong).';
+
+-- ---------------------------------------------------------------------
+-- 2.9 · Anggota shift: nama petugas (kasir, service, dapur) tanpa akun login sendiri.
+-- Satu akun login per perangkat/peran; nama petugas dipilih saat buka shift dan bisa diganti di akun kasir.
+-- Hanya Owner/Manajer (Kaly Backoffice) yang menambah atau mengubah anggota shift.
+-- ---------------------------------------------------------------------
+create table if not exists public.crew (
+  id          text primary key default public.new_id('cr'),
+  name        text not null check (length(trim(name)) between 1 and 40),
+  role        text not null check (role in ('kasir', 'service', 'dapur')),
+  location_id text references public.locations(id) on delete set null,
+  active      boolean not null default true,
+  created_at  timestamptz not null default now()
+);
+comment on table public.crew is 'Anggota shift (nama petugas) untuk akun kasir, service, dan dapur. location_id kosong = semua outlet. Dikelola Owner di Kaly Backoffice.';
+alter table public.shifts add column if not exists crew_id text references public.crew(id) on delete set null,
+  add column if not exists crew_name text;
+comment on column public.shifts.crew_name is 'Nama petugas shift saat ini (bisa diganti selama shift berjalan).';
 
 
 -- =====================================================================
@@ -3369,6 +3387,67 @@ begin
   if not found then raise exception 'Printer tidak ditemukan'; end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- 2.9 · Anggota shift & laporan per shift
+-- ---------------------------------------------------------------------
+-- Petugas kasir yang boleh dipakai di outlet ini
+create or replace function engine.crew_kasir(p_crew text, p_loc text) returns public.crew language plpgsql stable security definer set search_path = public as $$
+declare c public.crew;
+begin
+  select * into c from crew where id = p_crew and active and role = 'kasir' and (location_id is null or location_id = p_loc);
+  if c.id is null then raise exception 'Nama petugas kasir tidak ditemukan. Anggota shift ditambahkan di Kaly Backoffice.'; end if;
+  return c;
+end $$;
+
+-- Buka shift atas nama petugas. Bila outlet sudah punya daftar petugas kasir, nama wajib dipilih.
+create or replace function public.shift_open(p_terminal text, p_location text, p_cash numeric, p_crew text) returns text language plpgsql security definer set search_path = public as $$
+declare me public.staff; v_id text; c public.crew;
+begin
+  me := engine.require_role(array['owner', 'kasir']);
+  perform engine.on_();
+  if exists (select 1 from shifts where terminal = p_terminal and close_at is null) then raise exception 'Masih ada shift terbuka di %', p_terminal; end if;
+  if p_crew is not null then c := engine.crew_kasir(p_crew, p_location);
+  elsif exists (select 1 from crew where active and role = 'kasir' and (location_id is null or location_id = p_location)) then
+    raise exception 'Pilih nama petugas shift';
+  end if;
+  insert into shifts (staff_id, terminal, location_id, open_cash, crew_id, crew_name)
+    values (me.id, p_terminal, p_location, coalesce(p_cash, 0), c.id, c.name) returning id into v_id;
+  return v_id;
+end $$;
+create or replace function public.shift_open(p_terminal text, p_location text, p_cash numeric) returns text language sql security definer set search_path = public as $$
+  select public.shift_open(p_terminal, p_location, p_cash, null::text);
+$$;
+
+-- Ganti nama petugas pada shift yang sedang berjalan (tanpa ganti email login). Tercatat di laporan fraud (rendah).
+create or replace function public.shift_crew(p_shift text, p_crew text) returns text language plpgsql security definer set search_path = public as $$
+declare me public.staff; sh public.shifts; c public.crew;
+begin
+  me := engine.require_role(array['owner', 'kasir']);
+  select * into sh from shifts where id = p_shift for update;
+  if sh.id is null or sh.close_at is not null then raise exception 'Shift tidak ditemukan atau sudah ditutup'; end if;
+  if sh.staff_id <> me.id and me.role <> 'owner' then raise exception 'Shift ini milik akun lain'; end if;
+  c := engine.crew_kasir(p_crew, sh.location_id);
+  if sh.crew_id is not distinct from c.id then return c.name; end if;
+  update shifts set crew_id = c.id, crew_name = c.name where id = p_shift;
+  perform engine.flag('Ganti petugas shift', 'rendah',
+    'Shift ' || sh.terminal || ': petugas diganti dari ' || coalesce(sh.crew_name, '(tanpa nama)') || ' ke ' || c.name || '.', me.id, sh.id, sh.location_id);
+  return c.name;
+end $$;
+
+-- Laporan tiap shift (aktif & selesai) untuk layar kasir: penjualan, metode bayar, kas, selisih
+create or replace function public.shift_reports(p_location text, p_days int default 7) returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare me public.staff;
+begin
+  me := engine.require_role(array['owner', 'kasir']);
+  if not public.can_loc(p_location) then raise exception 'Tidak punya akses ke outlet ini'; end if;
+  return coalesce((select jsonb_agg(x order by x->>'open_at' desc) from (
+    select jsonb_build_object('id', s.id, 'terminal', s.terminal, 'crew', coalesce(s.crew_name, st.name), 'open_at', s.open_at, 'close_at', s.close_at,
+             'open_cash', s.open_cash, 'counted', s.counted, 'expected', s.expected, 'variance', s.variance) || engine.shift_summary(s.id) x
+      from shifts s left join staff st on st.id = s.staff_id
+     where s.location_id = p_location and (s.close_at is null or s.open_at >= now() - make_interval(days => least(greatest(coalesce(p_days, 7), 1), 45)))
+     order by s.open_at desc limit 80) q), '[]'::jsonb);
+end $$;
+
 
 -- =====================================================================
 -- Kaly Ops · Database Supabase · 04 Keamanan: peran, RLS, penjaga data, realtime, storage
@@ -4020,7 +4099,7 @@ $$;
 create or replace function engine.tg_alert_shift() returns trigger language plpgsql security definer set search_path = public as $$
 declare v_name text; v_sum jsonb; v_by jsonb; v_n int; v_tot numeric; v_pay text;
 begin
-  select name into v_name from staff where id = new.staff_id;
+  v_name := coalesce(new.crew_name, (select name from staff where id = new.staff_id));
   if tg_op = 'INSERT' then
     perform engine.alert('shift_open', new.location_id, 'Shift ' || new.terminal || ' dibuka · ' || coalesce(v_name, ''), 'Modal kas ' || engine.rp(new.open_cash) || '.', null, null, new.id);
     return null;
@@ -4240,6 +4319,21 @@ revoke all on function engine.tg_kitchen_lines_upd(), engine.tg_kitchen_lines_in
 -- 2.8
 revoke execute on function public.print_station_model(text, text) from public, anon;
 grant execute on function public.print_station_model(text, text) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 2.9 · Anggota shift: semua staf boleh membaca, hanya Owner (Kaly Backoffice) yang menambah/mengubah
+-- ---------------------------------------------------------------------
+alter table public.crew enable row level security;
+select engine.policy('crew', 'staf baca', 'select', 'public.is_staff()');
+select engine.policy('crew', 'owner tambah', 'insert', null, 'public.is_staff(array[''owner''])');
+select engine.policy('crew', 'owner ubah', 'update', 'public.is_staff(array[''owner''])');
+select engine.policy('crew', 'owner hapus', 'delete', 'public.is_staff(array[''owner''])');
+revoke all on public.crew from anon;
+drop trigger if exists sync_log on public.crew;
+create trigger sync_log after insert or update or delete on public.crew for each statement execute function engine.tg_sync_log();
+revoke execute on function public.shift_open(text, text, numeric, text), public.shift_crew(text, text), public.shift_reports(text, int) from public, anon;
+grant execute on function public.shift_open(text, text, numeric, text), public.shift_crew(text, text), public.shift_reports(text, int) to authenticated;
+revoke all on function engine.crew_kasir(text, text) from public;
 
 
 -- =====================================================================

@@ -1,4 +1,4 @@
-KALY OPS 2.8 - CARA MEMASANG
+KALY OPS 2.9 - CARA MEMASANG
 ============================
 
 Folder ini (app/) adalah aplikasi Kaly Ops. Sejak 2.7 diterbitkan lewat GitHub Pages dari
@@ -27,15 +27,28 @@ Aplikasi menyimpan semua data di database Supabase milik Anda.
 
 Tidak ada akun demo. Setiap staf masuk dengan email dan kata sandinya sendiri.
 
-SUDAH MEMAKAI VERSI SEBELUMNYA? CARA UPDATE KE 2.8
-   Versi 2.8 punya SQL baru (sudah termasuk isi SQL 1.7 sampai 2.5). Urutannya penting:
-   a. Supabase > SQL Editor > New query: jalankan kaly-ops-supabase.sql versi 2.8
-      (paket kaly-ops-supabase.zip yang baru). Aman dijalankan ulang, data tidak hilang.
+SUDAH MEMAKAI VERSI SEBELUMNYA? CARA UPDATE KE 2.9
+   Versi 2.9 punya SQL baru. Urutannya penting:
+   a. Supabase > SQL Editor > New query: jalankan kaly-ops-update-2.9.sql (database yang sudah 2.8),
+      atau kaly-ops-supabase.sql versi 2.9 (lengkap). Aman dijalankan ulang, data tidak hilang.
    b. GitHub: perbarui isi folder app/ di repository (atau biarkan Claude yang mendorong perubahan).
    c. Perangkat yang sedang terbuka akan menampilkan "Versi aplikasi baru
       tersedia". Tekan Muat ulang.
    d. Bila server notifikasi (Edge Function kaly-push) sudah dipasang: perbarui isinya dengan
       functions/kaly-push/index.ts versi 2.5 (notifikasi dapur membuka layar dapur saat diketuk).
+
+YANG BARU DI 2.9 (kasir tablet landscape, anggota shift, laporan per shift)
+   - Kaly POS untuk tablet Android mendatar: layar utama berisi pilihan meja (besar, memenuhi layar).
+     Setelah meja dipilih: menu di kiri, bill di kanan. Tombol "< Meja" kembali ke pilihan meja.
+     Menu samping otomatis disembunyikan di tablet (tombol di kiri atas untuk menampilkannya).
+   - ANGGOTA SHIFT: Owner/Manajer menambah nama petugas Kasir, Service, dan Kitchen/Bar di
+     Kaly Backoffice > Pengaturan > Anggota shift. Petugas tidak perlu email sendiri.
+     Kasir/service/dapur tidak bisa menambah atau mengubah daftar ini.
+   - Kasir memilih nama petugas saat Buka shift, dan bisa "Ganti nama" petugas shift tanpa ganti
+     email login (tercatat di laporan Manajer). Nota & notifikasi shift memakai nama petugas.
+   - Tab Shift menampilkan laporan tiap shift 7 hari terakhir: petugas, jam, jumlah transaksi,
+     penjualan, metode bayar, rata-rata, bill batal, dan selisih kas.
+   - Service & dapur: ketuk nama di kanan atas untuk memilih petugas yang sedang bertugas.
 
 YANG BARU DI 2.8 (model printer Epson TM-T82X & Rongta RPP02N)
    - Tambah/Atur printer punya pilihan "Model printer". Memilih model mengisi kertas & sambungan:

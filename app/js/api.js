@@ -63,7 +63,11 @@ export const serveReady = (orderId) => rpc('serve_ready', { p_order: orderId });
 export const serveLine = (lineId) => rpc('serve_line', { p_line: lineId });
 
 // ---------- Shift & deposit ----------
-export const shiftOpen = (terminal, loc, cash) => rpc('shift_open', { p_terminal: terminal, p_location: loc, p_cash: cash });
+export const shiftOpen = (terminal, loc, cash, crew) => (crew ? rpc('shift_open', { p_terminal: terminal, p_location: loc, p_cash: cash, p_crew: crew }) : rpc('shift_open', { p_terminal: terminal, p_location: loc, p_cash: cash }));
+// 2.9 · Anggota shift & laporan per shift
+export const shiftCrew = (shiftId, crew) => rpc('shift_crew', { p_shift: shiftId, p_crew: crew });
+export const shiftReports = (loc, days = 7) => rpc('shift_reports', { p_location: loc, p_days: days });
+export const crewSave = (row) => run(sb().from('crew').upsert(row, { onConflict: 'id' }));
 export const shiftClose = (shiftId, counted) => rpc('shift_close', { p_shift: shiftId, p_counted: counted });
 export const noSale = (shiftId, reason) => rpc('pos_no_sale', { p_shift: shiftId, p_reason: reason });
 export const depositNew = (holder, phone, topup, method, shiftId) => rpc('deposit_card_new', { p_holder: holder, p_phone: phone || '', p_topup: topup || 0, p_method: method || 'cash', p_shift: shiftId || null });

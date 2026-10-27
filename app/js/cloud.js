@@ -142,7 +142,8 @@ export function mapOrder(r) {
   return o;
 }
 const mapShift = (r) => ({ id: r.id, user: r.staff_id, term: r.terminal, loc: r.location_id, openAt: T(r.open_at), openCash: N(r.open_cash), closeAt: T(r.close_at),
-  counted: NN(r.counted), expected: NN(r.expected), var: NN(r.variance), closedBy: r.closed_by, noSale: N(r.no_sale) });
+  counted: NN(r.counted), expected: NN(r.expected), var: NN(r.variance), closedBy: r.closed_by, noSale: N(r.no_sale),
+  crew: r.crew_id || null, crewName: r.crew_name || '' });
 export const mapMember = (r) => ({ id: r.id, name: r.name, phone: r.phone, email: r.email || '', bday: r.birthday || '', points: N(r.points), spend: N(r.spend), visits: N(r.visits),
   joined: T(r.joined_at), last: T(r.last_visit_at) || 0, src: r.source, missions: {}, updated: T(r.updated_at) });
 const mapRes = (r) => ({ id: r.id, code: r.code, name: r.name, phone: r.phone, date: r.date, time: hm(r.time), pax: N(r.pax), area: r.area || '', table: r.table_id,
@@ -155,7 +156,7 @@ function emptyDb() {
   return {
     version: 3, rev: 1, settings: { ...DEFAULT_SETTINGS, brand: { ...DEFAULT_SETTINGS.brand } },
     entities: [], locations: [], users: [], accounts: [], items: [], stock: {}, moves: [], menus: [], cats: [], promos: [], vouchers: [], areas: [], tables: [],
-    orders: [], shifts: [], flags: [], notices: [], members: [], tiers: [], missions: [], campaigns: [], deposits: [], depositTx: [], reservations: [],
+    orders: [], shifts: [], crew: [], flags: [], notices: [], members: [], tiers: [], missions: [], campaigns: [], deposits: [], depositTx: [], reservations: [],
     suppliers: [], supplierPrices: [], itemSup: {}, pos: [], transfers: [], productions: [], opnames: [], b2b: [], journals: [], journalDetail: null, counters: {}, alerts: [],
     printers: [], printJobs: [],
   };
@@ -232,6 +233,12 @@ const LOADERS = {
   staff: { roles: ALL, fn: async () => {
     const rows = await run(sb.from('staff').select('id, user_id, email, name, role, outlets, active, created_at').order('created_at'));
     db.users = rows.map((r) => ({ id: r.id, name: r.name, email: r.email, role: r.role, outlets: r.outlets, active: r.active, linked: !!r.user_id }));
+  } },
+  // 2.9 · Anggota shift (nama petugas kasir, service, dapur); database lama tanpa tabel crew → daftar kosong
+  crew: { roles: ALL, fn: async () => {
+    const { data, error } = await sb.from('crew').select('id, name, role, location_id, active').order('name');
+    db.crew = error ? [] : data.map((r) => ({ id: r.id, name: r.name, role: r.role, loc: r.location_id || null, active: r.active }));
+    db.crewReady = !error;
   } },
   tables: { roles: ALL, fn: async () => {
     const [a, t] = await Promise.all([run(sb.from('areas').select('*').order('sort')), run(sb.from('dining_tables').select('*').eq('active', true).order('sort'))]);
@@ -403,7 +410,7 @@ const LOADERS = {
 };
 // Tabel database → kelompok data yang dimuat ulang
 const TABLES = {
-  settings: 'settings', entities: 'org', locations: 'org', accounts: 'org', staff: 'staff', areas: 'tables', dining_tables: 'tables',
+  settings: 'settings', entities: 'org', locations: 'org', accounts: 'org', staff: 'staff', crew: 'crew', areas: 'tables', dining_tables: 'tables',
   menu_categories: 'menus', menus: 'menus', menu_outlets: 'menus', menu_bom: 'menus', menu_package_items: 'menus', items: 'items', item_bom: 'items',
   stock: 'stock', tiers: 'loyalty', missions: 'loyalty', promos: 'loyalty', vouchers: 'loyalty', campaigns: 'loyalty',
   orders: 'orders', order_lines: 'orders', order_payments: 'orders', order_notices: 'notices', shifts: 'shifts', members: 'members', member_missions: 'memberMissions',
@@ -500,7 +507,7 @@ export async function changePassword(pass) {
 async function loadAll() {
   setStatus('loading');
   orderDays = 2; ordersSince = null; membersSince = null;
-  const first = ['settings', 'org', 'staff', 'tables', 'menus', 'items', 'stock', 'loyalty', 'orders', 'notices', 'alerts', 'shifts', 'members', 'deposits', 'reservations', 'printers', 'printJobs'];
+  const first = ['settings', 'org', 'staff', 'crew', 'tables', 'menus', 'items', 'stock', 'loyalty', 'orders', 'notices', 'alerts', 'shifts', 'members', 'deposits', 'reservations', 'printers', 'printJobs'];
   await Promise.all(first.map(runLoader));
   ready = true; touch(); setStatus('ok'); emit('remote');
   startSync();

@@ -648,7 +648,7 @@ $$;
 create or replace function engine.tg_alert_shift() returns trigger language plpgsql security definer set search_path = public as $$
 declare v_name text; v_sum jsonb; v_by jsonb; v_n int; v_tot numeric; v_pay text;
 begin
-  select name into v_name from staff where id = new.staff_id;
+  v_name := coalesce(new.crew_name, (select name from staff where id = new.staff_id));
   if tg_op = 'INSERT' then
     perform engine.alert('shift_open', new.location_id, 'Shift ' || new.terminal || ' dibuka · ' || coalesce(v_name, ''), 'Modal kas ' || engine.rp(new.open_cash) || '.', null, null, new.id);
     return null;
@@ -868,3 +868,18 @@ revoke all on function engine.tg_kitchen_lines_upd(), engine.tg_kitchen_lines_in
 -- 2.8
 revoke execute on function public.print_station_model(text, text) from public, anon;
 grant execute on function public.print_station_model(text, text) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 2.9 · Anggota shift: semua staf boleh membaca, hanya Owner (Kaly Backoffice) yang menambah/mengubah
+-- ---------------------------------------------------------------------
+alter table public.crew enable row level security;
+select engine.policy('crew', 'staf baca', 'select', 'public.is_staff()');
+select engine.policy('crew', 'owner tambah', 'insert', null, 'public.is_staff(array[''owner''])');
+select engine.policy('crew', 'owner ubah', 'update', 'public.is_staff(array[''owner''])');
+select engine.policy('crew', 'owner hapus', 'delete', 'public.is_staff(array[''owner''])');
+revoke all on public.crew from anon;
+drop trigger if exists sync_log on public.crew;
+create trigger sync_log after insert or update or delete on public.crew for each statement execute function engine.tg_sync_log();
+revoke execute on function public.shift_open(text, text, numeric, text), public.shift_crew(text, text), public.shift_reports(text, int) from public, anon;
+grant execute on function public.shift_open(text, text, numeric, text), public.shift_crew(text, text), public.shift_reports(text, int) to authenticated;
+revoke all on function engine.crew_kasir(text, text) from public;

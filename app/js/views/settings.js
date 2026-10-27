@@ -198,6 +198,7 @@ export default {
           <p class="hint">Slip Bar dan Dapur hanya berisi item yang sudah dikirim ke dapur dan belum pernah tercetak, tanpa harga, jadi item yang sama tidak dibuat dua kali. Pembagiannya mengikuti stasiun kategori di Kaly Core › Kelola kategori. Bila kertas macet, pakai <b>Cetak ulang slip Bar & Dapur</b> di menu aksi bill.</p>
           <div class="row wrap"><button class="btn">Simpan jumlah lembar</button><button type="button" class="btn" data-a="receiptEdit">${ic('receipt', 16)} Atur tampilan nota</button></div></form>
         ${pushCard()}
+        ${crewCard(ctx)}
         <div class="card"><div class="card-h"><h3>Staf & akses</h3><button class="btn btn-sm" data-a="staffNew">${ic('plus', 15)} Tambah staf</button></div>
           <div>${db.users.map((u) => `<div class="staff-row"><span><b>${esc(u.name)}</b>${u.active === false ? ' <span class="badge b-mute">nonaktif</span>' : ''}<small>${esc(u.email)}${u.outlets?.length ? ' · ' + u.outlets.map((l) => esc(D.loc(db, l)?.name || l)).join(', ') : ''}</small>${u.linked ? '' : '<small class="neg">Belum punya akun login</small>'}</span>
             <span class="row-xs"><span class="badge b-mute">${esc(D.ROLES[u.role]?.label || u.role)}</span><button class="btn btn-sm btn-ghost" data-a="staffEdit" data-id="${u.id}">Ubah</button></span></div>`).join('')}</div>
@@ -315,9 +316,42 @@ export default {
       rerender();
     },
     staffNew(el, e, ctx) { staffModal(ctx, null); },
+    crewNew(el, e, ctx) { crewModal(ctx, null, el.dataset.role); },
+    crewEdit(el, e, ctx) { crewModal(ctx, (ctx.db.crew || []).find((c) => c.id === el.dataset.id)); },
     staffEdit(el, e, ctx) { staffModal(ctx, ctx.db.users.find((u) => u.id === el.dataset.id)); },
   },
 };
+
+// ---------- 2.9 · Anggota shift (nama petugas kasir, service, kitchen) — hanya di Kaly Backoffice ----------
+const CREW_ROLES = [['kasir', 'Kasir', 'Dipilih saat buka shift; laporan shift & nota memakai nama ini'], ['service', 'Service', 'Nama petugas di perangkat service'], ['dapur', 'Kitchen / Bar', 'Nama petugas di layar dapur']];
+function crewCard(ctx) {
+  const db = ctx.db, list = db.crew || [];
+  if (db.crewReady === false) return `<div class="card"><div class="card-h"><h3>${ic('users', 17)} Anggota shift</h3></div><p class="hint">Jalankan update database 2.9 (kaly-ops-update-2.9.sql) di Supabase › SQL Editor untuk mengaktifkan anggota shift.</p></div>`;
+  return `<div class="card crew-card"><div class="card-h"><h3>${ic('users', 17)} Anggota shift</h3></div>
+    <p class="muted sm">Nama petugas yang bergantian memakai akun kasir, service, dan dapur. Petugas tidak perlu email sendiri: nama dipilih di perangkat, dan kasir bisa mengganti nama petugas shift tanpa ganti email login. Hanya Owner/Manajer yang bisa menambah atau mengubah daftar ini.</p>
+    ${CREW_ROLES.map(([r, l, h]) => { const xs = list.filter((c) => c.role === r); return `<div class="crew-grp"><div class="row sb"><span><b>${l}</b> <span class="muted sm">${xs.filter((c) => c.active).length} aktif</span><small class="muted">${esc(h)}</small></span><button class="btn btn-sm" data-a="crewNew" data-role="${r}">${ic('plus', 15)} Tambah</button></div>
+      ${xs.length ? `<div class="crew-list">${xs.map((c) => `<button class="crew-tag ${c.active ? '' : 'off'}" data-a="crewEdit" data-id="${c.id}" title="Ubah ${esc(c.name)}">${esc(c.name)}${c.loc ? `<small>${esc(D.loc(db, c.loc)?.name || c.loc)}</small>` : ''}${c.active ? '' : '<small>nonaktif</small>'}</button>`).join('')}</div>` : '<p class="muted sm">Belum ada.</p>'}</div>`; }).join('')}
+  </div>`;
+}
+function crewModal(ctx, c, role) {
+  const outs = ctx.db.locations.filter((l) => l.type === 'outlet');
+  openModal({ title: c ? `Ubah ${c.name}` : 'Tambah anggota shift', size: 'sm',
+    body: `<label class="fld"><span>Nama petugas</span><input name="name" maxlength="40" value="${esc(c?.name || '')}" autofocus placeholder="Contoh: Rani"></label>
+      <label class="fld"><span>Bagian</span><select name="role">${CREW_ROLES.map(([k, l]) => `<option value="${k}" ${(c?.role || role) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="fld"><span>Outlet</span><select name="loc"><option value="">Semua outlet</option>${outs.map((l) => `<option value="${l.id}" ${c?.loc === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>
+      ${c ? `<label class="switch"><input type="checkbox" name="active" ${c.active ? 'checked' : ''}><span>Aktif (bisa dipilih di perangkat)</span></label>` : ''}`,
+    footer: `<button class="btn" data-close>Batal</button><button class="btn btn-pri" data-ok>Simpan</button>`,
+    onMount(m, api) {
+      m.querySelector('[data-ok]').onclick = async () => {
+        const f = formData(m), name = (f.name || '').trim().replace(/\s+/g, ' ');
+        if (!name) return toast('Isi nama petugas', 'warn');
+        if ((ctx.db.crew || []).some((x) => x.id !== c?.id && x.role === f.role && x.name.toLowerCase() === name.toLowerCase())) return toast('Nama ini sudah ada di bagian yang sama', 'warn');
+        const row = { id: c?.id || uid('cr'), name, role: f.role, location_id: f.loc || null, active: c ? !!f.active : true };
+        try { await API.crewSave(row); await C.refresh('crew'); } catch (err) { return toast(err.message, 'err', 6000); }
+        api.close(); toast(c ? 'Anggota shift disimpan' : `${name} ditambahkan`); rerender();
+      };
+    } });
+}
 
 function staffModal(ctx, u) {
   openModal({ title: u ? `Ubah ${u.name}` : 'Tambah staf', size: 'md', body: staffForm(ctx.db, u),

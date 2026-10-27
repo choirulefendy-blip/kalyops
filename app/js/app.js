@@ -6,6 +6,7 @@ import * as C from './cloud.js';
 import * as API from './api.js';
 import * as N from './notify.js';
 import * as DN from './devnotify.js';
+import * as CR from './crew.js';
 import Login from './views/login.js';
 import Home from './views/home.js';
 import POS from './views/pos.js';
@@ -53,7 +54,12 @@ export function navFor(role) {
   return [...items.filter((n) => n.r === main), ...items.filter((n) => n.r !== main)];
 }
 // Menu samping bisa disembunyikan di semua halaman (diingat per perangkat)
-const railHidden = () => { try { return localStorage.getItem('kaly.rail') === 'off'; } catch { return false; } };
+// Menu samping: mengikuti pilihan pengguna; bila belum pernah diatur, Kaly POS di tablet mendatar (901–1400 px) memakai layar penuh
+const railHidden = (path, u) => {
+  let v = null; try { v = localStorage.getItem('kaly.rail'); } catch {}
+  if (v) return v === 'off';
+  return path === 'pos' && ['kasir', 'service'].includes(u?.role) && innerWidth > 900 && innerWidth <= 1400;
+};
 const ROUTES = {
   login: { v: Login, pub: true, bare: true },
   backoffice: { v: Login, pub: true, bare: true, bo: true },
@@ -116,7 +122,7 @@ function route() {
   if (!r.pub && r.roles && !r.roles.includes(u.role)) { toast('Akun ini tidak punya akses ke modul tersebut', 'warn'); go(''); return; }
   if (cur.view?.unmount) try { cur.view.unmount(); } catch (e) { console.error(e); }
   cur = { name: path, view: r.v, r, ctx: { q, path, track: r.track } };
-  document.body.className = r.bare ? 'bare' : 'app' + (r.dark ? ' dark-view' : '') + (railHidden() ? ' rail-off' : '');
+  document.body.className = r.bare ? 'bare' : 'app' + (r.dark ? ' dark-view' : '') + (railHidden(path, u) ? ' rail-off' : '');
   if (u && !r.bare) document.body.dataset.role = u.role; else delete document.body.dataset.role;
   if (r.bare) document.getElementById('root').innerHTML = `<div id="view" class="bare-view"></div>`;
   else renderShell();
@@ -150,6 +156,7 @@ function renderShell() {
       <div class="top-r">
         <label class="outlet-sel" title="Outlet aktif">${ic('map-pin', 16)}<select data-a-change="outlet" aria-label="Outlet aktif">${db.locations.filter((l) => l.type === 'outlet' && (!u.outlets?.length || u.outlets.includes(l.id))).map((l) => `<option value="${l.id}" ${l.id === L ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>
         <a class="pst" id="pst" href="#/print" hidden></a>
+        ${CR.chipHtml()}
         <span class="sync" id="sync" title="Status koneksi ke database"></span>
         ${N.buttonHtml()}
         <button class="bell" data-a="notices" aria-label="${u.role === 'dapur' ? 'Notifikasi dari kasir' : 'Pesanan siap dari dapur'}" title="${u.role === 'dapur' ? 'Notifikasi dari kasir' : 'Pesanan siap dari dapur'}" id="bell">${ic('bell', 18)}<b id="bell-n"></b></button>
@@ -204,6 +211,7 @@ function updateShell() {
   syncBadge();
   paintStation();
   N.paintButton();
+  CR.paintChip();
 }
 // Tanda di kanan atas bila perangkat ini menjadi stasiun cetak
 function paintStation() {
@@ -286,6 +294,7 @@ const GLOBAL = {
   },
   go(el) { go(el.dataset.to || ''); },
   soundPrefs() { N.openPrefs(); },
+  crewPick() { CR.pickDialog({ onDone: () => rerender() }); },
   notices(el, e, ctx) {
     if (ctx.user?.role === 'dapur') return N.openKitchenFeed(ctx.outlet, () => updateShell());
     import('./views/pos.js').then((m) => m.showNotices(ctx));

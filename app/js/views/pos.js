@@ -10,8 +10,9 @@ import { ackOrder } from '../notify.js';
 import { rerender, ctxNow } from '../app.js';
 import { moveDialog, heldDialog, heldListDialog, heldTables, clearTable } from './table-actions.js';
 import { doPrint, sendPrints, KIND_LABEL } from '../printing.js';
+import * as CR from '../crew.js';
 
-const ui = { tab: 'meja', area: 'all', cat: 'all', q: '', orderId: null, pending: null, depQ: '' };
+const ui = { tab: 'meja', area: 'all', cat: 'all', q: '', orderId: null, pending: null, depQ: '', reports: null, repLoc: null, repAt: 0, repOpen: null };
 const ST = { draft: ['Belum dikirim', 'b-mute'], new: ['Antre', 'b-info'], cook: ['Dimasak', 'b-warn'], ready: ['Siap', 'b-ok'], served: ['Diantar', 'b-mute'], void: ['Batal', 'b-err'] };
 export const TERMINALS = ['Kasir 1', 'Kasir 2', 'Kasir 3', 'Play Corner'];
 
@@ -49,20 +50,35 @@ function ensureOrder(d, ctx) {
   return o;
 }
 
-// ---------- Panel kiri ----------
-function leftPanel(ctx) {
+// ---------- Navigasi kasir (2.9 · tablet landscape) ----------
+// Layar utama: pilihan meja memenuhi layar. Setelah meja dipilih: menu di kiri, bill di kanan.
+const hasT = (ctx) => ctx.db.tables.some((t) => t.loc === ctx.outlet);
+const homeTab = (ctx) => (hasT(ctx) ? 'meja' : 'pesan');
+// Mode pesan: ada bill/meja terpilih dan tab Meja/Pesan aktif (outlet tanpa meja selalu bisa memesan)
+const workMode = (ctx) => ui.tab === homeTab(ctx) && (!hasT(ctx) || !!curOrder(ctx.db) || !!ui.pending);
+function posNav(ctx) {
   const db = ctx.db, L = ctx.outlet;
-  const hasTables = db.tables.some((t) => t.loc === L);
-  const tabs = [hasTables && ['meja', 'Meja'], ['order', 'Bill'], ['siap', 'Checker'], ['deposit', 'Deposit'], ['shift', 'Shift']].filter(Boolean);
-  if (!hasTables && ui.tab === 'meja') ui.tab = 'order';
+  if (!hasT(ctx) && ui.tab === 'meja') ui.tab = 'pesan';
+  if (hasT(ctx) && ui.tab === 'pesan') ui.tab = 'meja';
   const readyN = D.readyItems(db, L, startOfDay() - 6 * 3600000).length;  // item siap, menunggu diantar
-  let body = '';
-  if (ui.tab === 'meja') body = tablesPanel(ctx);
-  else if (ui.tab === 'order') body = ordersPanel(ctx);
-  else if (ui.tab === 'siap') body = readyPanel(ctx);
-  else if (ui.tab === 'deposit') body = depositPanel(ctx);
-  else body = shiftPanel(ctx);
-  return `<div class="tabs tabs-sm">${tabs.map(([k, l]) => `<button class="tab ${ui.tab === k ? 'on' : ''}" data-a="tab" data-v="${k}">${l}${k === 'siap' && readyN ? ` <b class="cnt">${readyN}</b>` : ''}</button>`).join('')}</div><div class="pos-left-b" data-keep-scroll="left">${body}</div>`;
+  const billN = openOrders(db, L).length;
+  const sh = D.activeShift(db, ctx.terminal);
+  const o = curOrder(db), p = ui.pending;
+  const tabs = [hasT(ctx) ? ['meja', 'Meja', 'layout-grid'] : ['pesan', 'Pesan', 'shopping-cart'], ['order', 'Bill terbuka', 'receipt', billN], ['siap', 'Checker', 'hand-platter', readyN], ...(ctx.user.role === 'service' ? [] : [['deposit', 'Deposit', 'wallet'], ['shift', 'Shift', 'clock']])];
+  // Service tidak memegang kas: tanpa Deposit & Shift
+  if (ctx.user.role === 'service' && ['deposit', 'shift'].includes(ui.tab)) ui.tab = homeTab(ctx);
+  const cur = workMode(ctx) && hasT(ctx) && (o || p) ? `<span class="pn-cur">${ic('chevron-right', 15)}<b>${o?.table || p?.table ? 'Meja ' + esc([o?.table || p?.table, ...((o?.merged || p?.merged) || [])].join('+')) : esc(o?.no || 'Pesanan baru')}</b>${o ? `<small>${esc(o.no)}</small>` : ''}</span>` : '';
+  return `<nav class="pos-nav" aria-label="Kasir">
+    <div class="pn-tabs" role="tablist">${tabs.map(([k, l, i, n]) => `<button class="pn-tab ${ui.tab === k ? 'on' : ''}" role="tab" aria-selected="${ui.tab === k}" data-a="tab" data-v="${k}">${ic(i, 18)}<span>${l}</span>${n ? `<b class="cnt">${n}</b>` : ''}</button>`).join('')}${cur}</div>
+    <div class="pn-r"><span class="pn-term">${esc(ctx.terminal)}</span>${ctx.user.role === 'service' ? '' : `<button class="pn-shift ${sh ? 'on' : 'off'}" data-a="tab" data-v="shift" title="${sh ? 'Shift aktif' : 'Shift belum dibuka'}">${ic('user', 15)}<span>${sh ? esc(D.shiftName(db, sh)) : 'Shift belum dibuka'}</span></button>`}</div>
+  </nav>`;
+}
+function homePanel(ctx) {
+  if (ui.tab === 'meja') return tablesPanel(ctx);
+  if (ui.tab === 'order') return ordersPanel(ctx);
+  if (ui.tab === 'siap') return readyPanel(ctx);
+  if (ui.tab === 'deposit') return depositPanel(ctx);
+  return shiftPanel(ctx);
 }
 function tablesPanel(ctx) {
   const db = ctx.db, L = ctx.outlet;
@@ -70,9 +86,10 @@ function tablesPanel(ctx) {
   const areas = [...new Set(db.tables.filter((t) => t.loc === L).map((t) => t.area))];
   const busy = db.tables.filter((t) => t.loc === L && (tableOrder(db, L, t.id) || t.hold)).length;
   const held = heldTables(db, L).length;
-  return `<div class="chips">${['all', ...areas].map((a) => `<button class="chip ${ui.area === a ? 'on' : ''}" data-a="area" data-v="${esc(a)}">${a === 'all' ? 'Semua' : esc(a)}</button>`).join('')}</div>
-    <div class="row sb tb-head"><p class="muted sm">${busy} dari ${db.tables.filter((t) => t.loc === L).length} meja terisi</p><span class="row-xs">${held ? `<button class="btn btn-sm btn-paid" data-a="heldList" title="Meja sudah dibayar, belum dikosongkan">${ic('armchair', 15)} ${held} lunas</button>` : ''}<a class="btn btn-sm" href="#/denah">${ic('map', 15)} Denah</a></span></div>
-    <div class="tables">${tables.map((t) => {
+  return `<div class="tb-top"><div class="chips">${['all', ...areas].map((a) => `<button class="chip ${ui.area === a ? 'on' : ''}" data-a="area" data-v="${esc(a)}">${a === 'all' ? 'Semua area' : esc(a)}</button>`).join('')}</div>
+    <div class="row-xs tb-head"><span class="tb-legend"><i class="lg free"></i>Kosong <i class="lg busy"></i>Terisi <i class="lg ready"></i>Siap antar <i class="lg res"></i>Reservasi</span><b class="tb-count">${busy}/${db.tables.filter((t) => t.loc === L).length} terisi</b>${held ? `<button class="btn btn-sm btn-paid" data-a="heldList" title="Meja sudah dibayar, belum dikosongkan">${ic('armchair', 15)} ${held} lunas</button>` : ''}<a class="btn btn-sm" href="#/denah">${ic('map', 15)} Denah</a></div></div>
+    <p class="muted sm tb-help">Ketuk meja untuk membuka bill. Menu tampil di kiri, bill di kanan.</p>
+    <div class="tables big">${tables.map((t) => {
       const o = tableOrder(db, L, t.id);
       const r = !o && upcomingRes(db, t.id);
       const ks = o && (D.kitchenLines(o).some((l) => l.s === 'ready') ? 'ready' : D.kitchenState(o));
@@ -133,16 +150,53 @@ function depositPanel(ctx) {
 function shiftPanel(ctx) {
   const db = ctx.db;
   const sh = D.activeShift(db, ctx.terminal);
-  const others = db.shifts.filter((s) => !s.closeAt && s.term !== ctx.terminal);
+  const others = db.shifts.filter((s) => !s.closeAt && s.term !== ctx.terminal && s.loc === ctx.outlet);
   const s = sh && D.shiftSummary(db, sh);
-  return `<label class="fld"><span>Terminal ini</span><select data-a-change="terminal">${TERMINALS.map((t) => `<option ${t === ctx.terminal ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
-    ${sh ? `<div class="card sub"><div class="row sb"><b>Shift ${esc(D.userName(db, sh.user))}</b><span class="badge b-ok">Aktif</span></div>
+  const crew = D.crewFor(db, 'kasir', ctx.outlet);
+  const mine = sh && (sh.user === ctx.user.id || ctx.user.role === 'owner');
+  return `<div class="shift-grid"><div class="shift-col">
+    <label class="fld"><span>Terminal ini</span><select data-a-change="terminal">${TERMINALS.map((t) => `<option ${t === ctx.terminal ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+    ${sh ? `<div class="card sub"><div class="row sb"><span class="sh-who">${ic('user', 18)}<span><small>Petugas shift</small><b>${esc(D.shiftName(db, sh))}</b></span></span><span class="row-xs">${mine && crew.length ? `<button class="btn btn-sm" data-a="crewPick">Ganti nama</button>` : ''}<span class="badge b-ok">Aktif</span></span></div>
       <dl class="kv"><dt>Dibuka</dt><dd>${fmtTime(sh.openAt)}</dd><dt>Modal awal</dt><dd>${rp(sh.openCash)}</dd><dt>Transaksi</dt><dd>${s.count}</dd><dt>Penjualan</dt><dd>${rp(s.total)}</dd>
       ${Object.entries(s.by).map(([m, a]) => `<dt>${D.PAY[m].label}</dt><dd>${rp(a)}</dd>`).join('')}<dt>Top-up deposit tunai</dt><dd>${rp(s.topCash)}</dd><dt>Kas seharusnya</dt><dd><b>${rp(s.expected)}</b></dd></dl>
       <div class="row"><button class="btn" data-a="noSale">${ic('banknote', 16)} Buka laci</button><button class="btn btn-pri" data-a="shiftClose">Tutup shift</button></div></div>`
       : `<div class="card sub"><p>Belum ada shift aktif di <b>${esc(ctx.terminal)}</b>. Pembayaran hanya bisa diproses setelah shift dibuka.</p><button class="btn btn-pri btn-block" data-a="shiftOpen">Buka shift</button></div>`}
-    ${others.length ? `<h4 class="sec-t">Kasir aktif lain</h4><div class="olist">${others.map((o) => `<div class="ol static"><span><b>${esc(o.term)}</b> ${esc(D.userName(db, o.user))}<small>sejak ${fmtTime(o.openAt)}</small></span><span class="badge b-ok">Aktif</span></div>`).join('')}</div>` : ''}
-    <h4 class="sec-t">Riwayat shift</h4><div class="olist">${db.shifts.filter((x) => x.closeAt).slice(0, 6).map((x) => `<div class="ol static"><span><b>${esc(x.term)}</b> ${esc(D.userName(db, x.user))}<small>${fmtDT(x.openAt)} sampai ${fmtTime(x.closeAt)}</small></span><span class="badge ${Math.abs(x.var || 0) > db.settings.cashVarTol ? 'b-err' : 'b-mute'}">Selisih ${rp(x.var || 0)}</span></div>`).join('')}</div>`;
+    ${crew.length ? '' : `<p class="hint">${ic('info', 14)} Nama petugas shift (anggota shift) ditambahkan Owner/Manajer di Kaly Backoffice › Pengaturan › Anggota shift. Setelah ada, nama dipilih saat buka shift tanpa perlu ganti email login.</p>`}
+    ${others.length ? `<h4 class="sec-t">Kasir aktif lain</h4><div class="olist">${others.map((o) => `<div class="ol static"><span><b>${esc(o.term)}</b> ${esc(D.shiftName(db, o))}<small>sejak ${fmtTime(o.openAt)}</small></span><span class="badge b-ok">Aktif</span></div>`).join('')}</div>` : ''}
+  </div><div class="shift-col">${reportsPanel(ctx)}</div></div>`;
+}
+// Laporan tiap shift (7 hari): dihitung di database supaya shift lama tetap lengkap
+function loadReports(ctx, force) {
+  if (!force && ui.repLoc === ctx.outlet && Date.now() - ui.repAt < 60000) return;
+  ui.repLoc = ctx.outlet; ui.repAt = Date.now();
+  API.shiftReports(ctx.outlet, 7).then((r) => { ui.reports = (r || []).map((x) => ({ id: x.id, term: x.terminal, crew: x.crew, openAt: Date.parse(x.open_at), closeAt: x.close_at ? Date.parse(x.close_at) : 0,
+    openCash: Number(x.open_cash) || 0, var: x.variance == null ? null : Number(x.variance), count: Number(x.count) || 0, total: Number(x.total) || 0, disc: Number(x.disc) || 0,
+    by: Object.fromEntries(Object.entries(x.by || {}).map(([k, v]) => [k, Number(v) || 0])), voids: Number(x.voids) || 0, expected: Number(x.expected) || 0 })); ui.repErr = null; rerender(); })
+    .catch((e) => { ui.repErr = e; ui.reports = ui.reports || null; rerender(); });
+}
+function localReports(ctx) {
+  const db = ctx.db;
+  return db.shifts.filter((x) => x.loc === ctx.outlet).slice(0, 40).map((x) => { const s = D.shiftSummary(db, x); return { id: x.id, term: x.term, crew: D.shiftName(db, x), openAt: x.openAt, closeAt: x.closeAt || 0, openCash: x.openCash, var: x.closeAt ? x.var : null, ...s }; });
+}
+function reportsPanel(ctx) {
+  loadReports(ctx);
+  const list = ui.reports || (ui.repErr ? localReports(ctx) : null);
+  if (!list) return `<h4 class="sec-t">Laporan per shift</h4><p class="muted sm">Memuat laporan shift…</p>`;
+  const days = new Map();
+  for (const r of list) { const k = fmtDate(r.openAt); if (!days.has(k)) days.set(k, []); days.get(k).push(r); }
+  const row = (r) => {
+    const open = ui.repOpen === r.id;
+    const bad = r.var != null && Math.abs(r.var) > ctx.db.settings.cashVarTol;
+    return `<div class="rep ${open ? 'open' : ''}"><button class="rep-h" data-a="repTg" data-id="${r.id}" aria-expanded="${open}">
+        <span><b>${esc(r.crew || '—')}</b><small>${esc(r.term)} · ${fmtTime(r.openAt)}–${r.closeAt ? fmtTime(r.closeAt) : 'sekarang'}</small></span>
+        <span class="rep-r"><b>${rp(r.total)}</b><small>${r.count} transaksi</small></span>
+        ${r.closeAt ? `<span class="badge ${bad ? 'b-err' : 'b-mute'}">Selisih ${rp(r.var || 0)}</span>` : '<span class="badge b-ok">Aktif</span>'}${ic(open ? 'chevron-up' : 'chevron-down', 16)}</button>
+      ${open ? `<dl class="kv rep-d"><dt>Modal awal</dt><dd>${rp(r.openCash)}</dd>${Object.entries(r.by).map(([m, a]) => `<dt>${D.PAY[m]?.label || m}</dt><dd>${rp(a)}</dd>`).join('') || '<dt>Pembayaran</dt><dd>—</dd>'}
+        ${r.disc ? `<dt>Diskon</dt><dd>${rp(r.disc)}</dd>` : ''}<dt>Rata-rata per transaksi</dt><dd>${rp(r.count ? Math.round(r.total / r.count) : 0)}</dd>${r.voids ? `<dt>Bill batal</dt><dd>${r.voids}</dd>` : ''}${r.closeAt ? `<dt>Kas seharusnya</dt><dd>${rp(r.expected)}</dd>` : ''}</dl>` : ''}</div>`;
+  };
+  return `<div class="row sb"><h4 class="sec-t">Laporan per shift <span class="muted">7 hari</span></h4><button class="btn btn-sm btn-ghost" data-a="repReload" title="Muat ulang">${ic('refresh-cw', 15)}</button></div>
+    ${ui.repErr ? `<p class="hint">Laporan lengkap belum tersedia (jalankan update database 2.9). Menampilkan data di perangkat ini.</p>` : ''}
+    ${list.length ? [...days.entries()].map(([d, rs]) => `<div class="rep-day"><div class="rep-dh"><b>${esc(d)}</b><span>${rs.length} shift · ${rs.reduce((a, r) => a + r.count, 0)} transaksi · <b>${rp(rs.reduce((a, r) => a + r.total, 0))}</b></span></div>${rs.map(row).join('')}</div>`).join('') : '<p class="empty sm">Belum ada shift dalam 7 hari terakhir.</p>'}`;
 }
 
 // ---------- Menu ----------
@@ -192,7 +246,7 @@ function billPanel(ctx) {
     pushIdle(ctx);
     const r = p.res && db.reservations.find((x) => x.id === p.res);
     return `<div class="bill-h"><div><b class="bill-no">${p.table ? 'Meja ' + esc([p.table, ...(p.merged || [])].join(' + ')) : 'Pesanan baru'}</b><small>${r ? `Reservasi ${esc(r.name)}, ${r.pax} orang` : 'Belum ada item'}</small></div><button class="btn-icon" data-a="clearSel" aria-label="Tutup">${ic('x')}</button></div>
-      <div class="bill-empty sm"><p>Ketuk menu di tengah untuk menambahkan item.</p></div>`;
+      <div class="bill-empty sm"><p>Ketuk menu di sebelah kiri untuk menambahkan item.</p></div>`;
   }
   const b = D.bill(db, o);
   const m = o.mem && D.member(db, o.mem);
@@ -336,7 +390,7 @@ export default {
     // Dibuka dari notifikasi: #/pos?order=… (buka bill itu) atau #/pos?tab=siap
     if (ctx.q.order || ctx.q.tab) {
       const o = ctx.q.order && D.order(db, ctx.q.order);
-      if (o && o.status === 'open' && o.loc === ctx.outlet) { ui.orderId = o.id; ui.pending = null; ui.tab = o.table && db.tables.some((t) => t.loc === ctx.outlet) ? 'meja' : 'order'; }
+      if (o && o.status === 'open' && o.loc === ctx.outlet) { ui.orderId = o.id; ui.pending = null; ui.tab = homeTab(ctx); }
       else if (ctx.q.order) toast(o && o.status !== 'open' ? 'Bill itu sudah ditutup' : 'Bill tidak ditemukan di outlet ini', 'warn');
       if (ctx.q.tab) ui.tab = ctx.q.tab;
       delete ctx.q.order; delete ctx.q.tab;
@@ -345,11 +399,16 @@ export default {
     if (ui.orderId) ackOrder(ui.orderId);
     const cats = db.cats.filter((c) => db.menus.some((m) => m.cat === c.id && D.menuAvail(db, m.id, ctx.outlet)));
     if (ui.orderId && !curOrder(db)) ui.orderId = null;
-    return `<div class="pos-page">${shiftBanner(ctx)}${loungeStrip(ctx)}<div class="pos">
-      <section class="pos-left card">${leftPanel(ctx)}</section>
+    const nav = posNav(ctx);
+    if (!workMode(ctx)) {
+      return `<div class="pos-page pos2 home">${shiftBanner(ctx)}${nav}${ui.tab === 'meja' ? loungeStrip(ctx) : ''}
+        <section class="pos-home card tab-${ui.tab}" data-keep-scroll="home">${homePanel(ctx)}</section></div>`;
+    }
+    const where = curOrder(db)?.table || ui.pending?.table;
+    return `<div class="pos-page pos2 work">${shiftBanner(ctx)}${nav}<div class="pos-work">
       <section class="pos-menu card">
-        <div class="pos-menu-h"><div class="search">${ic('search', 17)}<input id="pos-q" data-in="q" placeholder="Cari menu" value="${esc(ui.q)}" autocomplete="off"></div>
-          <span class="muted sm nowrap">${esc(ctx.terminal)}</span>${ctx.user.role === 'owner' ? `<button class="btn btn-sm" data-a="newMenu" title="Tambah menu baru">${ic('plus', 15)} Menu</button>` : ''}</div>
+        <div class="pos-menu-h">${hasT(ctx) ? `<button class="btn pm-back" data-a="backTables" title="Kembali ke pilihan meja">${ic('chevron-left', 18)} Meja</button>` : ''}<div class="search">${ic('search', 17)}<input id="pos-q" data-in="q" placeholder="Cari menu" value="${esc(ui.q)}" autocomplete="off"></div>
+          ${where ? `<span class="pm-where">Meja <b>${esc(where)}</b></span>` : ''}</div>
         <div class="chips">${[['all', 'Semua'], ...cats.map((c) => [c.id, c.name])].map(([k, l]) => `<button class="chip ${ui.cat === k ? 'on' : ''}" data-a="cat" data-v="${k}">${k === 'all' ? '' : `<i class="cdot cc-${D.catColor(db, k)}"></i>`}${esc(l)}</button>`).join('')}</div>
         <div id="pos-reco">${recoStrip(ctx)}</div>
         <div class="menu-grid" id="pos-menu-grid" data-keep-scroll="menu">${menuGrid(ctx)}</div>
@@ -363,7 +422,17 @@ export default {
     if (k === 'depQ') { ui.depQ = el.value; const b = $('.pos-left-b'); const pos = el.selectionStart; b.innerHTML = depositPanel(ctxNow()); const i = $('#dep-q'); i.focus(); i.setSelectionRange(pos, pos); }
   },
   actions: {
-    tab(el) { ui.tab = el.dataset.v; rerender(); },
+    tab(el, e, ctx) {
+      const v = el.dataset.v;
+      // Ketuk Meja saat sedang memesan → kembali ke pilihan meja (bill tetap tersimpan)
+      if (v === 'meja' && ui.tab === 'meja' && workMode(ctx)) { ui.orderId = null; ui.pending = null; }
+      if (v === 'shift') loadReports(ctx, true);
+      ui.tab = v; rerender();
+    },
+    backTables() { ui.orderId = null; ui.pending = null; ui.tab = 'meja'; rerender(); },
+    repTg(el) { ui.repOpen = ui.repOpen === el.dataset.id ? null : el.dataset.id; rerender(); },
+    repReload(el, e, ctx) { loadReports(ctx, true); },
+    crewPick() { CR.pickDialog({ onDone: () => rerender() }); },
     area(el) { ui.area = el.dataset.v; rerender(); },
     cat(el) { ui.cat = el.dataset.v; rerender(); },
     clearSel() { ui.orderId = null; ui.pending = null; rerender(); },
@@ -392,7 +461,7 @@ export default {
       }
       ui.orderId = null; ui.pending = { table: id }; rerender();
     },
-    selOrder(el) { ui.orderId = el.dataset.id; ui.pending = null; rerender(); },
+    selOrder(el, e, ctx) { ui.orderId = el.dataset.id; ui.pending = null; ui.tab = homeTab(ctx); rerender(); },
     async serveAll(el) {
       const oid = el.dataset.id, o = D.order(getDb(), oid);
       const ids = D.kitchenLines(o).filter((l) => l.s === 'ready').map((l) => l.id);
@@ -419,7 +488,7 @@ export default {
     mCat(el) { mui.cat = el.dataset.v; rerender(); },
     mOff(el) { mui.off = el.checked; rerender(); },
     newMenu() { import('./core-stock.js').then((mod) => mod.openMenuForm({ cat: ui.cat !== 'all' ? ui.cat : undefined })); },
-    newTake() { ui.orderId = null; ui.pending = { type: 'take' }; rerender(); },
+    newTake(el, e, ctx) { ui.orderId = null; ui.pending = { type: 'take' }; ui.tab = homeTab(ctx); rerender(); },
     add(el, e, ctx) {
       const m = D.menu(ctx.db, el.dataset.id);
       if (D.menuBlock(ctx.db, el.dataset.id, ctx.outlet)) return toast(`${m?.name || 'Menu'} sedang tidak bisa dipesan`, 'warn');
@@ -533,19 +602,28 @@ export default {
     loungeTg() { loungeOn = !loungeOn; try { localStorage.setItem(LKEY, loungeOn ? 'on' : 'off'); } catch {} rerender(); },
     terminal(el) { setTerminal(el.value); toast(`Terminal diganti ke ${el.value}`); rerender(); },
     shiftOpen(el, e, ctx) {
-      openModal({ title: `Buka shift di ${ctx.terminal}`, size: 'sm', body: `<p>Kasir: <b>${esc(ctx.user.name)}</b></p><label class="fld"><span>Modal kas awal</span><input name="c" type="number" min="0" step="1000" value="500000" autofocus></label>`,
+      const crew = D.crewFor(ctx.db, 'kasir', ctx.outlet);
+      const pre = CR.deviceCrew('kasir');
+      openModal({ title: `Buka shift di ${ctx.terminal}`, size: 'sm', body: `${crew.length ? `<p class="fld-l">Nama petugas shift</p>${CR.crewOptionsHtml(crew, pre && crew.some((c) => c.id === pre.id) ? pre.id : crew.length === 1 ? crew[0].id : null)}` : `<p>Kasir: <b>${esc(ctx.user.name)}</b></p>`}
+        <label class="fld"><span>Modal kas awal</span><input name="c" type="number" min="0" step="1000" value="500000"></label>`,
         footer: `<button class="btn" data-close>Batal</button><button class="btn btn-pri" data-ok>Buka shift</button>`,
-        onMount(m, api) { m.querySelector('[data-ok]').onclick = async () => { const c = Number(m.querySelector('input').value) || 0; try { await API.shiftOpen(ctx.terminal, ctx.outlet, c); await C.refresh('shifts'); api.close(); toast('Shift dibuka'); rerender(); } catch (e) { failToast(e); } }; } });
+        onMount(m, api) { m.querySelector('[data-ok]').onclick = async (ev) => {
+          const c = Number(m.querySelector('input[name=c]').value) || 0;
+          const cr = m.querySelector('input[name=crew]:checked')?.value || null;
+          if (crew.length && !cr) return toast('Pilih nama petugas shift', 'warn');
+          ev.currentTarget.disabled = true;
+          try { await API.shiftOpen(ctx.terminal, ctx.outlet, c, cr); if (cr) CR.setDeviceCrew('kasir', cr); await C.refresh('shifts'); api.close(); toast(`Shift dibuka${cr ? ' · ' + crew.find((x) => x.id === cr).name : ''}`); loadReports(ctx, true); rerender(); } catch (e) { ev.currentTarget.disabled = false; failToast(e); }
+        }; } });
     },
     shiftClose(el, e, ctx) {
       const sh = D.activeShift(ctx.db, ctx.terminal); const s = D.shiftSummary(ctx.db, sh);
-      openModal({ title: 'Tutup shift', size: 'sm', body: `<dl class="kv"><dt>Transaksi</dt><dd>${s.count}</dd><dt>Penjualan</dt><dd>${rp(s.total)}</dd><dt>Tunai masuk</dt><dd>${rp(s.by.cash || 0)}</dd><dt>Top-up deposit tunai</dt><dd>${rp(s.topCash)}</dd><dt>Refund tunai</dt><dd>-${rp(s.refCash)}</dd></dl>
+      openModal({ title: 'Tutup shift', size: 'sm', body: `<p class="muted sm">Petugas: <b>${esc(D.shiftName(ctx.db, sh))}</b> · ${esc(ctx.terminal)}</p><dl class="kv"><dt>Transaksi</dt><dd>${s.count}</dd><dt>Penjualan</dt><dd>${rp(s.total)}</dd><dt>Tunai masuk</dt><dd>${rp(s.by.cash || 0)}</dd><dt>Top-up deposit tunai</dt><dd>${rp(s.topCash)}</dd><dt>Refund tunai</dt><dd>-${rp(s.refCash)}</dd></dl>
         <label class="fld"><span>Uang tunai di laci (hitung fisik)</span><input name="c" type="number" min="0" step="500" autofocus></label><p class="hint">Sistem tidak menampilkan angka kas seharusnya supaya hitungan fisik jujur. Selisih di atas ${rp(ctx.db.settings.cashVarTol)} otomatis tercatat di laporan fraud.</p>`,
         footer: `<button class="btn" data-close>Batal</button><button class="btn btn-pri" data-ok>Tutup shift</button>`,
         onMount(m, api) { m.querySelector('[data-ok]').onclick = async () => {
           const v = m.querySelector('input').value; if (v === '') return toast('Isi jumlah uang di laci', 'warn');
           let r;
-          try { const x = await API.shiftClose(sh.id, Number(v)); r = { expected: Number(x.expected), counted: Number(x.counted), var: Number(x.variance) }; await C.refresh('shifts'); } catch (e) { return failToast(e); }
+          try { const x = await API.shiftClose(sh.id, Number(v)); r = { expected: Number(x.expected), counted: Number(x.counted), var: Number(x.variance) }; await C.refresh('shifts'); loadReports(ctx, true); } catch (e) { return failToast(e); }
           api.close();
           openModal({ title: 'Shift ditutup', size: 'sm', body: `<dl class="kv"><dt>Kas seharusnya</dt><dd>${rp(r.expected)}</dd><dt>Dihitung</dt><dd>${rp(r.counted)}</dd><dt>Selisih</dt><dd class="${Math.abs(r.var) > ctx.db.settings.cashVarTol ? 'neg' : ''}"><b>${rp(r.var)}</b></dd></dl>${Math.abs(r.var) > ctx.db.settings.cashVarTol ? '<p class="banner err sm">Selisih melewati batas dan sudah dilaporkan ke manajer.</p>' : ''}`, footer: `<button class="btn btn-pri" data-close>Selesai</button>` });
           rerender();
@@ -763,7 +841,7 @@ export function receiptHtml(db, o, cfg) {
   return `<div ${rcAttr(R)}>
     ${R.logo ? '<img class="logo" src="assets/kaly-logo-dark.svg" alt="kaly">' : ''}<p class="rc-name">${esc(R.name || db.settings.brand.name)}</p>${R.outlet ? `<p>${esc(D.loc(db, o.loc)?.name || '')}</p>` : ''}${R.header ? `<p class="rc-head">${rcLines(R.header)}</p>` : ''}
     <p>${fmtDate(t)} ${fmtTime(t)}</p>
-    <p>No. ${esc(o.no)} ${o.table ? 'Meja ' + esc([o.table, ...(o.merged || [])].join('+')) : esc(D.TYPE_LABEL[o.type])}${R.cashier ? `<br>Kasir: ${esc(D.userName(db, o.paidBy || o.by))}` : ''}</p><hr>
+    <p>No. ${esc(o.no)} ${o.table ? 'Meja ' + esc([o.table, ...(o.merged || [])].join('+')) : esc(D.TYPE_LABEL[o.type])}${R.cashier ? `<br>Kasir: ${esc(D.cashierName(db, o))}` : ''}</p><hr>
     ${o.lines.filter((l) => !l.par && l.s !== 'void').map((l) => `<div class="rl"><span>${l.q}× ${esc(l.n)}</span><span>${rp(l.q * l.p)}</span></div>`).join('')}<hr>
     <div class="rl"><span>Subtotal</span><span>${rp(b.sub)}</span></div>${b.discs.map((d) => `<div class="rl"><span>${esc(d.label)}</span><span>-${rp(d.amt)}</span></div>`).join('')}
     <div class="rl"><span>PB1</span><span>${rp(b.tax)}</span></div>${b.deliv ? `<div class="rl"><span>Ongkir</span><span>${rp(b.deliv)}</span></div>` : ''}<div class="rl big"><span>Total</span><span>${rp(b.total)}</span></div>
@@ -798,7 +876,7 @@ export function kitchenSlipHtml(db, o, st, lines, { reprint = false, cfg } = {})
   return `<div class="receipt kslip rc-${R.font}" style="--paper:${R.paper}mm">
     <h3>${SLIP[st]}</h3><p class="ks-cat">${esc(catsOf(db, st))}</p>
     <p class="ks-where">${o.table ? 'Meja ' + esc([o.table, ...(o.merged || [])].join('+')) : esc(o.cust?.name || D.TYPE_LABEL[o.type])}</p>
-    <p>No. ${esc(o.no)} · ${fmtTime(t)}<br>Kasir: ${esc(D.userName(db, o.by))}${o.ch !== 'pos' ? ' · ' + D.CH_LABEL[o.ch] : ''}</p><hr>
+    <p>No. ${esc(o.no)} · ${fmtTime(t)}<br>Kasir: ${esc(D.cashierName(db, o, false))}${o.ch !== 'pos' ? ' · ' + D.CH_LABEL[o.ch] : ''}</p><hr>
     ${lines.map((l) => `<div class="ks-l"><b>${num(l.q)}×</b><span>${esc(l.n)}${par(l) ? `<small>paket ${esc(par(l))}</small>` : ''}${l.note ? `<small class="ks-note">${esc(l.note)}</small>` : ''}</span></div>`).join('')}
     <hr><p>${lines.length} item${reprint ? '<br><b>CETAK ULANG</b>' : ''}</p></div>`;
 }

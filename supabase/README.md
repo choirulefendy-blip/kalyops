@@ -163,6 +163,15 @@ Tabel baru `table_events` mencatat **pindah meja, kosongkan meja** (manual oleh 
 
 Warna grafik memakai turunan warna brand KALY dan sudah diuji dengan validator buta warna (pasangan bersebelahan aman untuk protanopia/deuteranopia). Hijau olive dan oranye brand tidak pernah dipakai berdampingan; naik/turun memakai pasangan teal ↔ oranye.
 
+## Baru di 2.9: kasir tablet, anggota shift, laporan per shift
+
+- Tabel baru `crew` (anggota shift): nama petugas kasir, service, dan dapur yang bergantian memakai satu akun login. Semua staf boleh membaca; **hanya Owner** yang bisa menambah/mengubah (RLS), dari Kaly Backoffice › Pengaturan › Anggota shift.
+- `shifts.crew_id` dan `shifts.crew_name`: nama petugas shift. `shift_open(p_terminal, p_location, p_cash, p_crew)` mewajibkan nama bila outlet sudah punya petugas kasir. Versi lama tiga parameter tetap bisa dipakai.
+- `shift_crew(p_shift, p_crew)`: kasir mengganti nama petugas pada shift berjalan tanpa ganti email login. Setiap pergantian tercatat di laporan fraud dengan tingkat **rendah**.
+- `shift_reports(p_location, p_days)`: laporan tiap shift (aktif & selesai, maks. 45 hari) untuk layar kasir: penjualan, jumlah transaksi, metode bayar, diskon, bill batal, kas seharusnya, selisih.
+- Notifikasi buka/tutup shift dan nama kasir di nota memakai nama petugas shift.
+- Database lama: jalankan `kaly-ops-update-2.9.sql`.
+
 ## Baru di 2.8: model printer
 
 Kolom baru `print_stations.model` (`umum`, `epson_t82x`, `rongta_rpp02n`) dan fungsi `print_station_model(p_id, p_model)` (hanya Owner). Aplikasi memakai model untuk lebar gambar ESC/POS dan pemotong kertas:

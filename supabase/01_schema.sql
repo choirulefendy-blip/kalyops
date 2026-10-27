@@ -886,3 +886,21 @@ alter table public.app_secrets add column if not exists vapid_private jsonb;
 -- 2.8 · Model printer (lebar titik & pemotong kertas per model)
 alter table public.print_stations add column if not exists model text not null default 'umum' check (model in ('umum', 'epson_t82x', 'rongta_rpp02n'));
 comment on column public.print_stations.model is 'Model printer: umum, epson_t82x (80 mm, 512 titik, pemotong), rongta_rpp02n (58 mm, 384 titik, Bluetooth, tanpa pemotong).';
+
+-- ---------------------------------------------------------------------
+-- 2.9 · Anggota shift: nama petugas (kasir, service, dapur) tanpa akun login sendiri.
+-- Satu akun login per perangkat/peran; nama petugas dipilih saat buka shift dan bisa diganti di akun kasir.
+-- Hanya Owner/Manajer (Kaly Backoffice) yang menambah atau mengubah anggota shift.
+-- ---------------------------------------------------------------------
+create table if not exists public.crew (
+  id          text primary key default public.new_id('cr'),
+  name        text not null check (length(trim(name)) between 1 and 40),
+  role        text not null check (role in ('kasir', 'service', 'dapur')),
+  location_id text references public.locations(id) on delete set null,
+  active      boolean not null default true,
+  created_at  timestamptz not null default now()
+);
+comment on table public.crew is 'Anggota shift (nama petugas) untuk akun kasir, service, dan dapur. location_id kosong = semua outlet. Dikelola Owner di Kaly Backoffice.';
+alter table public.shifts add column if not exists crew_id text references public.crew(id) on delete set null,
+  add column if not exists crew_name text;
+comment on column public.shifts.crew_name is 'Nama petugas shift saat ini (bisa diganti selama shift berjalan).';

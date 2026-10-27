@@ -1825,3 +1825,64 @@ begin
   update print_stations set model = p_model where id = p_id;
   if not found then raise exception 'Printer tidak ditemukan'; end if;
 end $$;
+
+-- ---------------------------------------------------------------------
+-- 2.9 · Anggota shift & laporan per shift
+-- ---------------------------------------------------------------------
+-- Petugas kasir yang boleh dipakai di outlet ini
+create or replace function engine.crew_kasir(p_crew text, p_loc text) returns public.crew language plpgsql stable security definer set search_path = public as $$
+declare c public.crew;
+begin
+  select * into c from crew where id = p_crew and active and role = 'kasir' and (location_id is null or location_id = p_loc);
+  if c.id is null then raise exception 'Nama petugas kasir tidak ditemukan. Anggota shift ditambahkan di Kaly Backoffice.'; end if;
+  return c;
+end $$;
+
+-- Buka shift atas nama petugas. Bila outlet sudah punya daftar petugas kasir, nama wajib dipilih.
+create or replace function public.shift_open(p_terminal text, p_location text, p_cash numeric, p_crew text) returns text language plpgsql security definer set search_path = public as $$
+declare me public.staff; v_id text; c public.crew;
+begin
+  me := engine.require_role(array['owner', 'kasir']);
+  perform engine.on_();
+  if exists (select 1 from shifts where terminal = p_terminal and close_at is null) then raise exception 'Masih ada shift terbuka di %', p_terminal; end if;
+  if p_crew is not null then c := engine.crew_kasir(p_crew, p_location);
+  elsif exists (select 1 from crew where active and role = 'kasir' and (location_id is null or location_id = p_location)) then
+    raise exception 'Pilih nama petugas shift';
+  end if;
+  insert into shifts (staff_id, terminal, location_id, open_cash, crew_id, crew_name)
+    values (me.id, p_terminal, p_location, coalesce(p_cash, 0), c.id, c.name) returning id into v_id;
+  return v_id;
+end $$;
+create or replace function public.shift_open(p_terminal text, p_location text, p_cash numeric) returns text language sql security definer set search_path = public as $$
+  select public.shift_open(p_terminal, p_location, p_cash, null::text);
+$$;
+
+-- Ganti nama petugas pada shift yang sedang berjalan (tanpa ganti email login). Tercatat di laporan fraud (rendah).
+create or replace function public.shift_crew(p_shift text, p_crew text) returns text language plpgsql security definer set search_path = public as $$
+declare me public.staff; sh public.shifts; c public.crew;
+begin
+  me := engine.require_role(array['owner', 'kasir']);
+  select * into sh from shifts where id = p_shift for update;
+  if sh.id is null or sh.close_at is not null then raise exception 'Shift tidak ditemukan atau sudah ditutup'; end if;
+  if sh.staff_id <> me.id and me.role <> 'owner' then raise exception 'Shift ini milik akun lain'; end if;
+  c := engine.crew_kasir(p_crew, sh.location_id);
+  if sh.crew_id is not distinct from c.id then return c.name; end if;
+  update shifts set crew_id = c.id, crew_name = c.name where id = p_shift;
+  perform engine.flag('Ganti petugas shift', 'rendah',
+    'Shift ' || sh.terminal || ': petugas diganti dari ' || coalesce(sh.crew_name, '(tanpa nama)') || ' ke ' || c.name || '.', me.id, sh.id, sh.location_id);
+  return c.name;
+end $$;
+
+-- Laporan tiap shift (aktif & selesai) untuk layar kasir: penjualan, metode bayar, kas, selisih
+create or replace function public.shift_reports(p_location text, p_days int default 7) returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare me public.staff;
+begin
+  me := engine.require_role(array['owner', 'kasir']);
+  if not public.can_loc(p_location) then raise exception 'Tidak punya akses ke outlet ini'; end if;
+  return coalesce((select jsonb_agg(x order by x->>'open_at' desc) from (
+    select jsonb_build_object('id', s.id, 'terminal', s.terminal, 'crew', coalesce(s.crew_name, st.name), 'open_at', s.open_at, 'close_at', s.close_at,
+             'open_cash', s.open_cash, 'counted', s.counted, 'expected', s.expected, 'variance', s.variance) || engine.shift_summary(s.id) x
+      from shifts s left join staff st on st.id = s.staff_id
+     where s.location_id = p_location and (s.close_at is null or s.open_at >= now() - make_interval(days => least(greatest(coalesce(p_days, 7), 1), 45)))
+     order by s.open_at desc limit 80) q), '[]'::jsonb);
+end $$;

@@ -487,6 +487,14 @@ export function voidOrder(db, o, reason, u) {
 
 // ---------- Shift kasir ----------
 export const activeShift = (db, terminal) => db.shifts.find((s) => s.term === terminal && !s.closeAt);
+// 2.9 · Nama petugas shift (anggota shift), bukan nama akun login
+export const shiftName = (db, sh) => (sh && (sh.crewName || userName(db, sh.user))) || '—';
+export const crewFor = (db, role, L) => (db.crew || []).filter((c) => c.active && c.role === role && (!c.loc || !L || c.loc === L));
+// Nama kasir di nota: petugas shift tempat nota dibayar / terminal pembuatnya, lalu nama akun
+export function cashierName(db, o, byPaid = true) {
+  const sh = (byPaid && o.shift && db.shifts.find((s) => s.id === o.shift)) || (o.term && db.shifts.find((s) => s.term === o.term && s.loc === o.loc && s.openAt <= (o.created || Date.now()) && (!s.closeAt || s.closeAt >= (o.created || 0))));
+  return sh?.crewName || userName(db, byPaid ? o.paidBy || o.by : o.by);
+}
 export function openShift(db, u, terminal, L, cash) {
   const s = { id: uid('sh'), user: u.id, term: terminal, loc: L, openAt: Date.now(), openCash: cash };
   db.shifts.unshift(s);
