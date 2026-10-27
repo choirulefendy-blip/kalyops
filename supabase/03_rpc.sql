@@ -59,7 +59,7 @@ end $$;
 create or replace function public.pos_send(p_order text) returns jsonb language plpgsql security definer set search_path = public as $$
 declare me public.staff; o public.orders; v_n int; v_drafts int;
 begin
-  me := engine.require_role(array['owner', 'kasir', 'service']);
+  me := engine.require_role(array['owner', 'kasir']);
   perform engine.on_();
   select * into o from orders where id = p_order for update;
   if o.id is null or o.status <> 'open' then raise exception 'Pesanan tidak ditemukan atau sudah ditutup'; end if;
@@ -1355,7 +1355,7 @@ end $$;
 create or replace function public.order_set_member(p_order text, p_member text default null) returns void language plpgsql security definer set search_path = public as $$
 declare o public.orders;
 begin
-  perform engine.require_role(array['owner', 'kasir', 'service']);
+  perform engine.require_role(array['owner', 'kasir']);
   perform engine.on_();
   select * into o from orders where id = p_order for update;
   if o.id is null or o.status <> 'open' then raise exception 'Bill tidak ditemukan atau sudah ditutup'; end if;

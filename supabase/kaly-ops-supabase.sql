@@ -1,5 +1,5 @@
 -- =====================================================================
--- Kaly Ops 2.9 · Database Supabase · SEMUA DALAM SATU FILE
+-- Kaly Ops 2.10 · Database Supabase · SEMUA DALAM SATU FILE
 -- Isi: 01 struktur tabel, 02 mesin bisnis, 03 fungsi aplikasi, 04 keamanan, 05 laporan, 06 data master.
 -- Cara pakai: Supabase > SQL Editor > New query > tempel seluruh isi file ini > Run. Lalu buat Owner: select public.kaly_setup_owner('emailanda@gmail.com', 'Nama Anda'); Lihat README.md.
 -- =====================================================================
@@ -1620,7 +1620,7 @@ end $$;
 create or replace function public.pos_send(p_order text) returns jsonb language plpgsql security definer set search_path = public as $$
 declare me public.staff; o public.orders; v_n int; v_drafts int;
 begin
-  me := engine.require_role(array['owner', 'kasir', 'service']);
+  me := engine.require_role(array['owner', 'kasir']);
   perform engine.on_();
   select * into o from orders where id = p_order for update;
   if o.id is null or o.status <> 'open' then raise exception 'Pesanan tidak ditemukan atau sudah ditutup'; end if;
@@ -2916,7 +2916,7 @@ end $$;
 create or replace function public.order_set_member(p_order text, p_member text default null) returns void language plpgsql security definer set search_path = public as $$
 declare o public.orders;
 begin
-  perform engine.require_role(array['owner', 'kasir', 'service']);
+  perform engine.require_role(array['owner', 'kasir']);
   perform engine.on_();
   select * into o from orders where id = p_order for update;
   if o.id is null or o.status <> 'open' then raise exception 'Bill tidak ditemukan atau sudah ditutup'; end if;
@@ -4334,6 +4334,16 @@ create trigger sync_log after insert or update or delete on public.crew for each
 revoke execute on function public.shift_open(text, text, numeric, text), public.shift_crew(text, text), public.shift_reports(text, int) from public, anon;
 grant execute on function public.shift_open(text, text, numeric, text), public.shift_crew(text, text), public.shift_reports(text, int) to authenticated;
 revoke all on function engine.crew_kasir(text, text) from public;
+
+-- ---------------------------------------------------------------------
+-- 2.10 · Kaly POS hanya untuk akun Kasir (dan Owner). Service tidak lagi membuat/mengubah bill;
+-- service tetap bisa membaca pesanan, mengantar item, memindah/mengosongkan meja (lewat fungsi), dan mencatat reservasi.
+-- ---------------------------------------------------------------------
+select engine.policy('orders', 'buat', 'insert', null, 'public.is_staff(array[''owner'',''kasir'']) and public.can_loc(location_id)');
+select engine.policy('orders', 'ubah', 'update', 'public.is_staff(array[''owner'',''kasir'']) and public.can_loc(location_id)');
+select engine.policy('order_lines', 'tambah', 'insert', null, 'public.is_staff(array[''owner'',''kasir'']) and public.can_order(order_id)');
+select engine.policy('order_lines', 'ubah draft', 'update', 'public.is_staff(array[''owner'',''kasir'']) and public.can_order(order_id)');
+select engine.policy('order_lines', 'hapus draft', 'delete', 'public.is_staff(array[''owner'',''kasir'']) and public.can_order(order_id)');
 
 
 -- =====================================================================

@@ -163,6 +163,12 @@ Tabel baru `table_events` mencatat **pindah meja, kosongkan meja** (manual oleh 
 
 Warna grafik memakai turunan warna brand KALY dan sudah diuji dengan validator buta warna (pasangan bersebelahan aman untuk protanopia/deuteranopia). Hijau olive dan oranye brand tidak pernah dipakai berdampingan; naik/turun memakai pasangan teal ↔ oranye.
 
+## Baru di 2.10: POS khusus kasir, service mencatat reservasi
+
+- Policy `orders` (buat/ubah) dan `order_lines` (tambah/ubah/hapus draft) kini hanya untuk Owner & Kasir. Fungsi `pos_send` dan `order_set_member` juga hanya Owner & Kasir.
+- Service tetap bisa membaca pesanan, `serve_line`/`serve_ready`, `table_move`, `table_clear`, dan `reservation_create` (Kaly Book).
+- Database lama: jalankan `kaly-ops-update-2.10.sql`.
+
 ## Baru di 2.9: kasir tablet, anggota shift, laporan per shift
 
 - Tabel baru `crew` (anggota shift): nama petugas kasir, service, dan dapur yang bergantian memakai satu akun login. Semua staf boleh membaca; **hanya Owner** yang bisa menambah/mengubah (RLS), dari Kaly Backoffice › Pengaturan › Anggota shift.

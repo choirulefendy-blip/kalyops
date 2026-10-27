@@ -29,12 +29,12 @@ import * as PS from './print-station.js';
 export const NAV = [
   { r: '', label: 'Beranda', icon: 'house', roles: ['owner', 'kasir', 'dapur', 'gudang', 'service'] },
   { r: 'denah', label: 'Denah Meja', icon: 'map', roles: ['owner', 'kasir', 'service'], desc: 'Status meja live untuk service' },
-  { r: 'pos', label: 'Kaly POS', icon: 'store', roles: ['owner', 'kasir', 'service'], desc: 'Kasir, meja, split bill, deposit' },
+  { r: 'pos', label: 'Kaly POS', icon: 'store', roles: ['owner', 'kasir'], desc: 'Kasir, meja, split bill, deposit' },
   { r: 'kitchen', label: 'Kaly Kitchen', icon: 'chef-hat', roles: ['owner', 'dapur'], desc: 'Layar dapur & serving time' },
   { r: 'core', label: 'Kaly Core', icon: 'layout-dashboard', roles: ['owner', 'gudang'], desc: 'Resep, stok, produksi, laporan' },
   { r: 'order-admin', label: 'Kaly Order', icon: 'qr-code', roles: ['owner', 'kasir'], desc: 'QR meja & pre-order reservasi' },
   { r: 'loop', label: 'Kaly Loop', icon: 'award', roles: ['owner', 'kasir'], desc: 'Member, campaign, misi' },
-  { r: 'book-admin', label: 'Kaly Book', icon: 'calendar-check', roles: ['owner', 'kasir'], desc: 'Reservasi meja' },
+  { r: 'book-admin', label: 'Kaly Book', icon: 'calendar-check', roles: ['owner', 'kasir', 'service'], desc: 'Reservasi meja' },
   { r: 'goods', label: 'Kaly Goods', icon: 'truck', roles: ['owner', 'gudang'], desc: 'Supplier & purchase order' },
   { r: 'print', label: 'Stasiun cetak', icon: 'printer', roles: ['owner', 'kasir', 'service', 'dapur'], desc: 'Printer Bar, Dapur & kasir' },
   { r: 'settings', label: 'Pengaturan', icon: 'settings', roles: ['owner'] },
@@ -58,7 +58,7 @@ export function navFor(role) {
 const railHidden = (path, u) => {
   let v = null; try { v = localStorage.getItem('kaly.rail'); } catch {}
   if (v) return v === 'off';
-  return path === 'pos' && ['kasir', 'service'].includes(u?.role) && innerWidth > 900 && innerWidth <= 1400;
+  return path === 'pos' && u?.role === 'kasir' && innerWidth > 900 && innerWidth <= 1400;
 };
 const ROUTES = {
   login: { v: Login, pub: true, bare: true },

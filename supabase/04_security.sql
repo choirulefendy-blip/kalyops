@@ -883,3 +883,13 @@ create trigger sync_log after insert or update or delete on public.crew for each
 revoke execute on function public.shift_open(text, text, numeric, text), public.shift_crew(text, text), public.shift_reports(text, int) from public, anon;
 grant execute on function public.shift_open(text, text, numeric, text), public.shift_crew(text, text), public.shift_reports(text, int) to authenticated;
 revoke all on function engine.crew_kasir(text, text) from public;
+
+-- ---------------------------------------------------------------------
+-- 2.10 · Kaly POS hanya untuk akun Kasir (dan Owner). Service tidak lagi membuat/mengubah bill;
+-- service tetap bisa membaca pesanan, mengantar item, memindah/mengosongkan meja (lewat fungsi), dan mencatat reservasi.
+-- ---------------------------------------------------------------------
+select engine.policy('orders', 'buat', 'insert', null, 'public.is_staff(array[''owner'',''kasir'']) and public.can_loc(location_id)');
+select engine.policy('orders', 'ubah', 'update', 'public.is_staff(array[''owner'',''kasir'']) and public.can_loc(location_id)');
+select engine.policy('order_lines', 'tambah', 'insert', null, 'public.is_staff(array[''owner'',''kasir'']) and public.can_order(order_id)');
+select engine.policy('order_lines', 'ubah draft', 'update', 'public.is_staff(array[''owner'',''kasir'']) and public.can_order(order_id)');
+select engine.policy('order_lines', 'hapus draft', 'delete', 'public.is_staff(array[''owner'',''kasir'']) and public.can_order(order_id)');

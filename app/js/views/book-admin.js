@@ -69,7 +69,9 @@ function resForm(db, r = {}) {
 
 export default {
   render(ctx) {
-    const tabs = [['jadwal', 'Jadwal meja'], ['daftar', 'Daftar reservasi'], ['channel', 'Pasang di channel']];
+    // 2.10: service mencatat & mengelola reservasi; pengaturan channel hanya Owner/kasir
+    const tabs = [['jadwal', 'Jadwal meja'], ['daftar', 'Daftar reservasi'], ...(ctx.user.role === 'service' ? [] : [['channel', 'Pasang di channel']])];
+    if (ctx.user.role === 'service' && ui.tab === 'channel') ui.tab = 'jadwal';
     const body = ui.tab === 'jadwal' ? jadwal(ctx) : ui.tab === 'daftar' ? daftar(ctx) : channel(ctx);
     return `<div class="tabs">${tabs.map(([k, l]) => `<button class="tab ${ui.tab === k ? 'on' : ''}" data-a="tab" data-v="${k}">${l}</button>`).join('')}</div><div class="tabbody">${body}</div>`;
   },
@@ -102,8 +104,8 @@ export default {
       openModal({ title: `${r.name} (${r.code})`, size: 'md', body: `<dl class="kv"><dt>Tanggal</dt><dd>${fmtDate(fromKey(r.date), true)}, ${esc(r.time)}</dd><dt>Tamu</dt><dd>${r.pax} orang</dd><dt>Meja</dt><dd>${esc(D.resTableLabel(r))} ${r.area ? `(minta ${esc(r.area)})` : ''}</dd><dt>Sumber</dt><dd>${SRC[r.src] || esc(r.src)}</dd><dt>No. HP</dt><dd>${esc(r.phone)}</dd><dt>Catatan</dt><dd>${esc(r.note || '—')}</dd><dt>Status</dt><dd><span class="badge ${RES_ST[r.status]}">${esc(r.status)}</span></dd>${r.order ? `<dt>Pre-order</dt><dd>${esc(D.order(db, r.order)?.no || '')}</dd>` : ''}</dl>
         <div class="row wrap">${r.status === 'menunggu' ? btn('dikonfirmasi', 'Konfirmasi', 'btn-pri') : ''}${['menunggu', 'dikonfirmasi'].includes(r.status) ? btn('datang', 'Tamu datang') + btn('no-show', 'No-show') + btn('batal', 'Batalkan', 'btn-danger-ghost') : ''}${r.status === 'datang' ? btn('selesai', 'Selesai') : ''}
         <a class="btn" href="https://wa.me/${D.waPhone(r.phone)}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">${ic('send', 15)} Kirim konfirmasi WA</a></div>
-        ${r.status === 'datang' ? `<p class="hint">${ctx.user.role === 'owner' ? 'Pesanan tamu dicatat kasir di Kaly POS.' : 'Buka Kaly POS, ketuk meja ini untuk mulai mencatat pesanan.'}</p>` : ''}`,
-        onMount(m, api) { m.addEventListener('click', async (ev) => { const b = ev.target.closest('[data-st]'); if (!b) return; const stt = b.dataset.st; b.disabled = true; try { await API.reservationStatus(r.id, stt); await C.refresh('reservations'); } catch (err) { b.disabled = false; return toast(err.message, 'err'); } api.close(); toast(`Status reservasi: ${stt}`); if (stt === 'datang') { go(ctx.user.role === 'owner' ? 'denah' : 'pos'); } else rerender(); }); } });
+        ${r.status === 'datang' ? `<p class="hint">${ctx.user.role === 'kasir' ? 'Buka Kaly POS, ketuk meja ini untuk mulai mencatat pesanan.' : 'Pesanan tamu dicatat kasir di Kaly POS.'}</p>` : ''}`,
+        onMount(m, api) { m.addEventListener('click', async (ev) => { const b = ev.target.closest('[data-st]'); if (!b) return; const stt = b.dataset.st; b.disabled = true; try { await API.reservationStatus(r.id, stt); await C.refresh('reservations'); } catch (err) { b.disabled = false; return toast(err.message, 'err'); } api.close(); toast(`Status reservasi: ${stt}`); if (stt === 'datang') { go(ctx.user.role === 'kasir' ? 'pos' : 'denah'); } else rerender(); }); } });
     },
   },
 };

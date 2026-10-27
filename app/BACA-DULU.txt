@@ -1,4 +1,4 @@
-KALY OPS 2.9 - CARA MEMASANG
+KALY OPS 2.10 - CARA MEMASANG
 ============================
 
 Folder ini (app/) adalah aplikasi Kaly Ops. Sejak 2.7 diterbitkan lewat GitHub Pages dari
@@ -27,15 +27,22 @@ Aplikasi menyimpan semua data di database Supabase milik Anda.
 
 Tidak ada akun demo. Setiap staf masuk dengan email dan kata sandinya sendiri.
 
-SUDAH MEMAKAI VERSI SEBELUMNYA? CARA UPDATE KE 2.9
-   Versi 2.9 punya SQL baru. Urutannya penting:
-   a. Supabase > SQL Editor > New query: jalankan kaly-ops-update-2.9.sql (database yang sudah 2.8),
-      atau kaly-ops-supabase.sql versi 2.9 (lengkap). Aman dijalankan ulang, data tidak hilang.
+SUDAH MEMAKAI VERSI SEBELUMNYA? CARA UPDATE KE 2.10
+   Versi 2.10 punya SQL baru. Urutannya penting:
+   a. Supabase > SQL Editor > New query: jalankan kaly-ops-update-2.10.sql (database yang sudah 2.9),
+      atau kaly-ops-supabase.sql versi 2.10 (lengkap). Aman dijalankan ulang, data tidak hilang.
    b. GitHub: perbarui isi folder app/ di repository (atau biarkan Claude yang mendorong perubahan).
    c. Perangkat yang sedang terbuka akan menampilkan "Versi aplikasi baru
       tersedia". Tekan Muat ulang.
    d. Bila server notifikasi (Edge Function kaly-push) sudah dipasang: perbarui isinya dengan
       functions/kaly-push/index.ts versi 2.5 (notifikasi dapur membuka layar dapur saat diketuk).
+
+YANG BARU DI 2.10 (Kaly POS khusus kasir, service mencatat reservasi)
+   - Kaly POS hanya untuk akun Kasir (dan Owner untuk kelola menu). Akun service tidak lagi melihat
+     Kaly POS dan tidak bisa membuka/mengubah bill, juga di database.
+   - Service mendapat Kaly Book: jadwal meja, daftar reservasi, tambah reservasi baru (telepon,
+     WhatsApp, walk-in), konfirmasi, tandai tamu datang / no-show / batal.
+   - Service tetap: Denah meja, antar item, pindah meja, kosongkan meja, check-in tamu reservasi.
 
 YANG BARU DI 2.9 (kasir tablet landscape, anggota shift, laporan per shift)
    - Kaly POS untuk tablet Android mendatar: layar utama berisi pilihan meja (besar, memenuhi layar).
