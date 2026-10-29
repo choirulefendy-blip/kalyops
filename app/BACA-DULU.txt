@@ -1,4 +1,4 @@
-KALY OPS 2.10 - CARA MEMASANG
+KALY OPS 2.11 - CARA MEMASANG
 ============================
 
 Folder ini (app/) adalah aplikasi Kaly Ops. Sejak 2.7 diterbitkan lewat GitHub Pages dari
@@ -36,6 +36,21 @@ SUDAH MEMAKAI VERSI SEBELUMNYA? CARA UPDATE KE 2.10
       tersedia". Tekan Muat ulang.
    d. Bila server notifikasi (Edge Function kaly-push) sudah dipasang: perbarui isinya dengan
       functions/kaly-push/index.ts versi 2.5 (notifikasi dapur membuka layar dapur saat diketuk).
+
+YANG BARU DI 2.11 (Cari printer otomatis - perlu aplikasi Android 1.4)
+   - Pengaturan > Printer > "Cari printer": tablet mencari sendiri printer
+       USB yang tercolok, LAN/Wi-Fi di jaringan toko (port 9100), dan Bluetooth di sekitar.
+     Ketuk "Tambah": nama, sambungan, alamat, model (Epson TM-T82X / Rongta RPP02N) & lebar
+     kertas terisi otomatis; tinggal centang lembar yang dicetak, lalu Simpan.
+   - Bluetooth: printer yang belum dipasangkan langsung dipasangkan dari Kaly Ops
+     (PIN 0000 lalu 1234 diisi otomatis). Tidak perlu lagi membuka Pengaturan Android.
+     Saat pertama memakai, Android meminta izin "Perangkat sekitar" (Android 12+) atau Lokasi
+     (Android 6-11, Lokasi/GPS tablet juga harus menyala). Ketuk Izinkan.
+   - USB: begitu printer dicolok, Kaly Ops memberi tahu. Printer yang sudah terdaftar langsung
+     disiapkan izinnya; printer baru ditawarkan untuk ditambahkan (akun Manajer/Owner).
+   - LAN: pemindaian tidak mengirim apa pun ke printer (tidak mencetak). Kunci IP printer di
+     router (DHCP reservation) supaya alamatnya tidak berubah.
+   - Tidak ada SQL baru di 2.11. Pasang APK 1.4 di setiap tablet (menimpa versi lama, data aman).
 
 YANG BARU DI 2.10 (Kaly POS khusus kasir, service mencatat reservasi)
    - Kaly POS hanya untuk akun Kasir (dan Owner untuk kelola menu). Akun service tidak lagi melihat

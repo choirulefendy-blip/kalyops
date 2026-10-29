@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Kelas printer USB (7) dan merek printer thermal yang umum (Epson, Rongta, Xprinter/Winbond, Zjiang) -->
+<resources>
+    <usb-device class="7" />
+    <usb-device vendor-id="1208" />
+    <usb-device vendor-id="4070" />
+    <usb-device vendor-id="1046" />
+    <usb-device vendor-id="1659" />
+</resources>

@@ -1387,3 +1387,12 @@ body.bo .brand-t small { color: #E8C98A; }
 .tb.seat .tb-o { color: var(--kolam); font-weight: 700; }
 .tb.seat .tb-flag { color: var(--kolam); }
 .tb-legend .lg.seat { background: var(--kolam-100); border-color: var(--kolam); }
+/* 2.11 · Cari printer otomatis */
+.pf-grid { display: grid; gap: 12px; margin-top: 8px; }
+.pf-sec { border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
+.pf-sec h4 { margin: 0; display: flex; gap: 6px; align-items: center; font-size: 14px; }
+.pf-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px dashed var(--line-2); }
+.pf-row:first-of-type { border-top: 0; }
+.pf-n { display: grid; min-width: 0; } .pf-n small { color: var(--ink-3); }
+.pf-wait .ic { animation: pfspin 1s linear infinite; }
+@keyframes pfspin { to { transform: rotate(360deg); } }

@@ -39,23 +39,36 @@ final class UsbPrinter {
         return best;
     }
 
+    /** 1.4: satu perangkat yang baru dicolok (null bila bukan perangkat yang bisa menerima cetakan) */
+    static String describe(UsbManager m, UsbDevice d) {
+        try {
+            Object[] o = outOf(d);
+            if (o == null) return null;
+            return row(m, d, o).toString();
+        } catch (Exception e) { return null; }
+    }
+    private static JSONObject row(UsbManager m, UsbDevice d, Object[] o) throws Exception {
+        JSONObject j = new JSONObject();
+        String name = null;
+        if (Build.VERSION.SDK_INT >= 21) {
+            String mf = d.getManufacturerName(), pr = d.getProductName();
+            name = ((mf == null ? "" : mf + " ") + (pr == null ? "" : pr)).trim();
+        }
+        j.put("id", idOf(d));
+        j.put("name", name == null || name.length() == 0 ? "Perangkat USB " + idOf(d) : name);
+        j.put("printer", ((UsbInterface) o[0]).getInterfaceClass() == UsbConstants.USB_CLASS_PRINTER);
+        j.put("granted", m.hasPermission(d));
+        j.put("model", LanScanner.guessModel(name) .equals("umum") && d.getVendorId() == 0x04b8 ? "epson_t82x" : LanScanner.guessModel(name));
+        return j;
+    }
+
     /** Perangkat USB yang tersambung: [{id, name, printer, granted}] */
     static String list(UsbManager m) throws Exception {
         JSONArray out = new JSONArray();
         for (UsbDevice d : m.getDeviceList().values()) {
             Object[] o = outOf(d);
             if (o == null) continue;
-            JSONObject j = new JSONObject();
-            String name = null;
-            if (Build.VERSION.SDK_INT >= 21) {
-                String mf = d.getManufacturerName(), pr = d.getProductName();
-                name = ((mf == null ? "" : mf + " ") + (pr == null ? "" : pr)).trim();
-            }
-            j.put("id", idOf(d));
-            j.put("name", name == null || name.length() == 0 ? "Perangkat USB " + idOf(d) : name);
-            j.put("printer", ((UsbInterface) o[0]).getInterfaceClass() == UsbConstants.USB_CLASS_PRINTER);
-            j.put("granted", m.hasPermission(d));
-            out.put(j);
+            out.put(row(m, d, o));
         }
         return out.toString();
     }

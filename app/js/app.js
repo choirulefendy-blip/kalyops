@@ -7,6 +7,7 @@ import * as API from './api.js';
 import * as N from './notify.js';
 import * as DN from './devnotify.js';
 import * as CR from './crew.js';
+import { hookUsb } from './printer-finder.js';
 import Login from './views/login.js';
 import Home from './views/home.js';
 import POS from './views/pos.js';
@@ -335,6 +336,7 @@ async function start() {
   }
   route();
   N.start({ getOutlet });
+  hookUsb();   // 2.11: printer USB dicolok ke tablet (aplikasi Android 1.4)
   setTimeout(releaseTick, 2000);
 }
 start();

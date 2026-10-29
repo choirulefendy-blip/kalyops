@@ -1,4 +1,4 @@
-KALY OPS UNTUK ANDROID 1.3 - APLIKASI TABLET KASIR
+KALY OPS UNTUK ANDROID 1.4 - APLIKASI TABLET KASIR
 ==================================================
 
 Aplikasi ini membuka Kaly Ops (https://choirulefendy-blip.github.io/kalyops/) di layar penuh dan menambah
@@ -11,9 +11,12 @@ kemampuan yang tidak dimiliki browser biasa:
   - suara pemberitahuan memakai mesin suara Android (Bahasa Indonesia bila terpasang);
   - (1.2) notifikasi Android: pesanan QR/online, meja, reservasi, dll. muncul di bilah notifikasi
     saat kasir membuka aplikasi lain (mis. aplikasi EDC/QRIS). Ketuk untuk kembali ke halaman terkait;
+  - (1.4) CARI PRINTER OTOMATIS tanpa mengetik alamat: memindai printer LAN/Wi-Fi di jaringan toko,
+    mencari & memasangkan printer Bluetooth di sekitar (PIN 0000/1234 otomatis), dan memberi tahu
+    Kaly Ops saat printer USB dicolok (Kaly Ops > Pengaturan > Printer > Cari printer);
   - layar tidak mati sendiri selama aplikasi terbuka. Tombol Kembali di halaman awal hanya
     menyembunyikan aplikasi (tetap berjalan supaya notifikasi masuk).
-Isi Kaly Ops tetap diperbarui lewat Netlify. APK cukup dipasang sekali.
+Isi Kaly Ops tetap diperbarui lewat GitHub Pages. APK cukup dipasang sekali.
 
 MEMASANG DI TABLET
   1. Di tablet, buka Kaly Ops di Chrome > menu Stasiun cetak > Unduh aplikasi Android (APK)
@@ -62,7 +65,7 @@ MENYIAPKAN PRINTER LAN
 MEMBANGUN ULANG APK (untuk pengembang)
   Folder ini berisi kode sumber lengkap (Java, tanpa Gradle).
   Ubuntu 24.04:  sudo apt install android-sdk-platform-23 aapt dalvik-exchange zipalign apksigner openjdk-21-jdk
-  Lalu:          KS_PASS=<sandi di keystore/KATA-SANDI.txt> VERSION_NAME=1.3 VERSION_CODE=4 ./build.sh   (versi berikutnya: naikkan keduanya)
+  Lalu:          KS_PASS=<sandi di keystore/KATA-SANDI.txt> VERSION_NAME=1.4 VERSION_CODE=5 ./build.sh   (versi berikutnya: naikkan keduanya)
   Hasil:         build/kaly-ops.apk
   Bisa juga dibuka di Android Studio (buat proyek baru, salin src/ dan res/ serta AndroidManifest.xml).
 

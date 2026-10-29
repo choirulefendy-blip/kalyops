@@ -36,7 +36,7 @@ public final class Bridge {
             o.put("android", Build.VERSION.SDK_INT);
             o.put("model", Build.MANUFACTURER + " " + Build.MODEL);
             o.put("home", act.home());
-            o.put("features", new org.json.JSONArray().put("lan").put("bt").put("usb").put("notify"));
+            o.put("features", new org.json.JSONArray().put("lan").put("bt").put("usb").put("notify").put("scan"));
         } catch (JSONException ignore) {}
         return o.toString();
     }
@@ -111,6 +111,51 @@ public final class Bridge {
                 return "bt".equals(kind) ? BtPrinter.list() : UsbPrinter.list(usb());
             }
         });
+    }
+
+    // ---------- 1.4: cari printer tanpa mengetik alamat ----------
+    /** Pindai jaringan Wi-Fi/LAN tablet ini untuk printer ESC/POS (port 9100). Hasil JSON [{ip, port, name, model}]. */
+    @JavascriptInterface
+    public void scanLan(final String cb) {
+        if (!act.isOwnPage()) { done(cb, "Ditolak: halaman bukan Kaly Ops"); return; }
+        exec(null, cb, new Job() { @Override public String go(UsbDevice dev) throws Exception { return LanScanner.scan(9100, 450); } });
+    }
+
+    /** Cari printer Bluetooth: yang sudah dipasangkan + yang ada di sekitar (±12 detik). */
+    @JavascriptInterface
+    public void scanBt(final String cb) {
+        if (!act.isOwnPage()) { done(cb, "Ditolak: halaman bukan Kaly Ops"); return; }
+        act.runOnUiThread(new Runnable() { @Override public void run() {
+            act.requestScan(new Runnable() { @Override public void run() {
+                BtScanner.discover(act, 12000, new BtScanner.Done() {
+                    @Override public void ok(String json) { done(cb, null, json); }
+                    @Override public void fail(String msg) { done(cb, msg); }
+                });
+            } }, new Runnable() { @Override public void run() {
+                done(cb, android.os.Build.VERSION.SDK_INT >= 31 ? "Izin \"Perangkat sekitar\" belum diberikan untuk Kaly Ops" : "Izin Lokasi belum diberikan (Android memerlukannya untuk mencari Bluetooth)");
+            } });
+        } });
+    }
+
+    /** Pasangkan printer Bluetooth langsung dari Kaly Ops (PIN 0000 / 1234 diisi otomatis). */
+    @JavascriptInterface
+    public void pairBt(final String addr, final String cb) {
+        if (!act.isOwnPage()) { done(cb, "Ditolak: halaman bukan Kaly Ops"); return; }
+        act.runOnUiThread(new Runnable() { @Override public void run() {
+            act.requestScan(new Runnable() { @Override public void run() {
+                BtScanner.pair(act, addr, new BtScanner.Done() {
+                    @Override public void ok(String json) { done(cb, null, json); }
+                    @Override public void fail(String msg) { done(cb, msg); }
+                });
+            } }, new Runnable() { @Override public void run() { done(cb, "Izin Bluetooth belum diberikan untuk Kaly Ops"); } });
+        } });
+    }
+
+    /** Kabar dari Android ke halaman (mis. printer USB baru dicolok): window.KalyNative._event(kind, data). */
+    void event(String kind, String json) {
+        if (!act.isOwnPage()) return;
+        final String js = "window.KalyNative&&window.KalyNative._event&&window.KalyNative._event(" + JSONObject.quote(kind) + "," + JSONObject.quote(json) + ")";
+        web.post(new Runnable() { @Override public void run() { web.evaluateJavascript(js, null); } });
     }
 
     private interface Job { String go(UsbDevice dev) throws Exception; }

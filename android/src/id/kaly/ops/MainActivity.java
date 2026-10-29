@@ -40,9 +40,14 @@ import java.util.Locale;
  */
 public class MainActivity extends Activity {
     static final String DEFAULT_HOME = "https://choirulefendy-blip.github.io/kalyops/";   // 1.3: GitHub Pages (sebelumnya Netlify)
-    private static final int REQ_FILE = 11, REQ_SAVE = 12, REQ_BT = 13, REQ_NOTIFY = 14;
+    private static final int REQ_FILE = 11, REQ_SAVE = 12, REQ_BT = 13, REQ_NOTIFY = 14, REQ_SCAN = 15;
     private static final String BT_CONNECT = "android.permission.BLUETOOTH_CONNECT";   // Android 12+
     private static final String POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS";   // Android 13+
+    private static final String BT_SCAN = "android.permission.BLUETOOTH_SCAN";            // Android 12+
+    private static final String FINE_LOCATION = "android.permission.ACCESS_FINE_LOCATION"; // pencarian Bluetooth Android 6–11
+    private Runnable scanOk, scanDeny;
+    private BroadcastReceiver usbAttach;
+    private Bridge bridge;
     private static final String CHANNEL = "kaly";
     private Runnable notifyOk, notifyDeny;
     private volatile boolean foreground;
@@ -79,7 +84,8 @@ public class MainActivity extends Activity {
         s.setUseWideViewPort(true);
         s.setUserAgentString(s.getUserAgentString() + " KalyOpsAndroid/" + BuildInfo.VERSION_NAME);
 
-        web.addJavascriptInterface(new Bridge(this, web), "KalyAndroid");
+        bridge = new Bridge(this, web);
+        web.addJavascriptInterface(bridge, "KalyAndroid");
         web.setWebViewClient(new Client());
         web.setWebChromeClient(new Chrome());
 
@@ -94,6 +100,7 @@ public class MainActivity extends Activity {
         });
 
         registerUsbReceiver();
+        registerUsbAttach();
 
         if (state != null) web.restoreState(state);
         else {
@@ -119,6 +126,14 @@ public class MainActivity extends Activity {
             prefs().edit().putBoolean("notifyAsked", true).apply();
             Runnable r = ok ? notifyOk : notifyDeny;
             notifyOk = notifyDeny = null;
+            if (r != null) r.run();
+            return;
+        }
+        if (req == REQ_SCAN) {
+            boolean all = res.length > 0;
+            for (int g : res) all &= g == PackageManager.PERMISSION_GRANTED;
+            Runnable r = all ? scanOk : scanDeny;
+            scanOk = scanDeny = null;
             if (r != null) r.run();
             return;
         }
@@ -193,10 +208,46 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent i) {
         super.onNewIntent(i);
         setIntent(i);
+        usbAttached(i);
         String h = hashOf(i);
         if (h == null) return;
         if (isOwnPage()) web.evaluateJavascript("location.hash=" + org.json.JSONObject.quote(h), null);
         else web.loadUrl(base(home()) + h);
+    }
+
+    // ---------- 1.4: izin mencari printer Bluetooth di sekitar ----------
+    private String[] scanPerms() {
+        return Build.VERSION.SDK_INT >= 31 ? new String[] { BT_SCAN, BT_CONNECT } : new String[] { FINE_LOCATION };
+    }
+    boolean hasScanPermission() {
+        if (Build.VERSION.SDK_INT < 23) return true;
+        for (String p : scanPerms()) if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) return false;
+        return true;
+    }
+    void requestScan(Runnable ok, Runnable deny) {
+        if (hasScanPermission()) { ok.run(); return; }
+        scanOk = ok; scanDeny = deny;
+        requestPermissions(scanPerms(), REQ_SCAN);
+    }
+
+    // ---------- 1.4: printer USB dicolok → Kaly Ops diberi tahu (tanpa mengetik vendor:produk) ----------
+    private void registerUsbAttach() {
+        usbAttach = new BroadcastReceiver() {
+            @Override public void onReceive(Context c, Intent i) { usbAttached(i); }
+        };
+        BtScanner.register(this, usbAttach, new IntentFilter(UsbManager.ACTION_USB_DEVICE_ATTACHED));
+    }
+    private long lastUsbAt; private String lastUsbId = "";
+    void usbAttached(Intent i) {
+        if (i == null || !UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(i.getAction())) return;
+        UsbDevice d = i.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+        if (d == null || bridge == null) return;
+        String id = UsbPrinter.idOf(d);
+        long now = System.currentTimeMillis();
+        if (id.equals(lastUsbId) && now - lastUsbAt < 4000) return;   // siaran & intent yang sama
+        lastUsbId = id; lastUsbAt = now;
+        String j = UsbPrinter.describe((UsbManager) getSystemService(Context.USB_SERVICE), d);
+        if (j != null) bridge.event("usb", j);
     }
 
     // ---------- Izin USB ----------
@@ -385,6 +436,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         if (tts != null) tts.shutdown();
         if (usbReceiver != null) try { unregisterReceiver(usbReceiver); } catch (Exception ignore) {}
+        if (usbAttach != null) try { unregisterReceiver(usbAttach); } catch (Exception ignore) {}
         web.setVisibility(View.GONE);
         web.destroy();
         super.onDestroy();

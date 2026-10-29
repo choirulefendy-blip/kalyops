@@ -37,9 +37,13 @@ const PX_PER_DOT = 96 / 25.4 / 8;                    // 1 titik printer = 1/8 mm
 
 // ---------- Jembatan ke aplikasi Android ----------
 const pend = new Map();
+const evs = new Set();
+export const onNativeEvent = (fn) => { evs.add(fn); return () => evs.delete(fn); };
 let seq = 0;
 if (typeof window !== 'undefined') {
   window.KalyNative = window.KalyNative || {};
+  // 1.4: kabar dari aplikasi Android (mis. printer USB baru dicolok)
+  window.KalyNative._event = (kind, data) => { let d = data; try { d = JSON.parse(data); } catch {} evs.forEach((f) => { try { f(kind, d); } catch (e) { console.error(e); } }); };
   window.KalyNative._done = (id, err, data) => { const p = pend.get(id); if (!p) return; pend.delete(id); clearTimeout(p.t); if (err) p.rej(new Error(err)); else p.res(data); };
 }
 function call(method, args, ms = 25000) {
@@ -211,6 +215,13 @@ export async function listDevices(kind) {
   const d = await call('list', [kind], 30000);
   try { return JSON.parse(d || '[]'); } catch { return []; }
 }
+// 2.11 · Cari printer otomatis (aplikasi Android 1.4)
+export const canScan = () => appFeatures().includes('scan');
+const needScan = () => { if (!canScan()) throw new Error('Perbarui aplikasi Android Kaly Ops ke versi 1.4 untuk mencari printer otomatis'); };
+const parse = (d) => { try { return JSON.parse(d || '[]'); } catch { return []; } };
+export async function scanLan() { needScan(); return parse(await call('scanLan', [], 30000)); }
+export async function scanBt() { needScan(); return parse(await call('scanBt', [], 40000)); }
+export async function pairBt(addr) { needScan(); return call('pairBt', [addr], 70000); }
 export function systemPrint(html, name = 'Kaly Ops') {
   const n = native(); if (!n?.systemPrint) return false;
   const base = location.href.split('#')[0].replace(/[^/]*$/, '');
