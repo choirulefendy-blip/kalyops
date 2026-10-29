@@ -6,6 +6,7 @@ Sistem operasional terintegrasi **Kaly Eatery**: Kaly POS, Kaly Kitchen, Kaly Lo
 |---|---|
 | Staf operasional (kasir, dapur, gudang, service) — **Kaly Ops** | https://choirulefendy-blip.github.io/kalyops/ |
 | Owner / Manajer — **Kaly Backoffice** | https://choirulefendy-blip.github.io/kalyops/backoffice/ |
+| Alamat Vercel (Next.js + API notifikasi, data & versi sama) | https://kalyops.vercel.app/ · Backoffice: https://kalyops.vercel.app/backoffice/ |
 | Pelanggan (pesan dari meja, reservasi, member) | tautan & QR dari Kaly Order / Kaly Book / Kaly Loop |
 
 ## Isi repository
@@ -15,6 +16,7 @@ Sistem operasional terintegrasi **Kaly Eatery**: Kaly POS, Kaly Kitchen, Kaly Lo
 | `app/` | Aplikasi web (HTML, CSS, JavaScript tanpa build). Inilah yang terbit di GitHub Pages. |
 | `supabase/` | Paket database: `kaly-ops-supabase.sql` (semua dalam satu file), file 01–07, dan Edge Function `functions/kaly-push` untuk notifikasi di perangkat. Petunjuk lengkap di `supabase/README.md`. |
 | `android/` | Kode sumber aplikasi Android Kaly Ops (tablet kasir & printer LAN/Bluetooth/USB). APK siap pasang ada di `app/android/kaly-ops.apk`. Keystore penandatangan **tidak** disimpan di sini. |
+| `web/` | Pembungkus Next.js untuk Vercel: menyajikan `app/` apa adanya + API `/api/push` (notifikasi) dan `/api/health`. Juga bisa dijalankan dengan Docker (`web/Dockerfile`, `docker-compose.yml`). |
 | `.github/workflows/pages.yml` | Menerbitkan `app/` ke GitHub Pages otomatis setiap ada perubahan di branch `main`. |
 
 ## Memasang (sekali saja)
@@ -22,7 +24,8 @@ Sistem operasional terintegrasi **Kaly Eatery**: Kaly POS, Kaly Kitchen, Kaly Lo
 1. **Database** — Supabase › SQL Editor: jalankan `supabase/kaly-ops-supabase.sql`. Lihat `supabase/README.md`.
 2. **Sambungan** — `app/js/config.js` berisi Project URL dan **anon / publishable key** Supabase. Jangan pernah memasang service_role / secret key (workflow menolak menerbitkan bila ada).
 3. **GitHub Pages** — Settings › Pages › Build and deployment › Source: **GitHub Actions**. Setelah itu setiap perubahan di `app/` terbit dalam 1–2 menit (tab **Actions**).
-4. **Notifikasi saat aplikasi ditutup (opsional)** — pasang Edge Function `kaly-push` (lihat `supabase/README.md`), lalu Kaly Backoffice › Pengaturan › Notifikasi di perangkat › Sambungkan.
+4. **Vercel** — project `kalyops`, Root Directory `web`, region icn1. Environment Variables (Production): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (anon key saja), `KALY_PUSH_SECRET` (sama dengan `app_secrets.push_secret`, tipe Sensitive), `KALY_ENV=production`. Setiap push ke `main` terbit otomatis.
+5. **Notifikasi saat aplikasi ditutup** — sudah tersambung ke `https://kalyops.vercel.app/api/push` (tanpa Edge Function, tanpa service_role key). Cek: `https://kalyops.vercel.app/api/health`.
 
 ## Memperbarui
 
