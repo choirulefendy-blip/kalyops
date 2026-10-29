@@ -1,0 +1,26 @@
+# Jalankan Kaly Ops staging & production berdampingan di satu server (opsional; utamanya di Vercel).
+#   cp .env.example .env.staging && cp .env.example .env.production  (isi masing-masing)
+#   docker compose up -d --build
+services:
+  staging:
+    build:
+      context: ..
+      dockerfile: web/Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${STAGING_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${STAGING_SUPABASE_ANON_KEY}
+        KALY_ENV: staging
+    env_file: .env.staging
+    ports: ["3001:3000"]
+    restart: unless-stopped
+  production:
+    build:
+      context: ..
+      dockerfile: web/Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${PROD_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${PROD_SUPABASE_ANON_KEY}
+        KALY_ENV: production
+    env_file: .env.production
+    ports: ["3000:3000"]
+    restart: unless-stopped

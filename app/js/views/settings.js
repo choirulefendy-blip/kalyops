@@ -59,7 +59,7 @@ function pushCard() {
   return `<div class="card" id="pn-card"><div class="card-h"><h3>${ic('bell', 17)} Notifikasi di perangkat</h3></div>
     <p class="muted sm">Laporan tutup shift, ringkasan penjualan harian, pembayaran supplier, temuan fraud, barang PO diterima, stok menipis, stock opname, pesanan, dan lainnya bisa muncul di bilah notifikasi HP atau laptop masing-masing, <b>juga saat Kaly Ops ditutup</b>. Setiap staf mengaktifkannya sendiri di perangkatnya lewat tombol ${ic('volume-2', 14)} <b>Notifikasi</b> di bilah atas, dan memilih jenis notifikasinya.</p>
     <div class="ps-row pn-row"><span class="dot ${dev.on ? 'on' : ''}"></span><span><b>Perangkat ini</b><small>${esc(dev.text)}</small></span><span class="row-xs"><button class="btn btn-sm btn-ghost" data-a="pnPrefs">Atur</button></span></div>
-    <div class="ps-row pn-row"><span class="dot ${ready ? 'on' : ''}"></span><span><b>Server notifikasi (Edge Function ${DN.FN_NAME})</b><small>${esc(srv)}</small></span>
+    <div class="ps-row pn-row"><span class="dot ${ready ? 'on' : ''}"></span><span><b>Server notifikasi (${DN.onVercel() ? 'API Vercel /api/push' : 'Edge Function ' + DN.FN_NAME})</b><small>${esc(srv)}</small></span>
       <span class="row-xs">${ready ? '<button class="btn btn-sm btn-ghost" data-a="pnConnect">Sambungkan ulang</button><button class="btn btn-sm btn-ghost" data-a="pnDisconnect">Putuskan</button>' : '<button class="btn btn-sm btn-pri" data-a="pnConnect">Sambungkan</button>'}</span></div>
     <details class="pn-steps" ${info && !ready ? 'open' : ''}><summary>Cara menyiapkan server notifikasi (sekali saja, oleh Owner)</summary><ol>
       <li>Jalankan paket SQL Kaly Ops 2.4 di <b>Supabase › SQL Editor</b> (sudah menyalakan ekstensi <b>pg_net</b>).</li>

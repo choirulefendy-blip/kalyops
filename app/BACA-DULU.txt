@@ -1,4 +1,4 @@
-KALY OPS 2.11 - CARA MEMASANG
+KALY OPS 2.12 - CARA MEMASANG
 ============================
 
 Folder ini (app/) adalah aplikasi Kaly Ops. Sejak 2.7 diterbitkan lewat GitHub Pages dari
@@ -36,6 +36,17 @@ SUDAH MEMAKAI VERSI SEBELUMNYA? CARA UPDATE KE 2.10
       tersedia". Tekan Muat ulang.
    d. Bila server notifikasi (Edge Function kaly-push) sudah dipasang: perbarui isinya dengan
       functions/kaly-push/index.ts versi 2.5 (notifikasi dapur membuka layar dapur saat diketuk).
+
+YANG BARU DI 2.12 (dapur gabungan, audit log, Vercel)
+   - Layar dapur > "Produksi gabungan": porsi menu yang sama dari semua nota dijumlahkan
+     (mis. Nasi Geprek 6 porsi dari 3 nota, 3x pedas). "Masak semua" / "Siap semua" sekaligus.
+     Tampilan "Per nota" tetap ada, dengan ringkasan produksi di atasnya.
+   - Kaly Backoffice > Audit log: semua aktivitas akun (masuk/keluar, tambah/ubah/hapus bill,
+     item, pembayaran, shift, reservasi, menu, stok, staf, pengaturan) beserta nilai sebelum/sesudah,
+     nama petugas & perangkat. Bisa difilter & diunduh Excel. Hanya Owner/Manajer.
+   - Tanpa Supabase Realtime: data dimuat ulang otomatis tiap 3 detik; ketuk status "Tersinkron"
+     di kanan atas untuk memuat ulang sekarang.
+   - Kaly Ops kini juga berjalan di Vercel (Next.js) dengan API notifikasi di Vercel.
 
 YANG BARU DI 2.11 (Cari printer otomatis - perlu aplikasi Android 1.4)
    - Pengaturan > Printer > "Cari printer": tablet mencari sendiri printer

@@ -617,7 +617,7 @@ export default {
     async served(el) { el.disabled = true; await serveOrder(el.dataset.id); },
     async loungeServed(el) { el.disabled = true; await serveOrder(el.dataset.id); },
     loungeTg() { loungeOn = !loungeOn; try { localStorage.setItem(LKEY, loungeOn ? 'on' : 'off'); } catch {} rerender(); },
-    terminal(el) { setTerminal(el.value); toast(`Terminal diganti ke ${el.value}`); rerender(); },
+    terminal(el) { setTerminal(el.value); import('../app.js').then((m) => m.auditDevice()); toast(`Terminal diganti ke ${el.value}`); rerender(); },
     shiftOpen(el, e, ctx) {
       const crew = D.crewFor(ctx.db, 'kasir', ctx.outlet);
       const pre = CR.deviceCrew('kasir');

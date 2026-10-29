@@ -391,19 +391,8 @@ do $$ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- Realtime: layar dapur, denah, kasir, dan lounge ikut berubah otomatis
--- ---------------------------------------------------------------------
-do $$
-declare t text;
-begin
-  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['orders', 'order_lines', 'order_notices', 'reservations', 'stock', 'menus', 'dining_tables', 'shifts'] loop
-      if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
-        execute format('alter publication supabase_realtime add table public.%I', t);
-      end if;
-    end loop;
-  end if;
-end $$;
+-- 2.12 · Realtime TIDAK dipakai: aplikasi memuat ulang data lewat sync_poll (refresh berkala).
+-- Tabel Kaly Ops dikeluarkan dari publikasi supabase_realtime (lihat bagian 2.12 di akhir file).
 
 -- ---------------------------------------------------------------------
 -- Storage: foto menu (baca publik, unggah oleh Owner)
@@ -458,12 +447,7 @@ select engine.policy('sync_log', 'staf baca', 'select', 'public.is_staff()');
 revoke all on public.sync_log from anon;
 revoke insert, update, delete on public.sync_log from authenticated;
 grant select on public.sync_log to authenticated;
-do $$ begin
-  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
-     and not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'sync_log') then
-    alter publication supabase_realtime add table public.sync_log;
-  end if;
-end $$;
+
 
 -- Akun staf: harus selalu ada minimal satu Owner aktif yang sudah punya login, supaya pengaturan tidak terkunci
 create or replace function engine.tg_staff_owner_guard() returns trigger language plpgsql security definer set search_path = public as $$
@@ -731,8 +715,10 @@ begin
   select push_url into v_url from settings where id = 1;
   if v_url is null or not exists (select 1 from push_subscriptions where new.kind = any(kinds) or (new.kind = 'push_test' and staff_id = new.ref)) then return null; end if;
   if not exists (select 1 from pg_extension where extname = 'pg_net') then return null; end if;
+  -- 2.12: API Vercel memerlukan rahasia bersama di header x-kaly-secret (Edge Function lama mengabaikannya)
   execute 'select net.http_post(url := $1, body := $2, headers := $3, timeout_milliseconds := 5000)'
-    using v_url, jsonb_build_object('id', new.id), '{"Content-Type": "application/json"}'::jsonb;
+    using v_url, jsonb_build_object('id', new.id),
+      jsonb_build_object('Content-Type', 'application/json', 'x-kaly-secret', coalesce((select push_secret from app_secrets where id = 1), ''));
   return null;
 exception when others then return null;   -- notifikasi tidak pernah menggagalkan transaksi
 end $$;
@@ -912,3 +898,81 @@ end $$;
 drop trigger if exists alert_res_seat on public.reservations;
 create trigger alert_res_seat after insert or update of status on public.reservations for each row execute function engine.tg_alert_res_seat();
 revoke all on function engine.tg_alert_res_seat() from public;
+
+-- ---------------------------------------------------------------------
+-- 2.12 · Realtime tidak dipakai (aplikasi memakai refresh berkala lewat sync_poll)
+-- ---------------------------------------------------------------------
+do $$
+declare t text;
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    for t in select tablename from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' loop
+      execute format('alter publication supabase_realtime drop table public.%I', t);
+    end loop;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 2.12 · Audit log: setiap tambah/ubah/hapus oleh akun staf dicatat otomatis
+-- ---------------------------------------------------------------------
+create or replace function engine.tg_audit() returns trigger language plpgsql security definer set search_path = public as $$
+declare v_new jsonb; v_old jsonb; v_chg jsonb := '{}'::jsonb; k text; v_id text; v_loc text; v_sum text;
+  v_skip text[] := array['updated_at', 'created_at', 'search', 'pin_hash', 'p256dh', 'auth'];
+begin
+  if auth.uid() is null then return null; end if;   -- tamu (QR/online/reservasi) & proses sistem tidak dicatat di sini
+  if tg_op <> 'INSERT' then v_old := to_jsonb(old); end if;
+  if tg_op <> 'DELETE' then v_new := to_jsonb(new); end if;
+  -- kolom turunan yang dihitung mesin dari item (sudah tercatat di perubahan item-nya)
+  if tg_table_name = 'orders' then v_skip := v_skip || array['kitchen_state', 'ready_at', 'picked_at']; end if;
+  if tg_op = 'UPDATE' then
+    for k in select jsonb_object_keys(v_new) loop
+      if not (k = any(v_skip)) and (v_new -> k) is distinct from (v_old -> k) then
+        v_chg := v_chg || jsonb_build_object(k, jsonb_build_array(v_old -> k, v_new -> k));
+      end if;
+    end loop;
+    if v_chg = '{}'::jsonb then return null; end if;
+  else
+    v_chg := coalesce(v_new, v_old);
+    foreach k in array v_skip loop v_chg := v_chg - k; end loop;
+  end if;
+  v_id := coalesce(v_new ->> 'id', v_old ->> 'id', v_new ->> 'code', v_old ->> 'code', '');
+  v_loc := coalesce(v_new ->> 'location_id', v_old ->> 'location_id');
+  v_sum := case tg_op when 'INSERT' then 'tambah' when 'DELETE' then 'hapus' else 'ubah ' || (select string_agg(x, ', ') from (select jsonb_object_keys(v_chg) x limit 8) q) end;
+  -- ringkasan yang mudah dicari: nomor nota, nama item/menu/staf
+  if tg_table_name = 'orders' then v_sum := coalesce(coalesce(v_new, v_old) ->> 'no', '') || ' · ' || v_sum;
+  elsif tg_table_name in ('order_lines', 'order_payments') then
+    v_sum := coalesce((select no from orders where id = coalesce(v_new, v_old) ->> 'order_id'), '') || ' · '
+      || coalesce(trim(trailing '.' from to_char((coalesce(v_new, v_old) ->> 'qty')::numeric, 'FM999990.##')) || '× ', '') || coalesce(coalesce(v_new, v_old) ->> 'name', coalesce(v_new, v_old) ->> 'method', '') || ' · ' || v_sum;
+  elsif coalesce(v_new, v_old) ? 'name' then v_sum := coalesce(coalesce(v_new, v_old) ->> 'name', '') || ' · ' || v_sum;
+  end if;
+  perform engine.audit_write(lower(tg_op), tg_table_name, v_id, v_loc, v_sum, v_chg);
+  return null;
+end $$;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['orders', 'order_lines', 'order_payments', 'shifts', 'deposit_cards', 'deposit_tx', 'reservations', 'members',
+    'menus', 'menu_categories', 'menu_outlets', 'menu_bom', 'menu_package_items', 'items', 'item_bom', 'promos', 'vouchers', 'campaigns', 'tiers', 'missions',
+    'settings', 'staff', 'crew', 'print_stations', 'dining_tables', 'areas', 'locations', 'purchase_orders', 'purchase_order_lines', 'transfers', 'transfer_lines',
+    'opnames', 'opname_lines', 'productions', 'b2b_invoices', 'suppliers', 'supplier_prices', 'fraud_flags'] loop
+    if to_regclass('public.' || t) is not null then
+      execute format('drop trigger if exists audit on public.%I', t);
+      execute format('create trigger audit after insert or update or delete on public.%I for each row execute function engine.tg_audit()', t);
+    end if;
+  end loop;
+end $$;
+
+alter table public.audit_log enable row level security;
+select engine.policy('audit_log', 'owner baca', 'select', 'public.is_staff(array[''owner''])');
+revoke all on public.audit_log from anon;
+revoke insert, update, delete on public.audit_log from authenticated;
+grant select on public.audit_log to authenticated;
+alter table public.audit_sessions enable row level security;
+revoke all on public.audit_sessions from anon, authenticated;
+revoke all on function engine.tg_audit(), engine.audit_write(text, text, text, text, text, jsonb), engine.audit_who() from public;
+revoke execute on function public.audit_event(text, text, text, text), public.audit_session(text, text), public.kitchen_batch(text[], text) from public, anon;
+grant execute on function public.audit_event(text, text, text, text), public.audit_session(text, text), public.kitchen_batch(text[], text) to authenticated;
+
+revoke execute on function public.push_api(text, text, jsonb) from public;
+grant execute on function public.push_api(text, text, jsonb) to anon, authenticated;

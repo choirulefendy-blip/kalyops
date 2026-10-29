@@ -3,7 +3,7 @@
 import * as C from './cloud.js';
 import { subscribe as sub, emit } from './bus.js';
 
-export const APP_VERSION = '2.11';
+export const APP_VERSION = '2.12';
 const TERMINAL = 'kaly.terminal';
 
 export const getDb = () => (C.me ? C.db : C.pub.db || C.db);

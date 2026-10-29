@@ -475,6 +475,7 @@ export async function boot() {
   if (!s) { me = null; return null; }
   try { me = await rpc('whoami'); } catch (e) { if (/habis|JWT/i.test(e.message)) { await sb.auth.signOut().catch(() => {}); me = null; return null; } throw e; }
   if (!me) { await sb.auth.signOut().catch(() => {}); return null; }
+  auditSession();
   await loadAll();
   return me;
 }
@@ -488,10 +489,24 @@ export async function signIn(email, password) {
   }
   me = await rpc('whoami');
   if (!me) { await sb.auth.signOut().catch(() => {}); throw new Error('Login berhasil, tapi email ini belum terdaftar sebagai staf aktif. Minta Owner menambahkannya di Pengaturan, bagian Staf.'); }
+  await auditSession();
+  audit('login', auditCtx.device ? 'Masuk dari ' + auditCtx.device : 'Masuk');
   await loadAll();
   return me;
 }
+// 2.12 · Audit log: nama petugas & perangkat untuk sesi login ini, serta catatan masuk/keluar
+let auditCtx = { crew: '', device: '' };
+export function auditSession(crew, device) {
+  if (crew != null) auditCtx.crew = crew; if (device != null) auditCtx.device = device;
+  if (!me || !sb) return Promise.resolve();
+  return rpc('audit_session', { p_crew: auditCtx.crew || '', p_device: auditCtx.device || '' }).catch(() => {});
+}
+export function audit(action, detail = '', entity = '', id = '') {
+  if (!me || !sb) return Promise.resolve();
+  return rpc('audit_event', { p_action: action, p_detail: String(detail || '').slice(0, 300), p_entity: entity, p_id: id }).catch(() => {});
+}
 export async function signOut() {
+  await audit('logout');
   stopSync();
   try { await sb?.auth.signOut(); } catch {}
   me = null; ready = false;
@@ -525,7 +540,7 @@ async function loadAll() {
 }
 
 // ---------- Sinkron antar perangkat ----------
-let pollT = null, pollSince = null, channel = null, rtJoined = false, syncing = false, lastOk = 0;
+let pollT = null, pollSince = null, syncing = false, lastOk = 0;
 const seen = new Map();
 const pending = new Set();
 let flushT = null;
@@ -558,29 +573,23 @@ async function poll() {
       if (/Sesi login habis|belum terdaftar/.test(e.message)) { syncing = false; return; }
     } finally { syncing = false; }
   }
-  const wait = document.hidden ? 15000 : rtJoined ? 12000 : 3000;
+  const wait = document.hidden ? 15000 : 3000;
   pollT = setTimeout(poll, wait);
 }
-function subscribeRealtime() {
-  try {
-    channel = sb.channel('kaly-sync')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sync_log' }, (p) => {
-        const { id, tbl } = p.new || {};
-        if (id == null || seen.has(id)) return;
-        seen.set(id, Date.now()); queue(tbl);
-      })
-      .subscribe((st) => { rtJoined = st === 'SUBSCRIBED'; });
-  } catch (e) { rtJoined = false; }
-}
+// 2.12: tanpa Supabase Realtime. Data dimuat ulang lewat sync_poll (refresh berkala): 3 detik saat layar terbuka,
+// 15 detik saat aplikasi di latar. Tombol status sinkron di kanan atas memuat ulang semua data sekarang juga.
 export function startSync() {
   stopSync();
   poll();
-  subscribeRealtime();
+}
+export async function refreshNow() {
+  if (!me) return;
+  setStatus('loading');
+  try { await loadAll(); setStatus('ok'); } catch (e) { setStatus('offline'); throw e; }
+  poll();
 }
 export function stopSync() {
   clearTimeout(pollT); pollT = null; pollSince = null; seen.clear();
-  if (channel) { try { sb.removeChannel(channel); } catch {} channel = null; }
-  rtJoined = false;
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && me) poll(); });
 window.addEventListener('online', () => { if (me) poll(); });

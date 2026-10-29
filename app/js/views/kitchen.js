@@ -7,7 +7,8 @@ import * as D from '../domain.js';
 import { stockBanner } from '../stock-alert.js';
 import { rerender } from '../app.js';
 
-const ui = { station: kdsStation(), tab: 'live', range: 'today' };
+const VKEY = 'kaly.kds.view';
+const ui = { station: kdsStation(), tab: 'live', range: 'today', view: (() => { try { return localStorage.getItem(VKEY) || 'tiket'; } catch { return 'tiket'; } })() };
 let seen = null;
 
 const fail = (e) => toast(e?.message || 'Gagal menyimpan ke server', 'err', 5000);
@@ -54,6 +55,39 @@ function ticket(o) {
   </article>`;
 }
 
+// ---------- 2.12 · Produksi gabungan: total porsi per menu dari semua nota yang menunggu ----------
+function batches(db, L) {
+  const G = new Map();
+  for (const o of activeTickets(db, L)) {
+    for (const l of kLines(o)) {
+      if (l.s !== 'new' && l.s !== 'cook') continue;
+      const k = l.m || l.n;
+      const g = G.get(k) || { k, n: l.n, st: l.st, q: 0, qNew: 0, qCook: 0, since: Infinity, lines: [], notes: new Map(), tickets: new Map() };
+      g.q += l.q; if (l.s === 'new') g.qNew += l.q; else g.qCook += l.q;
+      g.since = Math.min(g.since, l.ts || o.created);
+      g.lines.push({ id: l.id, s: l.s, o: o.id });
+      if (l.note) g.notes.set(l.note, (g.notes.get(l.note) || 0) + l.q);
+      const t = g.tickets.get(o.id) || { no: o.no, where: where(o), q: 0 }; t.q += l.q; g.tickets.set(o.id, t);
+      G.set(k, g);
+    }
+  }
+  return [...G.values()].sort((a, b) => a.since - b.since);
+}
+function batchCard(g) {
+  const nNew = g.lines.filter((x) => x.s === 'new').length;
+  return `<article class="bt-c ${g.qCook && !g.qNew ? 'all-cook' : ''}">
+    <header class="bt-h"><span class="bt-q">${num(g.q)}<small>porsi</small></span><span class="bt-n"><b>${esc(g.n)}</b><small>${D.STATION_LABEL[g.st] || ''} · ${g.tickets.size} nota · <span data-since="${g.since}" data-sla></span></small></span></header>
+    <div class="bt-st">${g.qNew ? `<span class="badge b-info">${num(g.qNew)} antre</span>` : ''}${g.qCook ? `<span class="badge b-warn">${num(g.qCook)} dimasak</span>` : ''}</div>
+    ${g.notes.size ? `<ul class="bt-notes">${[...g.notes].map(([t, q]) => `<li><b>${num(q)}×</b> ${esc(t)}</li>`).join('')}</ul>` : ''}
+    <div class="bt-tk">${[...g.tickets.values()].map((t) => `<span class="bt-t"><b>${esc(t.no)}</b> ${t.where} <i>${num(t.q)}×</i></span>`).join('')}</div>
+    <footer class="bt-f">${nNew ? `<button class="btn" data-a="batch" data-k="${esc(g.k)}" data-to="cook">${ic('flame', 15)} Masak semua</button>` : ''}<button class="btn btn-pri" data-a="batch" data-k="${esc(g.k)}" data-to="ready">${ic('check-check', 15)} Siap semua (${num(g.q)})</button></footer>
+  </article>`;
+}
+function batchStrip(bs) {
+  if (bs.length < 1) return '';
+  return `<div class="bt-strip" role="note"><span class="bt-sl">${ic('layers', 15)} Produksi</span>${bs.slice(0, 8).map((g) => `<button class="bt-chip" data-a="view" data-v="gabung" title="Lihat produksi gabungan"><b>${num(g.q)}×</b> ${esc(g.n)}</button>`).join('')}${bs.length > 8 ? `<span class="muted sm">+${bs.length - 8} menu</span>` : ''}</div>`;
+}
+
 function live(ctx) {
   const db = ctx.db, L = ctx.outlet;
   const ts = activeTickets(db, L), done = doneRecent(db, L);
@@ -62,10 +96,13 @@ function live(ctx) {
   const sched = db.orders.filter((o) => o.loc === L && o.sched && !o.released && o.status !== 'void');
   return `<div class="kds-bar">
       <div class="chips">${[['all', 'Semua'], ['dapur', 'Dapur'], ['bar', 'Bar']].map(([k, l]) => `<button class="chip ${ui.station === k ? 'on' : ''}" data-a="station" data-v="${k}">${l}</button>`).join('')}</div>
+      <div class="seg-tabs" role="tablist">${[['tiket', 'Per nota', 'receipt'], ['gabung', 'Produksi gabungan', 'layers']].map(([k, l, i]) => `<button class="${ui.view === k ? 'on' : ''}" role="tab" aria-selected="${ui.view === k}" data-a="view" data-v="${k}">${ic(i, 15)} ${l}</button>`).join('')}</div>
     </div>
     ${stockBanner(db, L)}
     <p class="kds-info">${ts.length} nota aktif, ${waitN} item belum siap, ${readyN} item menunggu diantar. Ketuk nama item untuk menandai <b>Dimasak</b>. Tekan <b>Siap</b> per item: pramusaji & kasir langsung diberi tahu untuk mengantar item itu, tanpa menunggu item lain di nota yang sama.${sched.length ? ` ${sched.length} pre-order reservasi masuk otomatis ${db.settings.scheduleLead} menit sebelum jamnya.` : ''}</p>
-    <div class="kds">${ts.map(ticket).join('') || `<div class="kds-empty">${ic('chef-hat', 40)}<p>Tidak ada pesanan yang menunggu. Pesanan baru dari kasir dan QR meja muncul di sini otomatis.</p></div>`}</div>
+    ${ui.view === 'gabung' ? (() => { const bs = batches(db, L); return `<p class="kds-info">${ic('layers', 15)} <b>Produksi gabungan</b>: porsi menu yang sama dari semua nota dijumlahkan, supaya bisa dimasak sekaligus. <b>Siap semua</b> menandai setiap porsi siap, dan pramusaji diberi tahu per meja.</p>
+      <div class="bt-grid">${bs.map(batchCard).join('') || `<div class="kds-empty">${ic('chef-hat', 40)}<p>Tidak ada pesanan yang menunggu.</p></div>`}</div>`; })()
+    : `${batchStrip(batches(db, L))}<div class="kds">${ts.map(ticket).join('') || `<div class="kds-empty">${ic('chef-hat', 40)}<p>Tidak ada pesanan yang menunggu. Pesanan baru dari kasir dan QR meja muncul di sini otomatis.</p></div>`}</div>`}
     ${done.length ? `<h3 class="kds-sub">Semua item sudah siap</h3><div class="kds-done">${done.map((o) => { const w = kLines(o).filter((l) => l.s === 'ready').length; return `<div class="kd"><b>${esc(o.no)}</b><span>${where(o)}</span><span class="badge ${w ? 'b-ok' : 'b-mute'}">${w ? `${w} item menunggu diantar` : 'Sudah diantar'}</span><button class="btn btn-sm btn-ghost" data-a="recall" data-o="${o.id}" title="Kembalikan semua item nota ini ke antrean">Kembalikan</button></div>`; }).join('')}</div>` : ''}`;
 }
 
@@ -121,6 +158,18 @@ export default {
     tab(el) { ui.tab = el.dataset.v; rerender(); },
     station(el) { ui.station = el.dataset.v; setKdsStation(ui.station); rerender(); },
     range(el) { ui.range = el.dataset.v; rerender(); },
+    view(el) { ui.view = el.dataset.v; try { localStorage.setItem(VKEY, ui.view); } catch {} rerender(); },
+    batch(el, e, ctx) {
+      const g = batches(getDb(), ctx.outlet).find((x) => x.k === el.dataset.k); if (!g) return;
+      const to = el.dataset.to;
+      const ls = g.lines.filter((x) => (to === 'cook' ? x.s === 'new' : true));
+      if (!ls.length) return;
+      el.disabled = true;
+      local((d) => { for (const x of ls) { const o = D.order(d, x.o); if (!o) continue; if (to === 'cook') { const l = o.lines.find((y) => y.id === x.id); if (l) { l.s = 'cook'; l.tc = Date.now(); } } else D.setLineStatus(d, o, x.id, 'ready'); } });
+      API.kitchenBatch(ls.map((x) => x.id), to).catch(fail);
+      toast(to === 'cook' ? `${num(g.qNew)} porsi ${g.n} mulai dimasak` : `${num(g.q)} porsi ${g.n} siap (${g.tickets.size} nota). Pramusaji & kasir diberi tahu.`);
+      rerender();
+    },
     cookTg(el) {
       const o = D.order(getDb(), el.dataset.o), l = o?.lines.find((x) => x.id === el.dataset.l);
       if (l) step(o.id, l.id, l.s === 'new' ? 'cook' : 'uncook');

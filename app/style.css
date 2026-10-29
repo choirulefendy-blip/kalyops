@@ -285,9 +285,9 @@ body.bare { background: var(--bg); }
 .qr-mini svg { width: 96px; height: 96px; flex: none; }
 
 /* ---------- POS ---------- */
-.pos { display: grid; grid-template-columns: 300px minmax(0, 1fr) 380px; gap: 12px; height: calc(var(--vh) - 56px - 40px); min-height: 560px; }
-.banner + .pos { height: calc(var(--vh) - 56px - 40px - 58px); }
-.pos > .card { padding: 12px; display: flex; flex-direction: column; min-height: 0; }
+.pos-legacy { display: grid; grid-template-columns: 300px minmax(0, 1fr) 380px; gap: 12px; height: calc(var(--vh) - 56px - 40px); min-height: 560px; }
+.banner + .pos-legacy { height: calc(var(--vh) - 56px - 40px - 58px); }
+.pos-legacy > .card { padding: 12px; display: flex; flex-direction: column; min-height: 0; }
 .pos-left-b { overflow-y: auto; flex: 1; min-height: 0; display: grid; gap: 8px; align-content: start; padding-top: 4px; }
 .pos-left .tabs { margin-bottom: 8px; overflow-x: auto; scrollbar-width: none; }
 .tables { display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); gap: 7px; }
@@ -367,14 +367,14 @@ body.bare { background: var(--bg); }
 .rl { display: flex; justify-content: space-between; gap: 8px; } .rl.big { font-weight: 800; font-size: 13.5px; }
 details.reg { margin-top: 12px; border-top: 1px solid var(--line-2); padding-top: 10px; }
 details.reg summary { cursor: pointer; font-weight: 700; color: var(--olive-700); margin-bottom: 10px; }
-@media (max-width: 1280px) { .pos { grid-template-columns: 260px minmax(0, 1fr) 340px; } }
+@media (max-width: 1280px) { .pos-legacy { grid-template-columns: 260px minmax(0, 1fr) 340px; } }
 @media (max-width: 1100px) {
-  .pos { grid-template-columns: minmax(0, 1fr) 340px; height: auto; min-height: 0; }
+  .pos-legacy { grid-template-columns: minmax(0, 1fr) 340px; height: auto; min-height: 0; }
   .banner + .pos { height: auto; }
   .pos-left { grid-column: 1 / -1; max-height: 340px; }
   .pos-menu, .pos-bill { height: calc(var(--vh) - 140px); min-height: 520px; }
 }
-@media (max-width: 760px) { .pos { grid-template-columns: minmax(0, 1fr); } .pos-left { max-height: none; } .pos-menu, .pos-bill { height: auto; min-height: 0; } .menu-grid { max-height: 60vh; } .bill-lines { max-height: 40vh; } .pay-methods { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 760px) { .pos-legacy { grid-template-columns: minmax(0, 1fr); } .pos-left { max-height: none; } .pos-menu, .pos-bill { height: auto; min-height: 0; } .menu-grid { max-height: 60vh; } .bill-lines { max-height: 40vh; } .pay-methods { grid-template-columns: repeat(3, 1fr); } }
 
 /* ---------- Kitchen (gelap) ---------- */
 .kitchen .tabs { border-color: #3A4230; } .kitchen .tab { color: #AEB4A2; } .kitchen .tab.on { color: #fff; }
@@ -1020,7 +1020,7 @@ body.app.rail-off .rail { display: none; }
 /* ===== 1.5 · Lounge di Kaly POS ===== */
 .pos-page { display: flex; flex-direction: column; gap: 10px; height: calc(var(--vh) - 56px - 40px); min-height: 640px; }
 .pos-page > .banner { margin: 0; flex: none; }
-.pos-page > .pos { flex: 1 1 auto; height: auto; min-height: 460px; }
+.pos-page > .pos-legacy { flex: 1 1 auto; height: auto; min-height: 460px; }
 .pos-lounge { flex: none; display: flex; gap: 14px; padding: 8px 10px; align-items: stretch; }
 .pos-lounge .pl-col:not(.rd) { flex: 0 1 auto; max-width: 46%; }
 .pos-lounge .pl-col.rd { flex: 1 1 0; border-left: 1px solid var(--line-2); padding-left: 14px; }
@@ -1048,7 +1048,7 @@ button.lqc:disabled { opacity: 1; background: var(--paper-2); }
 .pl-tools { display: flex; flex-direction: column; gap: 2px; justify-content: center; }
 .pos-lounge-off { flex: none; }
 @media (max-width: 1100px) { .pos-lounge { display: grid; grid-template-columns: minmax(0, 1fr) auto; } .pos-lounge .pl-col:not(.rd) { max-width: none; } .pos-lounge .pl-col.rd { grid-column: 1; border-left: 0; padding-left: 0; } .pl-tools { grid-row: 1 / span 2; grid-column: 2; } }
-@media (max-width: 1100px) { .pos-page { height: auto; min-height: 0; } .pos-page > .pos { flex: none; min-height: 0; } }
+@media (max-width: 1100px) { .pos-page { height: auto; min-height: 0; } .pos-page > .pos-legacy { flex: none; min-height: 0; } }
 
 /* ===== 1.6 · Pas di semua layar: tanpa zoom & tanpa geser kanan-kiri ===== */
 /* Tinggi layar asli di HP (tidak tertutup bilah alamat browser) */
@@ -1396,3 +1396,46 @@ body.bo .brand-t small { color: #E8C98A; }
 .pf-n { display: grid; min-width: 0; } .pf-n small { color: var(--ink-3); }
 .pf-wait .ic { animation: pfspin 1s linear infinite; }
 @keyframes pfspin { to { transform: rotate(360deg); } }
+/* 2.12 · status sinkron = tombol muat ulang (tanpa Realtime) */
+button.sync { border: 0; background: none; padding: 4px 8px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 12px; }
+button.sync:hover { background: var(--olive-50); }
+/* 2.12 · Produksi gabungan di layar dapur */
+.seg-tabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: #2A3121; border: 1px solid #3A4230; margin-left: auto; }
+.seg-tabs button { display: inline-flex; gap: 6px; align-items: center; min-height: 38px; padding: 0 14px; border: 0; border-radius: 8px; background: none; color: #C9CEBF; font-weight: 600; font-size: 13.5px; cursor: pointer; }
+.seg-tabs button.on { background: var(--orange); color: #fff; }
+.bt-strip { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 0 0 10px; padding: 8px 10px; border-radius: 10px; background: #262C1D; border: 1px solid #3A4230; }
+.bt-sl { display: inline-flex; gap: 5px; align-items: center; font-weight: 700; color: #F5B78F; font-size: 13px; margin-right: 4px; }
+.bt-chip { border: 1px solid #424B36; background: #2E3523; color: #EEEFEA; border-radius: 999px; padding: 5px 11px; font-size: 13px; cursor: pointer; }
+.bt-chip b { color: #F5B78F; }
+.bt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; align-items: start; }
+.bt-c { background: #262C1D; border: 1px solid #3A4230; border-radius: 12px; padding: 12px; display: grid; gap: 10px; }
+.bt-c.all-cook { border-color: #B98A2E; }
+.bt-h { display: flex; gap: 12px; align-items: center; }
+.bt-q { display: grid; justify-items: center; min-width: 64px; padding: 6px 8px; border-radius: 10px; background: var(--orange); color: #fff; font-size: 30px; font-weight: 800; line-height: 1; }
+.bt-q small { font-size: 11px; font-weight: 600; opacity: .9; margin-top: 3px; }
+.bt-n { display: grid; gap: 3px; min-width: 0; } .bt-n b { font-size: 17px; color: #fff; } .bt-n small { color: #AEB4A2; }
+.bt-st { display: flex; gap: 6px; flex-wrap: wrap; }
+.bt-notes { list-style: none; margin: 0; padding: 8px 10px; border-radius: 8px; background: #3A2E1C; color: #F5D9A8; display: grid; gap: 3px; font-size: 13.5px; }
+.bt-tk { display: flex; flex-wrap: wrap; gap: 5px; }
+.bt-t { font-size: 12px; padding: 4px 8px; border-radius: 6px; background: #2E3523; color: #D3D7CB; } .bt-t b { color: #fff; } .bt-t i { font-style: normal; color: #F5B78F; font-weight: 700; }
+.bt-f { display: flex; gap: 8px; } .bt-f .btn { flex: 1; min-height: 46px; justify-content: center; }
+.kitchen .bt-f .btn:not(.btn-pri) { background: #2E3523; color: #EEEFEA; border-color: #424B36; }
+@media (max-width: 760px) { .seg-tabs { margin-left: 0; width: 100%; } .seg-tabs button { flex: 1; justify-content: center; } }
+/* 2.12 · Audit log */
+.au { display: grid; gap: 12px; }
+.au > .banner { margin: 0; }
+.au-f { display: grid; gap: 10px; }
+.au-f .chips { margin: 0; align-items: center; }
+.au-fr { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)) minmax(200px, 2fr) auto; gap: 10px; align-items: end; }
+.au-fr .fld { margin: 0; } .au-x { min-height: 40px; }
+.au-t td { vertical-align: top; } .au-t code { font-size: 12px; background: var(--paper-2); padding: 1px 5px; border-radius: 4px; }
+.au-r { cursor: pointer; } .au-r.open td { background: var(--olive-50); }
+.au-d td { background: var(--paper-2); padding: 10px 14px; }
+.au-diff { display: grid; gap: 0; max-width: 760px; font-size: 13px; }
+.au-dh, .au-dr { display: grid; grid-template-columns: minmax(110px, 160px) 1fr 1fr; gap: 12px; padding: 6px 0; border-bottom: 1px dashed var(--line-2); }
+.au-dh { font-weight: 700; color: var(--ink-3); font-size: 12px; } .au-dr span { word-break: break-word; }
+.au-kv { max-width: 760px; } .au-kv dd { word-break: break-word; }
+@media (max-width: 900px) { .au-fr { grid-template-columns: 1fr 1fr; } .au-q, .au-x { grid-column: 1 / -1; } }
+.au-old { color: var(--cabai); text-decoration: line-through; text-decoration-color: rgba(179,64,46,.4); } .au-new { color: var(--olive-900); font-weight: 600; }
+/* 2.12 · penanda lingkungan uji (Vercel Preview + database staging) */
+.env-pill { margin-left: 6px; padding: 2px 8px; border-radius: 6px; background: #6B2FA3; color: #fff; font-size: 11px; font-weight: 800; letter-spacing: .06em; }

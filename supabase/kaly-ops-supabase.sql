@@ -1,5 +1,5 @@
 -- =====================================================================
--- Kaly Ops 2.10 · Database Supabase · SEMUA DALAM SATU FILE
+-- Kaly Ops 2.12 · Database Supabase · SEMUA DALAM SATU FILE
 -- Isi: 01 struktur tabel, 02 mesin bisnis, 03 fungsi aplikasi, 04 keamanan, 05 laporan, 06 data master.
 -- Cara pakai: Supabase > SQL Editor > New query > tempel seluruh isi file ini > Run. Lalu buat Owner: select public.kaly_setup_owner('emailanda@gmail.com', 'Nama Anda'); Lihat README.md.
 -- =====================================================================
@@ -911,6 +911,40 @@ comment on table public.crew is 'Anggota shift (nama petugas) untuk akun kasir, 
 alter table public.shifts add column if not exists crew_id text references public.crew(id) on delete set null,
   add column if not exists crew_name text;
 comment on column public.shifts.crew_name is 'Nama petugas shift saat ini (bisa diganti selama shift berjalan).';
+
+-- ---------------------------------------------------------------------
+-- 2.12 · Audit log: semua aktivitas akun (login/logout & setiap perubahan data oleh akun staf)
+-- Diisi trigger engine.tg_audit dan fungsi audit_event; hanya Owner yang bisa membaca.
+-- ---------------------------------------------------------------------
+create table if not exists public.audit_log (
+  id          bigint generated always as identity primary key,
+  at          timestamptz not null default clock_timestamp(),
+  staff_id    text,
+  staff_name  text not null default '',
+  role        text not null default '',
+  crew_name   text not null default '',
+  device      text not null default '',
+  action      text not null,
+  entity      text not null default '',
+  entity_id   text not null default '',
+  location_id text,
+  summary     text not null default '',
+  data        jsonb not null default '{}'::jsonb
+);
+create index if not exists audit_log_at_idx on public.audit_log (at desc);
+create index if not exists audit_log_staff_idx on public.audit_log (staff_id, at desc);
+create index if not exists audit_log_entity_idx on public.audit_log (entity, entity_id);
+-- Nama petugas & perangkat per sesi login (satu akun bisa dipakai beberapa perangkat/petugas)
+create table if not exists public.audit_sessions (
+  session_id text primary key,
+  staff_id   text,
+  crew_name  text not null default '',
+  device     text not null default '',
+  at         timestamptz not null default now()
+);
+comment on table public.audit_log is 'Audit log Kaly Ops: login/logout dan setiap tambah/ubah/hapus data oleh akun staf. Disimpan 1 tahun. Hanya Owner yang bisa membaca.';
+-- 2.12 · Rahasia bersama database ↔ API Vercel (/api/push). Tidak bisa dibaca aplikasi.
+alter table public.app_secrets add column if not exists push_secret text;
 
 
 -- =====================================================================
@@ -3300,7 +3334,9 @@ declare v text := nullif(trim(coalesce(p_url, '')), '');
 begin
   perform engine.require_role(array['owner']);
   -- https, atau http khusus Supabase lokal (supabase start) untuk pengembang
-  if v is not null and v !~ '^(https://[A-Za-z0-9.-]+|http://(localhost|127\.0\.0\.1|kong|host\.docker\.internal)(:[0-9]{2,5})?)/functions/v1/[A-Za-z0-9_-]+$' then
+  -- 2.12: juga API Vercel (https://<domain>/api/push)
+  if v is not null and v !~ '^(https://[A-Za-z0-9.-]+|http://(localhost|127\.0\.0\.1|kong|host\.docker\.internal)(:[0-9]{2,5})?)/functions/v1/[A-Za-z0-9_-]+$'
+     and v !~ '^(https://[A-Za-z0-9.-]+|http://(localhost|127\.0\.0\.1|host\.docker\.internal)(:[0-9]{2,5})?)/api/push$' then
     raise exception 'Alamat Edge Function tidak valid: %', v;
   end if;
   perform engine.on_();
@@ -3447,6 +3483,102 @@ begin
       from shifts s left join staff st on st.id = s.staff_id
      where s.location_id = p_location and (s.close_at is null or s.open_at >= now() - make_interval(days => least(greatest(coalesce(p_days, 7), 1), 45)))
      order by s.open_at desc limit 80) q), '[]'::jsonb);
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 2.12 · Produksi gabungan dapur: ubah status banyak item (dari beberapa nota) sekaligus
+-- ---------------------------------------------------------------------
+create or replace function public.kitchen_batch(p_lines text[], p_to text) returns int language plpgsql security definer set search_path = public as $$
+declare r record; v_n int := 0;
+begin
+  perform engine.require_role(array['owner', 'dapur', 'kasir']);
+  if p_to not in ('cook', 'ready') then raise exception 'Status tidak dikenal: %', p_to; end if;
+  if coalesce(cardinality(p_lines), 0) = 0 then return 0; end if;
+  if cardinality(p_lines) > 200 then raise exception 'Terlalu banyak item sekaligus'; end if;
+  -- nota dikunci berurutan supaya dua layar dapur tidak saling menunggu
+  for r in select l.id from order_lines l where l.id = any(p_lines) and l.station <> 'none' and not l.is_package
+             and l.status in ('new', 'cook') order by l.order_id, l.sort, l.id loop
+    begin
+      perform public.kitchen_line(r.id, p_to);
+      v_n := v_n + 1;
+    exception when others then null;   -- item yang baru saja diubah layar lain dilewati
+    end;
+  end loop;
+  return v_n;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 2.12 · Audit log
+-- ---------------------------------------------------------------------
+-- Siapa yang sedang bekerja: akun login + nama petugas & perangkat dari sesi login (audit_session), atau shift kasir
+create or replace function engine.audit_sid() returns text language sql stable set search_path = '' as $$
+  select left(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'session_id', 80);
+$$;
+create or replace function engine.audit_who() returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare me public.staff; s public.audit_sessions; v_crew text;
+begin
+  if auth.uid() is null then return null; end if;
+  select * into me from staff where user_id = auth.uid() limit 1;
+  if me.id is null then return null; end if;
+  begin select * into s from audit_sessions where session_id = engine.audit_sid(); exception when others then null; end;
+  v_crew := nullif(s.crew_name, '');
+  if v_crew is null then
+    select crew_name into v_crew from shifts where staff_id = me.id and close_at is null and crew_name is not null order by open_at desc limit 1;
+  end if;
+  return jsonb_build_object('id', me.id, 'name', me.name, 'role', me.role, 'crew', coalesce(v_crew, ''), 'device', coalesce(s.device, ''));
+end $$;
+
+-- Perangkat memberi tahu nama petugas & perangkatnya (dipanggil saat login, ganti petugas, ganti terminal)
+create or replace function public.audit_session(p_crew text default '', p_device text default '') returns void language plpgsql security definer set search_path = public as $$
+declare me public.staff; v_sid text := engine.audit_sid();
+begin
+  me := engine.require_role(array['owner', 'kasir', 'dapur', 'gudang', 'service']);
+  if v_sid is null then return; end if;
+  insert into audit_sessions (session_id, staff_id, crew_name, device, at) values (v_sid, me.id, left(coalesce(p_crew, ''), 40), left(coalesce(p_device, ''), 60), now())
+    on conflict (session_id) do update set crew_name = excluded.crew_name, device = excluded.device, at = now();
+  if random() < 0.01 then delete from audit_sessions where at < now() - interval '60 days'; end if;
+end $$;
+
+create or replace function engine.audit_write(p_action text, p_entity text, p_id text, p_loc text, p_summary text, p_data jsonb) returns void language plpgsql security definer set search_path = public as $$
+declare w jsonb := engine.audit_who();
+begin
+  if w is null then return; end if;
+  insert into audit_log (staff_id, staff_name, role, crew_name, device, action, entity, entity_id, location_id, summary, data)
+    values (w->>'id', w->>'name', w->>'role', w->>'crew', w->>'device', p_action, coalesce(p_entity, ''), coalesce(p_id, ''), nullif(p_loc, ''), left(coalesce(p_summary, ''), 300), coalesce(p_data, '{}'::jsonb));
+  if random() < 0.001 then delete from audit_log where at < now() - interval '365 days'; end if;
+exception when others then null;   -- audit tidak pernah menggagalkan transaksi
+end $$;
+
+-- Dipanggil aplikasi: masuk, keluar, cetak ulang, buka laci, dll.
+create or replace function public.audit_event(p_action text, p_detail text default '', p_entity text default '', p_id text default '') returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform engine.require_role(array['owner', 'kasir', 'dapur', 'gudang', 'service']);
+  if p_action not in ('login', 'logout', 'open', 'print', 'export', 'view') then raise exception 'Aksi audit tidak dikenal'; end if;
+  perform engine.audit_write(p_action, left(p_entity, 40), left(p_id, 80), null, left(p_detail, 300), '{}'::jsonb);
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 2.12 · API notifikasi di Vercel (/api/push): satu pintu yang dijaga rahasia bersama (app_secrets.push_secret),
+-- tanpa kunci service_role. Rahasia yang sama disimpan di Vercel sebagai KALY_PUSH_SECRET.
+-- ---------------------------------------------------------------------
+create or replace function public.push_api(p_secret text, p_op text, p_args jsonb default '{}'::jsonb) returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_s text;
+begin
+  select push_secret into v_s from app_secrets where id = 1;
+  if v_s is null or length(v_s) < 32 or p_secret is null or md5(p_secret) <> md5(v_s) or p_secret <> v_s then
+    perform pg_sleep(0.3); raise exception 'Ditolak';
+  end if;
+  if p_op = 'vapid' then return public.push_vapid();
+  elsif p_op = 'vapid_save' then perform public.push_vapid_save(p_args ->> 'public', p_args -> 'private'); return '{}'::jsonb;
+  elsif p_op = 'targets' then return public.push_targets((p_args ->> 'alert')::bigint);
+  elsif p_op = 'result' then
+    perform public.push_result((p_args ->> 'alert')::bigint,
+      array(select jsonb_array_elements_text(coalesce(p_args -> 'ok', '[]'::jsonb))::bigint),
+      array(select jsonb_array_elements_text(coalesce(p_args -> 'gone', '[]'::jsonb))::bigint),
+      coalesce((p_args ->> 'failed')::int, 0));
+    return '{}'::jsonb;
+  end if;
+  raise exception 'Operasi tidak dikenal';
 end $$;
 
 
@@ -3843,19 +3975,8 @@ do $$ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- Realtime: layar dapur, denah, kasir, dan lounge ikut berubah otomatis
--- ---------------------------------------------------------------------
-do $$
-declare t text;
-begin
-  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['orders', 'order_lines', 'order_notices', 'reservations', 'stock', 'menus', 'dining_tables', 'shifts'] loop
-      if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
-        execute format('alter publication supabase_realtime add table public.%I', t);
-      end if;
-    end loop;
-  end if;
-end $$;
+-- 2.12 · Realtime TIDAK dipakai: aplikasi memuat ulang data lewat sync_poll (refresh berkala).
+-- Tabel Kaly Ops dikeluarkan dari publikasi supabase_realtime (lihat bagian 2.12 di akhir file).
 
 -- ---------------------------------------------------------------------
 -- Storage: foto menu (baca publik, unggah oleh Owner)
@@ -3910,12 +4031,7 @@ select engine.policy('sync_log', 'staf baca', 'select', 'public.is_staff()');
 revoke all on public.sync_log from anon;
 revoke insert, update, delete on public.sync_log from authenticated;
 grant select on public.sync_log to authenticated;
-do $$ begin
-  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
-     and not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'sync_log') then
-    alter publication supabase_realtime add table public.sync_log;
-  end if;
-end $$;
+
 
 -- Akun staf: harus selalu ada minimal satu Owner aktif yang sudah punya login, supaya pengaturan tidak terkunci
 create or replace function engine.tg_staff_owner_guard() returns trigger language plpgsql security definer set search_path = public as $$
@@ -4183,8 +4299,10 @@ begin
   select push_url into v_url from settings where id = 1;
   if v_url is null or not exists (select 1 from push_subscriptions where new.kind = any(kinds) or (new.kind = 'push_test' and staff_id = new.ref)) then return null; end if;
   if not exists (select 1 from pg_extension where extname = 'pg_net') then return null; end if;
+  -- 2.12: API Vercel memerlukan rahasia bersama di header x-kaly-secret (Edge Function lama mengabaikannya)
   execute 'select net.http_post(url := $1, body := $2, headers := $3, timeout_milliseconds := 5000)'
-    using v_url, jsonb_build_object('id', new.id), '{"Content-Type": "application/json"}'::jsonb;
+    using v_url, jsonb_build_object('id', new.id),
+      jsonb_build_object('Content-Type', 'application/json', 'x-kaly-secret', coalesce((select push_secret from app_secrets where id = 1), ''));
   return null;
 exception when others then return null;   -- notifikasi tidak pernah menggagalkan transaksi
 end $$;
@@ -4364,6 +4482,84 @@ end $$;
 drop trigger if exists alert_res_seat on public.reservations;
 create trigger alert_res_seat after insert or update of status on public.reservations for each row execute function engine.tg_alert_res_seat();
 revoke all on function engine.tg_alert_res_seat() from public;
+
+-- ---------------------------------------------------------------------
+-- 2.12 · Realtime tidak dipakai (aplikasi memakai refresh berkala lewat sync_poll)
+-- ---------------------------------------------------------------------
+do $$
+declare t text;
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    for t in select tablename from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' loop
+      execute format('alter publication supabase_realtime drop table public.%I', t);
+    end loop;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 2.12 · Audit log: setiap tambah/ubah/hapus oleh akun staf dicatat otomatis
+-- ---------------------------------------------------------------------
+create or replace function engine.tg_audit() returns trigger language plpgsql security definer set search_path = public as $$
+declare v_new jsonb; v_old jsonb; v_chg jsonb := '{}'::jsonb; k text; v_id text; v_loc text; v_sum text;
+  v_skip text[] := array['updated_at', 'created_at', 'search', 'pin_hash', 'p256dh', 'auth'];
+begin
+  if auth.uid() is null then return null; end if;   -- tamu (QR/online/reservasi) & proses sistem tidak dicatat di sini
+  if tg_op <> 'INSERT' then v_old := to_jsonb(old); end if;
+  if tg_op <> 'DELETE' then v_new := to_jsonb(new); end if;
+  -- kolom turunan yang dihitung mesin dari item (sudah tercatat di perubahan item-nya)
+  if tg_table_name = 'orders' then v_skip := v_skip || array['kitchen_state', 'ready_at', 'picked_at']; end if;
+  if tg_op = 'UPDATE' then
+    for k in select jsonb_object_keys(v_new) loop
+      if not (k = any(v_skip)) and (v_new -> k) is distinct from (v_old -> k) then
+        v_chg := v_chg || jsonb_build_object(k, jsonb_build_array(v_old -> k, v_new -> k));
+      end if;
+    end loop;
+    if v_chg = '{}'::jsonb then return null; end if;
+  else
+    v_chg := coalesce(v_new, v_old);
+    foreach k in array v_skip loop v_chg := v_chg - k; end loop;
+  end if;
+  v_id := coalesce(v_new ->> 'id', v_old ->> 'id', v_new ->> 'code', v_old ->> 'code', '');
+  v_loc := coalesce(v_new ->> 'location_id', v_old ->> 'location_id');
+  v_sum := case tg_op when 'INSERT' then 'tambah' when 'DELETE' then 'hapus' else 'ubah ' || (select string_agg(x, ', ') from (select jsonb_object_keys(v_chg) x limit 8) q) end;
+  -- ringkasan yang mudah dicari: nomor nota, nama item/menu/staf
+  if tg_table_name = 'orders' then v_sum := coalesce(coalesce(v_new, v_old) ->> 'no', '') || ' · ' || v_sum;
+  elsif tg_table_name in ('order_lines', 'order_payments') then
+    v_sum := coalesce((select no from orders where id = coalesce(v_new, v_old) ->> 'order_id'), '') || ' · '
+      || coalesce(trim(trailing '.' from to_char((coalesce(v_new, v_old) ->> 'qty')::numeric, 'FM999990.##')) || '× ', '') || coalesce(coalesce(v_new, v_old) ->> 'name', coalesce(v_new, v_old) ->> 'method', '') || ' · ' || v_sum;
+  elsif coalesce(v_new, v_old) ? 'name' then v_sum := coalesce(coalesce(v_new, v_old) ->> 'name', '') || ' · ' || v_sum;
+  end if;
+  perform engine.audit_write(lower(tg_op), tg_table_name, v_id, v_loc, v_sum, v_chg);
+  return null;
+end $$;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['orders', 'order_lines', 'order_payments', 'shifts', 'deposit_cards', 'deposit_tx', 'reservations', 'members',
+    'menus', 'menu_categories', 'menu_outlets', 'menu_bom', 'menu_package_items', 'items', 'item_bom', 'promos', 'vouchers', 'campaigns', 'tiers', 'missions',
+    'settings', 'staff', 'crew', 'print_stations', 'dining_tables', 'areas', 'locations', 'purchase_orders', 'purchase_order_lines', 'transfers', 'transfer_lines',
+    'opnames', 'opname_lines', 'productions', 'b2b_invoices', 'suppliers', 'supplier_prices', 'fraud_flags'] loop
+    if to_regclass('public.' || t) is not null then
+      execute format('drop trigger if exists audit on public.%I', t);
+      execute format('create trigger audit after insert or update or delete on public.%I for each row execute function engine.tg_audit()', t);
+    end if;
+  end loop;
+end $$;
+
+alter table public.audit_log enable row level security;
+select engine.policy('audit_log', 'owner baca', 'select', 'public.is_staff(array[''owner''])');
+revoke all on public.audit_log from anon;
+revoke insert, update, delete on public.audit_log from authenticated;
+grant select on public.audit_log to authenticated;
+alter table public.audit_sessions enable row level security;
+revoke all on public.audit_sessions from anon, authenticated;
+revoke all on function engine.tg_audit(), engine.audit_write(text, text, text, text, text, jsonb), engine.audit_who() from public;
+revoke execute on function public.audit_event(text, text, text, text), public.audit_session(text, text), public.kitchen_batch(text[], text) from public, anon;
+grant execute on function public.audit_event(text, text, text, text), public.audit_session(text, text), public.kitchen_batch(text[], text) to authenticated;
+
+revoke execute on function public.push_api(text, text, jsonb) from public;
+grant execute on function public.push_api(text, text, jsonb) to anon, authenticated;
 
 
 -- =====================================================================

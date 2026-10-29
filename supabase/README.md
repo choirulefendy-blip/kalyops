@@ -163,6 +163,14 @@ Tabel baru `table_events` mencatat **pindah meja, kosongkan meja** (manual oleh 
 
 Warna grafik memakai turunan warna brand KALY dan sudah diuji dengan validator buta warna (pasangan bersebelahan aman untuk protanopia/deuteranopia). Hijau olive dan oranye brand tidak pernah dipakai berdampingan; naik/turun memakai pasangan teal ↔ oranye.
 
+## Baru di 2.12: produksi gabungan dapur, audit log, tanpa Realtime, API di Vercel
+
+- `kitchen_batch(p_lines, p_to)`: dapur menandai banyak item (menu sama dari beberapa nota) **dimasak** atau **siap** sekaligus. Notifikasi antar tetap per item/meja.
+- **Audit log** `audit_log`: login/logout (`audit_event`) dan setiap tambah/ubah/hapus oleh akun staf di 38 tabel (trigger `audit`), lengkap dengan nilai sebelum → sesudah, nama petugas shift & perangkat (`audit_session`). Hanya Owner yang bisa membaca; tidak bisa diubah/dihapus aplikasi; disimpan 1 tahun.
+- **Realtime dimatikan**: semua tabel dikeluarkan dari publikasi `supabase_realtime`. Aplikasi memuat ulang data lewat `sync_poll` setiap 3 detik (15 detik di latar) dan tombol status sinkron.
+- **API notifikasi di Vercel** (`/api/push` pada proyek Next.js `web/`): `push_api(p_secret, p_op, p_args)` dijaga rahasia bersama `app_secrets.push_secret` = env `KALY_PUSH_SECRET` di Vercel. Tidak perlu kunci service_role. `push_setup` menerima `https://<domain>/api/push`.
+- Database lama: jalankan `kaly-ops-update-2.12.sql`.
+
 ## Baru di 2.10: POS khusus kasir, service mencatat reservasi
 
 - Policy `orders` (buat/ubah) dan `order_lines` (tambah/ubah/hapus draft) kini hanya untuk Owner & Kasir. Fungsi `pos_send` dan `order_set_member` juga hanya Owner & Kasir.

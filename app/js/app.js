@@ -7,8 +7,10 @@ import * as API from './api.js';
 import * as N from './notify.js';
 import * as DN from './devnotify.js';
 import * as CR from './crew.js';
+import * as CFG from './config.js';
 import { hookUsb } from './printer-finder.js';
 import Login from './views/login.js';
+import Audit from './views/audit.js';
 import Home from './views/home.js';
 import POS from './views/pos.js';
 import Kitchen from './views/kitchen.js';
@@ -39,13 +41,14 @@ export const NAV = [
   { r: 'goods', label: 'Kaly Goods', icon: 'truck', roles: ['owner', 'gudang'], desc: 'Supplier & purchase order' },
   { r: 'print', label: 'Stasiun cetak', icon: 'printer', roles: ['owner', 'kasir', 'service', 'dapur'], desc: 'Printer Bar, Dapur & kasir' },
   { r: 'settings', label: 'Pengaturan', icon: 'settings', roles: ['owner'] },
+  { r: 'audit', label: 'Audit log', icon: 'history', roles: ['owner'], desc: 'Semua aktivitas akun' },
 ];
 export const HOME = { owner: '', kasir: 'pos', dapur: 'kitchen', gudang: 'goods', service: 'denah' };
 // 2.7 · Kaly Backoffice: akun Owner/Manajer memakai portal & menu tersendiri, terpisah dari operasional (POS, dapur, gudang, service)
 export const isBO = (u = currentUser()) => u?.role === 'owner';
 const BO_NAV = [
   ['Backoffice', [['', 'Dashboard', 'layout-dashboard'], ['core', 'Stok, resep & laporan', 'chart-column'], ['goods', 'Pembelian & supplier', 'truck'], ['pos', 'Menu & harga', 'utensils'],
-    ['loop', 'Member & promo', 'award'], ['book-admin', 'Reservasi', 'calendar-check'], ['order-admin', 'Pesanan online & QR', 'qr-code'], ['settings', 'Pengaturan & printer', 'settings']]],
+    ['loop', 'Member & promo', 'award'], ['book-admin', 'Reservasi', 'calendar-check'], ['order-admin', 'Pesanan online & QR', 'qr-code'], ['settings', 'Pengaturan & printer', 'settings'], ['audit', 'Audit log', 'history']]],
   ['Pantau operasional', [['denah', 'Denah meja', 'map'], ['kitchen', 'Layar dapur', 'chef-hat'], ['print', 'Stasiun cetak', 'printer']]],
 ];
 // Menu tiap peran: halaman utama peran itu selalu paling atas (kasir → Kaly POS, service → Denah, dst.)
@@ -74,6 +77,7 @@ const ROUTES = {
   'book-admin': { v: BookAdmin, title: 'Kaly Book' },
   goods: { v: Goods, title: 'Kaly Goods' },
   settings: { v: Settings, title: 'Pengaturan' },
+  audit: { v: Audit, title: 'Audit log' },
   print: { v: Print, title: 'Stasiun cetak' },
   lounge: { v: Lounge, pub: true, bare: true },
   display: { v: Display, pub: true, bare: true },
@@ -109,6 +113,16 @@ export const BO_LABEL = Object.fromEntries(BO_NAV.flatMap(([, l]) => l.map(([r, 
 export const BO_ORDER = BO_NAV.flatMap(([, l]) => l.map(([r]) => r));
 // Portal terakhir yang dipakai perangkat ini (untuk halaman masuk setelah keluar)
 export function portal(v) { try { if (v) localStorage.setItem('kaly.portal', v); return localStorage.getItem('kaly.portal') || 'ops'; } catch { return 'ops'; } }
+// 2.12 · Audit log: perangkat & nama petugas untuk sesi login ini
+let auditFor = null;
+export function deviceLabel() {
+  const u = currentUser(), app = window.KalyAndroid ? (() => { try { return JSON.parse(window.KalyAndroid.info()).model || 'Android'; } catch { return 'Android'; } })() : 'Browser';
+  return (u?.role === 'kasir' ? getTerminal() + ' · ' : '') + app;
+}
+export function auditDevice() {
+  const u = currentUser(); if (!u) return;
+  C.auditSession(u.role === 'kasir' || u.role === 'owner' ? '' : CR.deviceCrew(u.role)?.name || '', deviceLabel());
+}
 function route() {
   const { path, q } = parseHash();
   let r = ROUTES[path];
@@ -121,6 +135,7 @@ function route() {
   }
   if ((path === 'login' || path === 'backoffice') && u) { go(HOME[u.role] ?? ''); return; }
   if (!r.pub && r.roles && !r.roles.includes(u.role)) { toast('Akun ini tidak punya akses ke modul tersebut', 'warn'); go(''); return; }
+  if (u && auditFor !== u.id) { auditFor = u.id; auditDevice(); }
   if (cur.view?.unmount) try { cur.view.unmount(); } catch (e) { console.error(e); }
   cur = { name: path, view: r.v, r, ctx: { q, path, track: r.track } };
   document.body.className = r.bare ? 'bare' : 'app' + (r.dark ? ' dark-view' : '') + (railHidden(path, u) ? ' rail-off' : '');
@@ -153,12 +168,12 @@ function renderShell() {
   <div class="main">
     <header class="top">
       <div class="top-l"><button class="btn-icon rail-tg" data-a="toggleRail" id="rail-tg" aria-label="Sembunyikan menu samping" title="Sembunyikan / tampilkan menu samping">${ic('panel-left-close', 19)}</button>
-        <h1 id="top-title"></h1><span class="role-pill" title="Peran akun ini">${esc(D.ROLES[u.role].short || D.ROLES[u.role].label)}</span></div>
+        <h1 id="top-title"></h1><span class="role-pill" title="Peran akun ini">${esc(D.ROLES[u.role].short || D.ROLES[u.role].label)}</span>${CFG.KALY_ENV === 'staging' ? '<span class="env-pill" title="Database uji (staging): data di sini tidak memengaruhi operasional">STAGING</span>' : ''}</div>
       <div class="top-r">
         <label class="outlet-sel" title="Outlet aktif">${ic('map-pin', 16)}<select data-a-change="outlet" aria-label="Outlet aktif">${db.locations.filter((l) => l.type === 'outlet' && (!u.outlets?.length || u.outlets.includes(l.id))).map((l) => `<option value="${l.id}" ${l.id === L ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>
         <a class="pst" id="pst" href="#/print" hidden></a>
         ${CR.chipHtml()}
-        <span class="sync" id="sync" title="Status koneksi ke database"></span>
+        <button class="sync" id="sync" data-a="syncNow" title="Status koneksi ke database · ketuk untuk memuat ulang data"></button>
         ${N.buttonHtml()}
         <button class="bell" data-a="notices" aria-label="${u.role === 'dapur' ? 'Notifikasi dari kasir' : 'Pesanan siap dari dapur'}" title="${u.role === 'dapur' ? 'Notifikasi dari kasir' : 'Pesanan siap dari dapur'}" id="bell">${ic('bell', 18)}<b id="bell-n"></b></button>
         <span class="clock" id="clock"></span>
@@ -296,6 +311,7 @@ const GLOBAL = {
   go(el) { go(el.dataset.to || ''); },
   soundPrefs() { N.openPrefs(); },
   crewPick() { CR.pickDialog({ onDone: () => rerender() }); },
+  async syncNow() { try { await C.refreshNow(); toast('Data dimuat ulang'); rerender(); } catch (e) { toast(e.message, 'err'); } },
   notices(el, e, ctx) {
     if (ctx.user?.role === 'dapur') return N.openKitchenFeed(ctx.outlet, () => updateShell());
     import('./views/pos.js').then((m) => m.showNotices(ctx));

@@ -904,3 +904,37 @@ comment on table public.crew is 'Anggota shift (nama petugas) untuk akun kasir, 
 alter table public.shifts add column if not exists crew_id text references public.crew(id) on delete set null,
   add column if not exists crew_name text;
 comment on column public.shifts.crew_name is 'Nama petugas shift saat ini (bisa diganti selama shift berjalan).';
+
+-- ---------------------------------------------------------------------
+-- 2.12 · Audit log: semua aktivitas akun (login/logout & setiap perubahan data oleh akun staf)
+-- Diisi trigger engine.tg_audit dan fungsi audit_event; hanya Owner yang bisa membaca.
+-- ---------------------------------------------------------------------
+create table if not exists public.audit_log (
+  id          bigint generated always as identity primary key,
+  at          timestamptz not null default clock_timestamp(),
+  staff_id    text,
+  staff_name  text not null default '',
+  role        text not null default '',
+  crew_name   text not null default '',
+  device      text not null default '',
+  action      text not null,
+  entity      text not null default '',
+  entity_id   text not null default '',
+  location_id text,
+  summary     text not null default '',
+  data        jsonb not null default '{}'::jsonb
+);
+create index if not exists audit_log_at_idx on public.audit_log (at desc);
+create index if not exists audit_log_staff_idx on public.audit_log (staff_id, at desc);
+create index if not exists audit_log_entity_idx on public.audit_log (entity, entity_id);
+-- Nama petugas & perangkat per sesi login (satu akun bisa dipakai beberapa perangkat/petugas)
+create table if not exists public.audit_sessions (
+  session_id text primary key,
+  staff_id   text,
+  crew_name  text not null default '',
+  device     text not null default '',
+  at         timestamptz not null default now()
+);
+comment on table public.audit_log is 'Audit log Kaly Ops: login/logout dan setiap tambah/ubah/hapus data oleh akun staf. Disimpan 1 tahun. Hanya Owner yang bisa membaca.';
+-- 2.12 · Rahasia bersama database ↔ API Vercel (/api/push). Tidak bisa dibaca aplikasi.
+alter table public.app_secrets add column if not exists push_secret text;

@@ -1739,7 +1739,9 @@ declare v text := nullif(trim(coalesce(p_url, '')), '');
 begin
   perform engine.require_role(array['owner']);
   -- https, atau http khusus Supabase lokal (supabase start) untuk pengembang
-  if v is not null and v !~ '^(https://[A-Za-z0-9.-]+|http://(localhost|127\.0\.0\.1|kong|host\.docker\.internal)(:[0-9]{2,5})?)/functions/v1/[A-Za-z0-9_-]+$' then
+  -- 2.12: juga API Vercel (https://<domain>/api/push)
+  if v is not null and v !~ '^(https://[A-Za-z0-9.-]+|http://(localhost|127\.0\.0\.1|kong|host\.docker\.internal)(:[0-9]{2,5})?)/functions/v1/[A-Za-z0-9_-]+$'
+     and v !~ '^(https://[A-Za-z0-9.-]+|http://(localhost|127\.0\.0\.1|host\.docker\.internal)(:[0-9]{2,5})?)/api/push$' then
     raise exception 'Alamat Edge Function tidak valid: %', v;
   end if;
   perform engine.on_();
@@ -1886,4 +1888,100 @@ begin
       from shifts s left join staff st on st.id = s.staff_id
      where s.location_id = p_location and (s.close_at is null or s.open_at >= now() - make_interval(days => least(greatest(coalesce(p_days, 7), 1), 45)))
      order by s.open_at desc limit 80) q), '[]'::jsonb);
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 2.12 · Produksi gabungan dapur: ubah status banyak item (dari beberapa nota) sekaligus
+-- ---------------------------------------------------------------------
+create or replace function public.kitchen_batch(p_lines text[], p_to text) returns int language plpgsql security definer set search_path = public as $$
+declare r record; v_n int := 0;
+begin
+  perform engine.require_role(array['owner', 'dapur', 'kasir']);
+  if p_to not in ('cook', 'ready') then raise exception 'Status tidak dikenal: %', p_to; end if;
+  if coalesce(cardinality(p_lines), 0) = 0 then return 0; end if;
+  if cardinality(p_lines) > 200 then raise exception 'Terlalu banyak item sekaligus'; end if;
+  -- nota dikunci berurutan supaya dua layar dapur tidak saling menunggu
+  for r in select l.id from order_lines l where l.id = any(p_lines) and l.station <> 'none' and not l.is_package
+             and l.status in ('new', 'cook') order by l.order_id, l.sort, l.id loop
+    begin
+      perform public.kitchen_line(r.id, p_to);
+      v_n := v_n + 1;
+    exception when others then null;   -- item yang baru saja diubah layar lain dilewati
+    end;
+  end loop;
+  return v_n;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 2.12 · Audit log
+-- ---------------------------------------------------------------------
+-- Siapa yang sedang bekerja: akun login + nama petugas & perangkat dari sesi login (audit_session), atau shift kasir
+create or replace function engine.audit_sid() returns text language sql stable set search_path = '' as $$
+  select left(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'session_id', 80);
+$$;
+create or replace function engine.audit_who() returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare me public.staff; s public.audit_sessions; v_crew text;
+begin
+  if auth.uid() is null then return null; end if;
+  select * into me from staff where user_id = auth.uid() limit 1;
+  if me.id is null then return null; end if;
+  begin select * into s from audit_sessions where session_id = engine.audit_sid(); exception when others then null; end;
+  v_crew := nullif(s.crew_name, '');
+  if v_crew is null then
+    select crew_name into v_crew from shifts where staff_id = me.id and close_at is null and crew_name is not null order by open_at desc limit 1;
+  end if;
+  return jsonb_build_object('id', me.id, 'name', me.name, 'role', me.role, 'crew', coalesce(v_crew, ''), 'device', coalesce(s.device, ''));
+end $$;
+
+-- Perangkat memberi tahu nama petugas & perangkatnya (dipanggil saat login, ganti petugas, ganti terminal)
+create or replace function public.audit_session(p_crew text default '', p_device text default '') returns void language plpgsql security definer set search_path = public as $$
+declare me public.staff; v_sid text := engine.audit_sid();
+begin
+  me := engine.require_role(array['owner', 'kasir', 'dapur', 'gudang', 'service']);
+  if v_sid is null then return; end if;
+  insert into audit_sessions (session_id, staff_id, crew_name, device, at) values (v_sid, me.id, left(coalesce(p_crew, ''), 40), left(coalesce(p_device, ''), 60), now())
+    on conflict (session_id) do update set crew_name = excluded.crew_name, device = excluded.device, at = now();
+  if random() < 0.01 then delete from audit_sessions where at < now() - interval '60 days'; end if;
+end $$;
+
+create or replace function engine.audit_write(p_action text, p_entity text, p_id text, p_loc text, p_summary text, p_data jsonb) returns void language plpgsql security definer set search_path = public as $$
+declare w jsonb := engine.audit_who();
+begin
+  if w is null then return; end if;
+  insert into audit_log (staff_id, staff_name, role, crew_name, device, action, entity, entity_id, location_id, summary, data)
+    values (w->>'id', w->>'name', w->>'role', w->>'crew', w->>'device', p_action, coalesce(p_entity, ''), coalesce(p_id, ''), nullif(p_loc, ''), left(coalesce(p_summary, ''), 300), coalesce(p_data, '{}'::jsonb));
+  if random() < 0.001 then delete from audit_log where at < now() - interval '365 days'; end if;
+exception when others then null;   -- audit tidak pernah menggagalkan transaksi
+end $$;
+
+-- Dipanggil aplikasi: masuk, keluar, cetak ulang, buka laci, dll.
+create or replace function public.audit_event(p_action text, p_detail text default '', p_entity text default '', p_id text default '') returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform engine.require_role(array['owner', 'kasir', 'dapur', 'gudang', 'service']);
+  if p_action not in ('login', 'logout', 'open', 'print', 'export', 'view') then raise exception 'Aksi audit tidak dikenal'; end if;
+  perform engine.audit_write(p_action, left(p_entity, 40), left(p_id, 80), null, left(p_detail, 300), '{}'::jsonb);
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 2.12 · API notifikasi di Vercel (/api/push): satu pintu yang dijaga rahasia bersama (app_secrets.push_secret),
+-- tanpa kunci service_role. Rahasia yang sama disimpan di Vercel sebagai KALY_PUSH_SECRET.
+-- ---------------------------------------------------------------------
+create or replace function public.push_api(p_secret text, p_op text, p_args jsonb default '{}'::jsonb) returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_s text;
+begin
+  select push_secret into v_s from app_secrets where id = 1;
+  if v_s is null or length(v_s) < 32 or p_secret is null or md5(p_secret) <> md5(v_s) or p_secret <> v_s then
+    perform pg_sleep(0.3); raise exception 'Ditolak';
+  end if;
+  if p_op = 'vapid' then return public.push_vapid();
+  elsif p_op = 'vapid_save' then perform public.push_vapid_save(p_args ->> 'public', p_args -> 'private'); return '{}'::jsonb;
+  elsif p_op = 'targets' then return public.push_targets((p_args ->> 'alert')::bigint);
+  elsif p_op = 'result' then
+    perform public.push_result((p_args ->> 'alert')::bigint,
+      array(select jsonb_array_elements_text(coalesce(p_args -> 'ok', '[]'::jsonb))::bigint),
+      array(select jsonb_array_elements_text(coalesce(p_args -> 'gone', '[]'::jsonb))::bigint),
+      coalesce((p_args ->> 'failed')::int, 0));
+    return '{}'::jsonb;
+  end if;
+  raise exception 'Operasi tidak dikenal';
 end $$;

@@ -58,6 +58,9 @@ export const tapLine = (lineId) => rpc('kitchen_tap_line', { p_line: lineId });
 export const kitchenLine = (lineId, to) => rpc('kitchen_line', { p_line: lineId, p_to: to });
 export const bump = (orderId, station) => rpc('kitchen_bump', { p_order: orderId, p_station: station || null });
 export const recall = (orderId) => rpc('kitchen_recall', { p_order: orderId });
+// 2.12 · Produksi gabungan: banyak item dari beberapa nota sekaligus (database lama: satu per satu)
+export const kitchenBatch = (lineIds, to) => rpc('kitchen_batch', { p_lines: lineIds, p_to: to })
+  .catch(async (e) => { if (!/kitchen_batch|function|schema cache/i.test(e.message)) throw e; let n = 0; for (const id of lineIds) { try { await kitchenLine(id, to); n++; } catch {} } return n; });
 export const markServed = (orderId) => rpc('mark_served', { p_order: orderId });
 export const serveReady = (orderId) => rpc('serve_ready', { p_order: orderId });
 export const serveLine = (lineId) => rpc('serve_line', { p_line: lineId });

@@ -4,7 +4,7 @@
 //  2. Kaly Ops tertutup: database memanggil Edge Function kaly-push yang mengirim Web Push ke perangkat terdaftar.
 // Di aplikasi Android Kaly Ops (APK 1.2+) notifikasi ditampilkan lewat Android selama aplikasi masih berjalan di latar.
 // Pilihan jenis notifikasi diambil dari pengaturan notifikasi perangkat ini (notify.js).
-import { SUPABASE_URL } from './config.js';
+import * as CFG from './config.js';
 import { currentUser } from './store.js';
 import * as API from './api.js';
 
@@ -13,7 +13,9 @@ const read = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}') 
 const write = (o) => { try { localStorage.setItem(KEY, JSON.stringify(o)); } catch {} };
 const native = () => (window.KalyAndroid && typeof window.KalyAndroid.notify === 'function' ? window.KalyAndroid : null);
 export const FN_NAME = 'kaly-push';
-export const fnUrl = () => `${String(SUPABASE_URL || '').trim().replace(/\/+$/, '')}/functions/v1/${FN_NAME}`;
+// 2.12: di Vercel (Next.js) server notifikasi adalah API /api/push di domain yang sama; selain itu Edge Function Supabase
+export const onVercel = () => !!CFG.API_BASE;
+export const fnUrl = () => (onVercel() ? `${location.origin}${CFG.API_BASE}/push` : `${String(CFG.SUPABASE_URL || '').trim().replace(/\/+$/, '')}/functions/v1/${FN_NAME}`);
 
 let kindsOf = () => [];          // diisi notify.js: jenis notifikasi yang dinyalakan di perangkat ini
 let info = null;                 // { url, public_key, devices } dari server
@@ -177,7 +179,12 @@ export async function connectServer() {
   const url = fnUrl();
   let r;
   try { r = await fetch(url, { method: 'GET', cache: 'no-store' }); }
-  catch { throw new Error(`Edge Function ${FN_NAME} tidak bisa dihubungi. Pastikan sudah di-deploy dengan nama "${FN_NAME}".`); }
+  catch { throw new Error(onVercel() ? 'API notifikasi (/api/push) tidak bisa dihubungi.' : `Edge Function ${FN_NAME} tidak bisa dihubungi. Pastikan sudah di-deploy dengan nama "${FN_NAME}".`); }
+  if (onVercel()) {
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.publicKey) throw new Error(`API notifikasi Vercel: ${j.error || r.status}. Pastikan KALY_PUSH_SECRET di Vercel sama dengan rahasia di database (lihat README).`);
+    await API.pushSetup(url); await refreshInfo(); return info;
+  }
   if (r.status === 401) throw new Error(`Edge Function ${FN_NAME} menolak permintaan (401). Matikan "Verify JWT" / "Enforce JWT verification" di pengaturan fungsi, lalu coba lagi.`);
   if (r.status === 404) throw new Error(`Edge Function ${FN_NAME} belum ada. Deploy dulu dengan nama persis "${FN_NAME}".`);
   const j = await r.json().catch(() => ({}));

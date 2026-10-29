@@ -19,7 +19,7 @@ export function deviceCrew(role) {
   const c = id && (getDb().crew || []).find((x) => x.id === id && x.active);
   return c || null;
 }
-export function setDeviceCrew(role, id) { try { id ? localStorage.setItem(KEY(role), id) : localStorage.removeItem(KEY(role)); } catch {} }
+export function setDeviceCrew(role, id) { try { id ? localStorage.setItem(KEY(role), id) : localStorage.removeItem(KEY(role)); } catch {} if (role !== 'kasir') C.auditSession((getDb().crew || []).find((c) => c.id === id)?.name || ''); }
 
 // Nama yang tampil di kanan atas
 export function currentCrewName() {
