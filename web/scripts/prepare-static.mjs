@@ -20,7 +20,9 @@ if (anon.startsWith('sb_secret_') || role === 'service_role') { console.error('D
 rmSync(out, { recursive: true, force: true });
 cpSync(src, out, { recursive: true, dereference: true, filter: (p) => !/[\\/]js[\\/]config\.js(\.[a-z]+)?$/.test(p) && !/[\\/](node_modules|\.git)([\\/]|$)/.test(p) });
 writeFileSync(resolve(out, 'js/config.js'), `// Dibuat otomatis saat build (${env}). Jangan diubah manual.
-export const SUPABASE_URL = ${JSON.stringify(url)};
+// Di browser: lewat proksi /sb di alamat ini (lihat next.config.mjs); langsung ke Supabase hanya bila dibuka di luar http(s)
+export const SUPABASE_DIRECT = ${JSON.stringify(url)};
+export const SUPABASE_URL = (typeof location !== 'undefined' && /^https?:$/.test(location.protocol) && !${JSON.stringify(process.env.KALY_NO_PROXY ? '1' : '')}) ? location.origin + '/sb' : SUPABASE_DIRECT;
 export const SUPABASE_ANON_KEY = ${JSON.stringify(anon)};
 export const KALY_ENV = ${JSON.stringify(env)};
 export const API_BASE = '/api';

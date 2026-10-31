@@ -5,8 +5,12 @@ const nextConfig = {
   poweredByHeader: false,
   output: process.env.KALY_STANDALONE ? 'standalone' : undefined,   // Docker
   async rewrites() {
+    // 2.13: database Supabase lewat alamat ini sendiri (/sb/...), jadi perangkat cukup bisa membuka kalyops.vercel.app
+    // (beberapa jaringan seluler tidak bisa membuka *.supabase.co langsung)
+    const sb = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim().replace(/\/+$/, '');
     return {
       beforeFiles: [
+        ...(/^https?:\/\//.test(sb) ? [{ source: '/sb/:path*', destination: `${sb}/:path*` }] : []),
         { source: '/', destination: '/index.html' },
         { source: '/backoffice', destination: '/backoffice/index.html' },
         { source: '/backoffice/', destination: '/backoffice/index.html' },
