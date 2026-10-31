@@ -1,8 +1,9 @@
-KALY OPS 2.12 - CARA MEMASANG
+KALY OPS 2.13 - CARA MEMASANG
 ============================
 
 Folder ini (app/) adalah aplikasi Kaly Ops. Sejak 2.7 diterbitkan lewat GitHub Pages dari
-repository GitHub choirulefendy-blip/kalyops, alamatnya: https://choirulefendy-blip.github.io/kalyops/
+repository GitHub choirulefendy-blip/kalyops. Sejak 2.13 alamat utama: https://kalyops.vercel.app/
+(cadangan GitHub Pages: https://choirulefendy-blip.github.io/kalyops/)
 Aplikasi menyimpan semua data di database Supabase milik Anda.
 
 1. Pasang database dulu (sekali saja)
@@ -21,7 +22,7 @@ Aplikasi menyimpan semua data di database Supabase milik Anda.
    (lihat tab Actions). Alamat: https://choirulefendy-blip.github.io/kalyops/
 
 4. Masuk sebagai Owner (Kaly Backoffice)
-   Owner / Manajer masuk lewat https://choirulefendy-blip.github.io/kalyops/backoffice/
+   Owner / Manajer masuk lewat https://kalyops.vercel.app/backoffice/
    Pakai email dan kata sandi dari langkah 1. Tambahkan staf di Pengaturan,
    lalu buat akun login mereka di Supabase dengan email yang sama.
 
@@ -36,6 +37,17 @@ SUDAH MEMAKAI VERSI SEBELUMNYA? CARA UPDATE KE 2.10
       tersedia". Tekan Muat ulang.
    d. Bila server notifikasi (Edge Function kaly-push) sudah dipasang: perbarui isinya dengan
       functions/kaly-push/index.ts versi 2.5 (notifikasi dapur membuka layar dapur saat diketuk).
+
+YANG BARU DI 2.13 (transaksi, refund, riwayat shift)
+- Kasir: Kaly POS > tab Transaksi. Daftar transaksi shift ini / hari ini / 7 hari:
+  nomor nota, meja, jam, petugas, metode bayar, total, status. Ketuk untuk rincian & struk,
+  lalu Cetak ulang nota (tercatat sebagai cetak ulang).
+- Owner/Manajer: Kaly Backoffice > Transaksi & shift. Semua tanggal, filter status & metode,
+  tombol Refund (hanya akun Owner/Manajer), dan Riwayat shift sampai 45 hari.
+- Refund penuh: uang kembali ke metode semula. Tunai diambil dari laci kasir yang dipilih
+  (kas seharusnya shift itu ikut berkurang) atau dari kas outlet. Wajib isi alasan.
+- Riwayat shift (kasir & Owner): ketuk shift > Lihat transaksi shift ini.
+- Database: jalankan kaly-ops-update-2.13.sql (sekali).
 
 YANG BARU DI 2.12 (dapur gabungan, audit log, Vercel)
    - Layar dapur > "Produksi gabungan": porsi menu yang sama dari semua nota dijumlahkan

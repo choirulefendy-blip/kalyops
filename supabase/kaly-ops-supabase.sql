@@ -1,5 +1,5 @@
 -- =====================================================================
--- Kaly Ops 2.12 · Database Supabase · SEMUA DALAM SATU FILE
+-- Kaly Ops 2.13 · Database Supabase · SEMUA DALAM SATU FILE
 -- Isi: 01 struktur tabel, 02 mesin bisnis, 03 fungsi aplikasi, 04 keamanan, 05 laporan, 06 data master.
 -- Cara pakai: Supabase > SQL Editor > New query > tempel seluruh isi file ini > Run. Lalu buat Owner: select public.kaly_setup_owner('emailanda@gmail.com', 'Nama Anda'); Lihat README.md.
 -- =====================================================================
@@ -573,7 +573,7 @@ create table if not exists public.orders (
   type           text not null default 'dine' check (type in ('dine', 'take', 'deliv')),
   table_id       text references public.dining_tables(id) on update cascade,
   merged_tables  text[] not null default '{}',
-  status         text not null default 'open' check (status in ('open', 'paid', 'void')),
+  status         text not null default 'open' check (status in ('open', 'paid', 'void', 'refund')),
   kitchen_state  text not null default 'none' check (kitchen_state in ('none', 'new', 'cook', 'ready', 'served')),
   created_by     text references public.staff(id),
   terminal       text not null default '',
@@ -669,7 +669,7 @@ create table if not exists public.deposit_tx (
   at         timestamptz not null default now(),
   card_id    text not null references public.deposit_cards(id),
   amount     numeric(14,0) not null,
-  type       text not null check (type in ('topup', 'pay', 'refund')),
+  type       text not null check (type in ('topup', 'pay', 'refund', 'return')),
   method     text,
   ref        text,
   created_by text references public.staff(id),
@@ -945,6 +945,24 @@ create table if not exists public.audit_sessions (
 comment on table public.audit_log is 'Audit log Kaly Ops: login/logout dan setiap tambah/ubah/hapus data oleh akun staf. Disimpan 1 tahun. Hanya Owner yang bisa membaca.';
 -- 2.12 · Rahasia bersama database ↔ API Vercel (/api/push). Tidak bisa dibaca aplikasi.
 alter table public.app_secrets add column if not exists push_secret text;
+
+-- ---------------------------------------------------------------------
+-- 2.13 · Refund bill (khusus Owner/Manajer). Bill yang di-refund berstatus 'refund': tidak lagi dihitung sebagai penjualan,
+-- tetapi tetap tercatat di shift tempat bill itu dibayar. Uang tunai yang dikembalikan mengurangi kas shift tempat refund dilakukan.
+-- ---------------------------------------------------------------------
+alter table public.orders drop constraint if exists orders_status_check;
+alter table public.orders add constraint orders_status_check check (status in ('open', 'paid', 'void', 'refund'));
+alter table public.orders add column if not exists refund_at timestamptz;
+alter table public.orders add column if not exists refund_by text references public.staff(id);
+alter table public.orders add column if not exists refund_reason text;
+alter table public.orders add column if not exists refund_shift text references public.shifts(id);
+alter table public.orders add column if not exists refund_pays jsonb;
+comment on column public.orders.refund_pays is 'Uang yang dikembalikan per metode: [{"m":"cash","a":50000},{"m":"deposit","a":20000,"card":"KD-0001"}]. Tunai diambil dari laci shift refund_shift (null = kas outlet di luar laci kasir).';
+create index if not exists orders_refund_shift_idx on public.orders (refund_shift) where refund_shift is not null;
+create index if not exists orders_paid_at_idx on public.orders (location_id, paid_at desc) where paid_at is not null;
+-- Saldo kartu deposit yang dikembalikan karena refund bill
+alter table public.deposit_tx drop constraint if exists deposit_tx_type_check;
+alter table public.deposit_tx add constraint deposit_tx_type_check check (type in ('topup', 'pay', 'refund', 'return'));
 
 
 -- =====================================================================
@@ -1361,7 +1379,7 @@ declare
 begin
   select * into o from orders where id = p_order;
   if o.id is null then return null; end if;
-  if o.status = 'paid' and o.bill is not null then return o.bill; end if;
+  if o.status in ('paid', 'refund') and o.bill is not null then return o.bill; end if;
   v_at := coalesce(p_at, o.created_at, now());
   select coalesce(sum(qty * price), 0) into v_sub from order_lines where order_id = p_order and status <> 'void' and parent_line_id is null;
   for p in select * from promos order by id loop
@@ -1556,15 +1574,23 @@ end $$;
 -- Ringkasan shift kasir
 create or replace function engine.shift_summary(p_shift text) returns jsonb language plpgsql stable set search_path = public as $$
 declare sh public.shifts; v_by jsonb; v_cash numeric; v_top numeric; v_ref numeric; v_count int; v_total numeric; v_disc numeric; v_voids int;
+  v_rn int; v_rtot numeric; v_rcash numeric; v_rlater int; v_rlater_tot numeric;
 begin
   select * into sh from shifts where id = p_shift;
-  select count(*), coalesce(sum(total), 0), coalesce(sum((bill->>'disc')::numeric), 0) into v_count, v_total, v_disc from orders where shift_id = p_shift and status = 'paid';
-  select coalesce(jsonb_object_agg(method, amt), '{}'::jsonb) into v_by from (select p.method, sum(p.amount) amt from order_payments p join orders o on o.id = p.order_id where o.shift_id = p_shift and o.status = 'paid' group by p.method) x;
+  -- 2.13: bill yang kemudian di-refund tetap dihitung di shift tempat ia dibayar (uangnya memang masuk laci saat itu)
+  select count(*), coalesce(sum(total), 0), coalesce(sum((bill->>'disc')::numeric), 0) into v_count, v_total, v_disc from orders where shift_id = p_shift and status in ('paid', 'refund');
+  select coalesce(jsonb_object_agg(method, amt), '{}'::jsonb) into v_by from (select p.method, sum(p.amount) amt from order_payments p join orders o on o.id = p.order_id where o.shift_id = p_shift and o.status in ('paid', 'refund') group by p.method) x;
   v_cash := coalesce((v_by->>'cash')::numeric, 0);
   select coalesce(sum(amount) filter (where type = 'topup' and method = 'cash'), 0), coalesce(sum(amount) filter (where type = 'refund'), 0) into v_top, v_ref from deposit_tx where shift_id = p_shift;
   select count(*) into v_voids from orders where status = 'void' and void_by = sh.staff_id and void_at >= sh.open_at and (sh.close_at is null or void_at <= sh.close_at);
+  -- 2.13: refund bill yang uang tunainya diambil dari laci shift ini
+  select count(*), coalesce(sum(total), 0),
+         coalesce(sum((select coalesce(sum((x->>'a')::numeric), 0) from jsonb_array_elements(coalesce(refund_pays, '[]'::jsonb)) x where x->>'m' = 'cash')), 0)
+    into v_rn, v_rtot, v_rcash from orders where refund_shift = p_shift and status = 'refund';
+  select count(*), coalesce(sum(total), 0) into v_rlater, v_rlater_tot from orders where shift_id = p_shift and status = 'refund';
   return jsonb_build_object('count', v_count, 'total', v_total, 'disc', v_disc, 'by', v_by, 'top_cash', v_top, 'refund_cash', v_ref,
-                            'expected', sh.open_cash + v_cash + v_top - v_ref, 'voids', v_voids, 'no_sale', sh.no_sale);
+                            'refunds', v_rn, 'refund_total', v_rtot, 'refund_bill_cash', v_rcash, 'refunded_later', v_rlater, 'refunded_later_total', v_rlater_tot,
+                            'expected', sh.open_cash + v_cash + v_top - v_ref - v_rcash, 'voids', v_voids, 'no_sale', sh.no_sale);
 end $$;
 
 -- Notifikasi staf. Tidak pernah menggagalkan transaksi yang memanggilnya.
@@ -3482,7 +3508,7 @@ begin
              'open_cash', s.open_cash, 'counted', s.counted, 'expected', s.expected, 'variance', s.variance) || engine.shift_summary(s.id) x
       from shifts s left join staff st on st.id = s.staff_id
      where s.location_id = p_location and (s.close_at is null or s.open_at >= now() - make_interval(days => least(greatest(coalesce(p_days, 7), 1), 45)))
-     order by s.open_at desc limit 80) q), '[]'::jsonb);
+     order by s.open_at desc limit 200) q), '[]'::jsonb);
 end $$;
 
 -- ---------------------------------------------------------------------
@@ -3581,6 +3607,134 @@ begin
   raise exception 'Operasi tidak dikenal';
 end $$;
 
+-- ---------------------------------------------------------------------
+-- 2.13 · Aktivitas transaksi & refund
+-- ---------------------------------------------------------------------
+-- Daftar transaksi (bill lunas, refund, batal) per outlet. Kasir: 7 hari terakhir. Owner/Manajer: tanpa batas.
+-- Ringkasan ('sum') dihitung dari seluruh hasil filter, bukan hanya halaman ini.
+create or replace function public.trx_list(p_location text, p_from date default null, p_to date default null, p_shift text default null,
+  p_q text default '', p_status text default '', p_method text default '', p_limit int default 60, p_before timestamptz default null)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare me public.staff; v_to date; v_from date; v_min date; v_q text := nullif(trim(coalesce(p_q, '')), ''); v_lim int := least(greatest(coalesce(p_limit, 60), 1), 200);
+  v_rows jsonb; v_sum jsonb;
+begin
+  me := engine.require_role(array['owner', 'kasir']);
+  if not public.can_loc(p_location) then raise exception 'Tidak punya akses ke outlet ini' using errcode = '42501'; end if;
+  if coalesce(p_status, '') not in ('', 'paid', 'refund', 'void') then raise exception 'Status tidak dikenal'; end if;
+  v_min := case when me.role = 'kasir' then public.biz_date() - 6 else date '2000-01-01' end;
+  v_to := coalesce(p_to, public.biz_date()); v_from := greatest(coalesce(p_from, v_to), v_min);
+  with f as (
+    select o.id, coalesce(o.paid_at, o.void_at, o.created_at) t from orders o
+     where o.location_id = p_location and o.status in ('paid', 'refund', 'void') and o.merged_into is null
+       and o.biz_day >= v_min
+       and (case when p_shift is not null then (o.shift_id = p_shift or o.refund_shift = p_shift)
+                 else o.biz_day between v_from and v_to end)
+       and (coalesce(p_status, '') = '' or o.status = p_status)
+       and (coalesce(p_method, '') = '' or exists (select 1 from order_payments p where p.order_id = o.id and p.method = p_method))
+       and (v_q is null or o.no ilike '%' || v_q || '%' or coalesce(o.table_id, '') ilike v_q || '%' or o.customer_name ilike '%' || v_q || '%'
+            or exists (select 1 from members m where m.id = o.member_id and (m.name ilike '%' || v_q || '%' or m.phone like '%' || v_q || '%')))
+  ), pg as (
+    select x.id, x.t from f x where p_before is null or x.t < p_before order by x.t desc, x.id desc limit v_lim
+  )
+  select
+    (select jsonb_build_object(
+        'count', count(*) filter (where o.status in ('paid', 'refund')),
+        'paid', count(*) filter (where o.status = 'paid'), 'paid_total', coalesce(sum(o.total) filter (where o.status = 'paid'), 0),
+        'refund', count(*) filter (where o.status = 'refund'), 'refund_total', coalesce(sum(o.total) filter (where o.status = 'refund'), 0),
+        'void', count(*) filter (where o.status = 'void'),
+        'by', coalesce((select jsonb_object_agg(method, amt) from (select p.method, sum(p.amount) amt from order_payments p join f x2 on x2.id = p.order_id
+                         join orders o2 on o2.id = p.order_id where o2.status = 'paid' group by 1) y), '{}'::jsonb))
+       from f x join orders o on o.id = x.id),
+    (select coalesce(jsonb_agg(jsonb_build_object('id', o.id, 'no', o.no, 'day', o.biz_day, 't', x.t, 'created_at', o.created_at, 'paid_at', o.paid_at, 'status', o.status,
+             'type', o.type, 'channel', o.channel, 'table', o.table_id, 'merged', o.merged_tables, 'terminal', o.terminal,
+             'total', coalesce(o.total, (o.bill->>'total')::numeric, (select sum(l.qty * l.price) from order_lines l where l.order_id = o.id and l.parent_line_id is null)),
+             'items', (select coalesce(sum(l.qty), 0) from order_lines l where l.order_id = o.id and l.parent_line_id is null
+                        and (l.status <> 'void' or (o.status = 'refund' and l.void_reason like 'Refund:%'))),
+             'shift', o.shift_id, 'cashier', coalesce(nullif(s.crew_name, ''), sp.name, sc.name), 'customer', o.customer_name, 'member', m.name,
+             'pays', (select coalesce(jsonb_agg(jsonb_strip_nulls(jsonb_build_object('m', p.method, 'a', p.amount, 'card', p.card_id)) order by p.id), '[]'::jsonb) from order_payments p where p.order_id = o.id),
+             'change', o.change_amount, 'prints', o.prints,
+             'refund_at', o.refund_at, 'refund_by', rb.name, 'refund_reason', o.refund_reason, 'refund_shift', o.refund_shift, 'refund_pays', o.refund_pays,
+             'void_reason', o.void_reason, 'void_by', vb.name) order by x.t desc, x.id desc), '[]'::jsonb)
+       from pg x join orders o on o.id = x.id
+       left join shifts s on s.id = o.shift_id left join staff sp on sp.id = o.paid_by left join staff sc on sc.id = o.created_by
+       left join members m on m.id = o.member_id left join staff rb on rb.id = o.refund_by left join staff vb on vb.id = o.void_by)
+    into v_sum, v_rows;
+  return jsonb_build_object('rows', v_rows, 'sum', v_sum, 'more', jsonb_array_length(v_rows) = v_lim, 'from', v_from, 'to', v_to, 'min', v_min);
+end $$;
+
+-- Refund penuh satu bill (khusus Owner/Manajer). Uang kembali ke metode semula:
+--   tunai → dari laci shift kasir yang dipilih (p_shift), atau kas outlet di luar laci bila p_shift kosong
+--   QRIS / kartu / transfer → dari rekening bank (1102)
+--   kartu deposit → saldo kartu dikembalikan
+-- Jurnal penjualan dibalik, voucher & poin member dikembalikan, item yang belum selesai di dapur dihentikan.
+-- Stok bahan tidak dikembalikan (makanan sudah dibuat).
+create or replace function public.order_refund(p_order text, p_reason text, p_shift text default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare me public.staff; o public.orders; b jsonb; sh public.shifts; v_pays jsonb; v_cash numeric; v_lines jsonb := '[]'::jsonb; r record; p jsonb;
+  v_vd jsonb; v_back int; v_delta int; v_reason text := trim(coalesce(p_reason, ''));
+begin
+  me := engine.require_role(array['owner']);
+  perform engine.on_();
+  select * into o from orders where id = p_order for update;
+  if o.id is null then raise exception 'Bill tidak ditemukan'; end if;
+  if not public.can_loc(o.location_id) then raise exception 'Tidak punya akses ke outlet ini' using errcode = '42501'; end if;
+  if o.status = 'refund' then raise exception 'Bill % sudah di-refund', o.no; end if;
+  if o.status <> 'paid' then raise exception 'Hanya bill yang sudah lunas yang bisa di-refund'; end if;
+  if v_reason = '' then raise exception 'Alasan refund wajib diisi'; end if;
+  b := coalesce(o.bill, engine.compute_bill(o.id));
+  select coalesce(jsonb_agg(jsonb_strip_nulls(jsonb_build_object('m', method, 'a', amt, 'card', card_id)) order by method, card_id), '[]'::jsonb) into v_pays
+    from (select method, card_id, sum(amount) amt from order_payments where order_id = o.id group by 1, 2) x;
+  select coalesce(sum((x->>'a')::numeric), 0) into v_cash from jsonb_array_elements(v_pays) x where x->>'m' = 'cash';
+  if v_cash > 0 and p_shift is not null then
+    select * into sh from shifts where id = p_shift;
+    if sh.id is null or sh.close_at is not null then raise exception 'Shift kasir yang dipilih sudah ditutup. Pilih shift yang sedang aktif.'; end if;
+    if sh.location_id <> o.location_id then raise exception 'Shift kasir harus di outlet yang sama dengan bill'; end if;
+  end if;
+  update orders set status = 'refund', refund_at = now(), refund_by = me.id, refund_reason = v_reason,
+                    refund_shift = case when v_cash > 0 then p_shift end, refund_pays = v_pays, updated_at = now()
+    where id = o.id;
+  -- Item yang belum selesai di dapur dihentikan supaya tidak terus dimasak
+  update order_lines set status = 'void', void_reason = 'Refund: ' || v_reason, void_by = me.id, void_at = now()
+    where order_id = o.id and status in ('draft', 'new', 'cook', 'ready');
+  update orders set kitchen_state = engine.kitchen_state(o.id) where id = o.id;
+  -- Jurnal pembalik penjualan
+  for r in select engine.pay_account(x->>'m') as acc, sum((x->>'a')::numeric) as amt from jsonb_array_elements(v_pays) x group by 1 order by 1 loop
+    v_lines := v_lines || jsonb_build_array(jsonb_build_array(r.acc, 0, r.amt));
+  end loop;
+  if (b->>'disc')::numeric > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_array('4201', 0, (b->>'disc')::numeric)); end if;
+  v_lines := v_lines || jsonb_build_array(jsonb_build_array('4101', (b->>'sub')::numeric, 0));
+  if (b->>'tax')::numeric > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_array('2104', (b->>'tax')::numeric, 0)); end if;
+  if coalesce((b->>'svc')::numeric, 0) + coalesce((b->>'deliv')::numeric, 0) > 0 then
+    v_lines := v_lines || jsonb_build_array(jsonb_build_array('4103', coalesce((b->>'svc')::numeric, 0) + coalesce((b->>'deliv')::numeric, 0), 0));
+  end if;
+  perform engine.post(engine.entity_of(o.location_id), 'Refund ' || o.no, o.id, 'Refund penjualan', v_lines, now(), null, me.id);
+  -- Saldo kartu deposit dikembalikan
+  for p in select * from jsonb_array_elements(v_pays) loop
+    if p->>'m' = 'deposit' and p->>'card' is not null then
+      update deposit_cards set balance = balance + (p->>'a')::numeric where id = p->>'card';
+      insert into deposit_tx (card_id, amount, type, ref, created_by) values (p->>'card', (p->>'a')::numeric, 'return', 'Refund ' || o.no, me.id);
+    end if;
+  end loop;
+  -- Voucher dipakai lagi
+  select d into v_vd from jsonb_array_elements(coalesce(b->'discs', '[]'::jsonb)) d where d->>'kind' = 'voucher' limit 1;
+  if v_vd is not null then
+    update vouchers set used = greatest(0, used - 1), revenue = greatest(0, revenue - o.total), cost = greatest(0, cost - (v_vd->>'amt')::numeric) where code = v_vd->>'code';
+  end if;
+  -- Member: poin yang didapat ditarik, poin yang ditukar dikembalikan, belanja & kunjungan dikurangi
+  if o.member_id is not null and exists (select 1 from members where id = o.member_id) then
+    select coalesce(-sum(delta), 0) into v_back from point_tx where order_id = o.id and reason = 'redeem';
+    v_delta := v_back - coalesce(o.earned_points, 0);
+    update members set points = greatest(0, points + v_delta), spend = greatest(0, spend - coalesce(o.total, 0)), visits = greatest(0, visits - 1) where id = o.member_id;
+    if v_delta <> 0 then
+      insert into point_tx (member_id, delta, reason, order_id, note, created_by) values (o.member_id, v_delta, 'adjust', o.id, 'Refund bill ' || o.no, me.id);
+    end if;
+  end if;
+  perform engine.flag('Refund bill', 'sedang', 'Bill ' || o.no || coalesce(' (meja ' || o.table_id || ')', '') || ' senilai ' || engine.rp(o.total) || ' di-refund'
+    || case when v_cash > 0 then case when p_shift is null then ', tunai ' || engine.rp(v_cash) || ' dari kas outlet' else ', tunai ' || engine.rp(v_cash) || ' dari laci ' || sh.terminal end else '' end
+    || '. Alasan: ' || v_reason, me.id, o.id, o.location_id);
+  return jsonb_build_object('ok', true, 'no', o.no, 'total', o.total, 'pays', v_pays, 'cash', v_cash, 'shift', case when v_cash > 0 then p_shift end, 'terminal', sh.terminal);
+end $$;
+
 
 -- =====================================================================
 -- Kaly Ops · Database Supabase · 04 Keamanan: peran, RLS, penjaga data, realtime, storage
@@ -3672,11 +3826,13 @@ begin
   -- UPDATE dari aplikasi: hanya data tamu, meja, member, tipe, voucher/poin, dan status kurir
   if (new.id, new.no, new.biz_day, new.location_id, new.channel, new.status, new.kitchen_state, new.created_by, new.bill, new.total, new.paid_at, new.paid_by,
       new.shift_id, new.change_amount, new.tendered, new.earned_points, new.ready_at, new.picked_at, new.void_reason, new.void_by, new.void_at,
-      new.split_from, new.merged_into, new.public_token, new.payment_pending, new.released, new.scheduled_at, new.delivery_fee, new.created_at)
+      new.split_from, new.merged_into, new.public_token, new.payment_pending, new.released, new.scheduled_at, new.delivery_fee, new.created_at,
+      new.refund_at, new.refund_by, new.refund_reason, new.refund_shift, new.refund_pays)
      is distinct from
      (old.id, old.no, old.biz_day, old.location_id, old.channel, old.status, old.kitchen_state, old.created_by, old.bill, old.total, old.paid_at, old.paid_by,
       old.shift_id, old.change_amount, old.tendered, old.earned_points, old.ready_at, old.picked_at, old.void_reason, old.void_by, old.void_at,
-      old.split_from, old.merged_into, old.public_token, old.payment_pending, old.released, old.scheduled_at, old.delivery_fee, old.created_at) then
+      old.split_from, old.merged_into, old.public_token, old.payment_pending, old.released, old.scheduled_at, old.delivery_fee, old.created_at,
+      old.refund_at, old.refund_by, old.refund_reason, old.refund_shift, old.refund_pays) then
     raise exception 'Kolom ini hanya bisa diubah lewat fungsi Kaly Ops (bayar, void, kirim ke dapur)' using errcode = '42501';
   end if;
   if new.table_id is null and old.table_id is not null then
@@ -4560,6 +4716,12 @@ grant execute on function public.audit_event(text, text, text, text), public.aud
 
 revoke execute on function public.push_api(text, text, jsonb) from public;
 grant execute on function public.push_api(text, text, jsonb) to anon, authenticated;
+
+-- ---------------------------------------------------------------------
+-- 2.13 · Aktivitas transaksi & refund
+-- ---------------------------------------------------------------------
+revoke execute on function public.trx_list(text, date, date, text, text, text, text, int, timestamptz), public.order_refund(text, text, text) from public, anon;
+grant execute on function public.trx_list(text, date, date, text, text, text, text, int, timestamptz), public.order_refund(text, text, text) to authenticated;
 
 
 -- =====================================================================

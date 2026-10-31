@@ -268,7 +268,7 @@ export function voucherCheck(db, code, sub, memId, ts = Date.now()) {
 
 // ---------- Hitung tagihan ----------
 export function bill(db, o, ts) {
-  if (o.status === 'paid' && o.bill) return o.bill;
+  if ((o.status === 'paid' || o.status === 'refund') && o.bill) return o.bill;
   ts = ts || o.created || Date.now();
   const L = o.lines.filter((l) => l.s !== 'void' && !l.par);
   const sub = sum(L, (l) => l.q * l.p);
@@ -492,6 +492,7 @@ export const shiftName = (db, sh) => (sh && (sh.crewName || userName(db, sh.user
 export const crewFor = (db, role, L) => (db.crew || []).filter((c) => c.active && c.role === role && (!c.loc || !L || c.loc === L));
 // Nama kasir di nota: petugas shift tempat nota dibayar / terminal pembuatnya, lalu nama akun
 export function cashierName(db, o, byPaid = true) {
+  if (byPaid && o.cashier) return o.cashier;  // 2.13: nama petugas dari server (transaksi lama di luar data perangkat)
   const sh = (byPaid && o.shift && db.shifts.find((s) => s.id === o.shift)) || (o.term && db.shifts.find((s) => s.term === o.term && s.loc === o.loc && s.openAt <= (o.created || Date.now()) && (!s.closeAt || s.closeAt >= (o.created || 0))));
   return sh?.crewName || userName(db, byPaid ? o.paidBy || o.by : o.by);
 }
@@ -501,16 +502,19 @@ export function openShift(db, u, terminal, L, cash) {
   return s;
 }
 export function shiftSummary(db, sh) {
-  const os = db.orders.filter((o) => o.shift === sh.id && o.status === 'paid');
+  // 2.13: bill yang kemudian di-refund tetap dihitung di shift tempat ia dibayar; refund tunai mengurangi kas shift tempat refund dilakukan
+  const os = db.orders.filter((o) => o.shift === sh.id && (o.status === 'paid' || o.status === 'refund'));
   const by = {};
   for (const o of os) for (const p of o.pays) by[p.m] = (by[p.m] || 0) + p.a;
   const dt = db.depositTx.filter((t) => t.shift === sh.id);
   const topCash = sum(dt.filter((t) => t.type === 'topup' && t.m === 'cash'), (t) => t.a);
   const refCash = sum(dt.filter((t) => t.type === 'refund'), (t) => t.a);
   const noSale = sh.noSale || 0;
-  const expected = sh.openCash + (by.cash || 0) + topCash - refCash;
+  const rf = db.orders.filter((o) => o.status === 'refund' && o.refundShift === sh.id);
+  const refBill = sum(rf, (o) => sum((o.refundPays || []).filter((p) => p.m === 'cash'), (p) => p.a));
+  const expected = sh.openCash + (by.cash || 0) + topCash - refCash - refBill;
   const voids = db.orders.filter((o) => o.status === 'void' && o.voidAt >= sh.openAt && o.voidBy === sh.user && (!sh.closeAt || o.voidAt <= sh.closeAt)).length;
-  return { count: os.length, total: sum(os, (o) => o.bill.total), disc: sum(os, (o) => o.bill.disc), by, topCash, refCash, expected, voids, noSale };
+  return { count: os.length, total: sum(os, (o) => o.bill.total), disc: sum(os, (o) => o.bill.disc), by, topCash, refCash, refunds: rf.length, refundTotal: sum(rf, (o) => o.bill?.total || 0), refBill, expected, voids, noSale };
 }
 export function closeShift(db, sh, counted, u) {
   const s = shiftSummary(db, sh);
@@ -719,7 +723,7 @@ export function cashflow(db, ents, from, to) {
   return { open, close, groups };
 }
 export const CF_SECTION = {
-  'Penerimaan dari pelanggan': 'ops', 'Top-up deposit pelanggan': 'ops', 'Refund deposit pelanggan': 'ops', 'Pembayaran ke supplier': 'ops',
+  'Penerimaan dari pelanggan': 'ops', 'Top-up deposit pelanggan': 'ops', 'Refund deposit pelanggan': 'ops', 'Refund penjualan': 'ops', 'Pembayaran ke supplier': 'ops',
   'Beban operasional': 'ops', 'Pembayaran antar perusahaan': 'ops', 'Pembelian aset tetap': 'inv', 'Setoran modal': 'fin', 'Saldo awal': 'fin',
 };
 

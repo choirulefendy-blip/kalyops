@@ -39,7 +39,11 @@ import java.util.Locale;
  * jendela cetak Android, simpan file, suara pemberitahuan, dan (1.2) notifikasi Android.
  */
 public class MainActivity extends Activity {
-    static final String DEFAULT_HOME = "https://choirulefendy-blip.github.io/kalyops/";   // 1.3: GitHub Pages (sebelumnya Netlify)
+    static final String DEFAULT_HOME = "https://kalyops.vercel.app/";   // 1.5: Vercel (sebelumnya GitHub Pages, sebelum itu Netlify)
+    static final String OLD_HOME = "https://choirulefendy-blip.github.io/kalyops/";
+    // 1.5: data perangkat (login, terminal, petugas, printer) dipindah dari alamat lama ke Vercel sekali saja
+    private boolean moving;
+    private String pendingHash;
     private static final int REQ_FILE = 11, REQ_SAVE = 12, REQ_BT = 13, REQ_NOTIFY = 14, REQ_SCAN = 15;
     private static final String BT_CONNECT = "android.permission.BLUETOOTH_CONNECT";   // Android 12+
     private static final String POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS";   // Android 13+
@@ -102,8 +106,12 @@ public class MainActivity extends Activity {
         registerUsbReceiver();
         registerUsbAttach();
 
-        if (state != null) web.restoreState(state);
-        else {
+        if (state != null && !needsMove()) web.restoreState(state);
+        else if (needsMove()) {
+            // Buka alamat lama sebentar untuk menyalin data perangkat, lalu pindah ke Vercel
+            moving = true; pendingHash = hashOf(getIntent());
+            web.loadUrl(OLD_HOME);
+        } else {
             String h = hashOf(getIntent());
             if (h != null) web.loadUrl(base(home()) + h);   // dibuka dari notifikasi saat aplikasi tertutup
             else loadHome();
@@ -284,8 +292,8 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs() { return getSharedPreferences("kaly", Context.MODE_PRIVATE); }
     String home() {
         String h = prefs().getString("home", DEFAULT_HOME);
-        // 1.3: alamat lama di Netlify otomatis pindah ke GitHub Pages
-        if (h.contains("kaly-ops.netlify.app")) { prefs().edit().putString("home", DEFAULT_HOME).apply(); return DEFAULT_HOME; }
+        // Alamat lama (Netlify, GitHub Pages) otomatis pindah ke Vercel
+        if (isOldHome(h)) { prefs().edit().putString("home", DEFAULT_HOME).apply(); return DEFAULT_HOME; }
         return h;
     }
     void setHome(String url) {
@@ -297,6 +305,22 @@ public class MainActivity extends Activity {
         loadHome();
     }
     void loadHome() { web.loadUrl(home()); }
+    static boolean isOldHome(String h) { return h != null && (h.contains("kaly-ops.netlify.app") || h.contains("choirulefendy-blip.github.io/kalyops")); }
+    /** Perlu memindahkan data perangkat dari GitHub Pages? (aplikasi 1.4 ke bawah, alamat belum diubah manual) */
+    private boolean needsMove() {
+        if (prefs().getBoolean("moved_vercel", false)) return false;
+        String h = prefs().getString("home", null);
+        return h == null || isOldHome(h);
+    }
+    private void finishMove(String data) {
+        SharedPreferences.Editor e = prefs().edit().putBoolean("moved_vercel", true).putString("home", DEFAULT_HOME);
+        if (data != null && data.length() > 4 && !"null".equals(data)) e.putString("ls_move", data);
+        e.apply();
+        moving = false;
+        String h = pendingHash; pendingHash = null;
+        web.loadUrl(h != null ? base(DEFAULT_HOME) + h : DEFAULT_HOME);
+    }
+    private static final String LS_DUMP = "(function(){var o={};for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);o[k]=localStorage.getItem(k);}return JSON.stringify(o);})()";
 
     private static String hostOf(String url) {
         try { String h = Uri.parse(url).getHost(); return h == null ? "" : h.toLowerCase(Locale.ROOT); } catch (Exception e) { return ""; }
@@ -314,6 +338,7 @@ public class MainActivity extends Activity {
             Uri u = Uri.parse(url);
             String scheme = u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
             if (("https".equals(scheme) || "http".equals(scheme)) && hostOf(url).equals(hostOf(home()))) return false;
+            if (moving && isOldHome(url)) return false;   // 1.5: sedang menyalin data dari alamat lama
             if ("blob".equals(scheme) || "data".equals(scheme) || "about".equals(scheme)) return false;
             // WhatsApp, Google Maps, telepon, situs lain: buka di aplikasinya
             try {
@@ -332,10 +357,29 @@ public class MainActivity extends Activity {
         public void onPageStarted(WebView view, String url, Bitmap favicon) { currentUrl = url == null ? "" : url; }
 
         @Override
+        public void onPageFinished(WebView view, String url) {
+            if (moving && isOldHome(url)) {
+                moving = false;
+                view.evaluateJavascript(LS_DUMP, new ValueCallback<String>() {
+                    @Override public void onReceiveValue(String v) { finishMove(v); }
+                });
+                return;
+            }
+            String data = prefs().getString("ls_move", null);
+            if (data != null && hostOf(url).equals(hostOf(home()))) {
+                prefs().edit().remove("ls_move").apply();
+                // data = string JSON (sudah berbentuk literal JavaScript); tulis ulang lalu muat ulang supaya aplikasi membacanya
+                view.evaluateJavascript("(function(s){try{var o=JSON.parse(s);for(var k in o){localStorage.setItem(k,o[k]);}return Object.keys(o).length;}catch(e){return -1;}})(" + data + ")",
+                    new ValueCallback<String>() { @Override public void onReceiveValue(String n) { web.reload(); } });
+            }
+        }
+
+        @Override
         public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) { currentUrl = url == null ? "" : url; }
 
         @Override
         public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+            if (moving) { finishMove(null); return; }   // alamat lama tidak bisa dibuka: langsung ke Vercel
             // Hanya dipanggil untuk halaman utama: tampilkan halaman coba lagi
             view.loadDataWithBaseURL(null, OfflinePage.html(home(), description), "text/html", "utf-8", null);
             currentUrl = home();

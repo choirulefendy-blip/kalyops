@@ -11,6 +11,7 @@ import * as CFG from './config.js';
 import { hookUsb } from './printer-finder.js';
 import Login from './views/login.js';
 import Audit from './views/audit.js';
+import Trx from './views/trx.js';
 import Home from './views/home.js';
 import POS from './views/pos.js';
 import Kitchen from './views/kitchen.js';
@@ -41,6 +42,7 @@ export const NAV = [
   { r: 'goods', label: 'Kaly Goods', icon: 'truck', roles: ['owner', 'gudang'], desc: 'Supplier & purchase order' },
   { r: 'print', label: 'Stasiun cetak', icon: 'printer', roles: ['owner', 'kasir', 'service', 'dapur'], desc: 'Printer Bar, Dapur & kasir' },
   { r: 'settings', label: 'Pengaturan', icon: 'settings', roles: ['owner'] },
+  { r: 'transaksi', label: 'Transaksi & shift', icon: 'receipt', roles: ['owner'], desc: 'Riwayat transaksi, struk, refund, riwayat shift' },
   { r: 'audit', label: 'Audit log', icon: 'history', roles: ['owner'], desc: 'Semua aktivitas akun' },
 ];
 export const HOME = { owner: '', kasir: 'pos', dapur: 'kitchen', gudang: 'goods', service: 'denah' };
@@ -48,7 +50,7 @@ export const HOME = { owner: '', kasir: 'pos', dapur: 'kitchen', gudang: 'goods'
 export const isBO = (u = currentUser()) => u?.role === 'owner';
 const BO_NAV = [
   ['Backoffice', [['', 'Dashboard', 'layout-dashboard'], ['core', 'Stok, resep & laporan', 'chart-column'], ['goods', 'Pembelian & supplier', 'truck'], ['pos', 'Menu & harga', 'utensils'],
-    ['loop', 'Member & promo', 'award'], ['book-admin', 'Reservasi', 'calendar-check'], ['order-admin', 'Pesanan online & QR', 'qr-code'], ['settings', 'Pengaturan & printer', 'settings'], ['audit', 'Audit log', 'history']]],
+    ['loop', 'Member & promo', 'award'], ['book-admin', 'Reservasi', 'calendar-check'], ['transaksi', 'Transaksi & shift', 'receipt'], ['order-admin', 'Pesanan online & QR', 'qr-code'], ['settings', 'Pengaturan & printer', 'settings'], ['audit', 'Audit log', 'history']]],
   ['Pantau operasional', [['denah', 'Denah meja', 'map'], ['kitchen', 'Layar dapur', 'chef-hat'], ['print', 'Stasiun cetak', 'printer']]],
 ];
 // Menu tiap peran: halaman utama peran itu selalu paling atas (kasir → Kaly POS, service → Denah, dst.)
@@ -78,6 +80,7 @@ const ROUTES = {
   goods: { v: Goods, title: 'Kaly Goods' },
   settings: { v: Settings, title: 'Pengaturan' },
   audit: { v: Audit, title: 'Audit log' },
+  transaksi: { v: Trx, title: 'Transaksi & shift' },
   print: { v: Print, title: 'Stasiun cetak' },
   lounge: { v: Lounge, pub: true, bare: true },
   display: { v: Display, pub: true, bare: true },

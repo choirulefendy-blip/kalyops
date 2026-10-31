@@ -4,9 +4,9 @@ Sistem operasional terintegrasi **Kaly Eatery**: Kaly POS, Kaly Kitchen, Kaly Lo
 
 | Untuk | Alamat |
 |---|---|
-| Staf operasional (kasir, dapur, gudang, service) — **Kaly Ops** | https://choirulefendy-blip.github.io/kalyops/ |
-| Owner / Manajer — **Kaly Backoffice** | https://choirulefendy-blip.github.io/kalyops/backoffice/ |
-| Alamat Vercel (Next.js + API notifikasi, data & versi sama) | https://kalyops.vercel.app/ · Backoffice: https://kalyops.vercel.app/backoffice/ |
+| Staf operasional (kasir, dapur, gudang, service) — **Kaly Ops** | https://kalyops.vercel.app/ (aplikasi Android 1.5 membuka alamat ini) |
+| Owner / Manajer — **Kaly Backoffice** | https://kalyops.vercel.app/backoffice/ |
+| Cadangan (GitHub Pages, isi & data sama) | https://choirulefendy-blip.github.io/kalyops/ |
 | Pelanggan (pesan dari meja, reservasi, member) | tautan & QR dari Kaly Order / Kaly Book / Kaly Loop |
 
 ## Isi repository

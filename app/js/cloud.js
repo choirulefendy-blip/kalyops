@@ -136,6 +136,7 @@ export function mapOrder(r) {
     readyAt: T(r.ready_at), pickedAt: T(r.picked_at), voidReason: r.void_reason, voidBy: r.void_by, voidAt: T(r.void_at),
     splitFrom: r.split_from, mergedInto: r.merged_into, token: r.public_token, payPending: !!r.payment_pending, prints: N(r.prints),
     ks: r.kitchen_state, updated: T(r.updated_at), bizDay: r.biz_day,
+    ...(r.refund_at ? { refundAt: T(r.refund_at), refundBy: r.refund_by, refundReason: r.refund_reason || '', refundShift: r.refund_shift || null, refundPays: (r.refund_pays || []).map((p) => ({ m: p.m, a: N(p.a), ...(p.card ? { card: p.card } : {}) })) } : {}),
     lines: (r.order_lines || []).map(mapLine).sort(by('sort')),
     pays: (r.order_payments || []).map((p) => ({ m: p.method, a: N(p.amount), ...(p.card_id ? { card: p.card_id } : {}) })),
   };
@@ -202,7 +203,7 @@ async function loadOrders({ full = false, days } = {}) {
   if (days) orderDays = days;
   const from = isoDay(Date.now() - (orderDays - 1) * DAY);
   if (full || !ordersSince) {
-    const rows = await all(() => sb.from('orders').select(ORDER_SEL).or(`status.eq.open,biz_day.gte.${from}`).order('created_at'), 500);
+    const rows = await all(() => sb.from('orders').select(ORDER_SEL).or(`status.eq.open,biz_day.gte.${from},refund_at.gte.${from}`).order('created_at'), 500);
     const maxU = putOrders(rows, true);
     ordersSince = new Date((maxU || Date.now()) - 30000).toISOString();
   } else {

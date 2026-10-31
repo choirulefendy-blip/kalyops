@@ -412,7 +412,7 @@ declare
 begin
   select * into o from orders where id = p_order;
   if o.id is null then return null; end if;
-  if o.status = 'paid' and o.bill is not null then return o.bill; end if;
+  if o.status in ('paid', 'refund') and o.bill is not null then return o.bill; end if;
   v_at := coalesce(p_at, o.created_at, now());
   select coalesce(sum(qty * price), 0) into v_sub from order_lines where order_id = p_order and status <> 'void' and parent_line_id is null;
   for p in select * from promos order by id loop
@@ -607,15 +607,23 @@ end $$;
 -- Ringkasan shift kasir
 create or replace function engine.shift_summary(p_shift text) returns jsonb language plpgsql stable set search_path = public as $$
 declare sh public.shifts; v_by jsonb; v_cash numeric; v_top numeric; v_ref numeric; v_count int; v_total numeric; v_disc numeric; v_voids int;
+  v_rn int; v_rtot numeric; v_rcash numeric; v_rlater int; v_rlater_tot numeric;
 begin
   select * into sh from shifts where id = p_shift;
-  select count(*), coalesce(sum(total), 0), coalesce(sum((bill->>'disc')::numeric), 0) into v_count, v_total, v_disc from orders where shift_id = p_shift and status = 'paid';
-  select coalesce(jsonb_object_agg(method, amt), '{}'::jsonb) into v_by from (select p.method, sum(p.amount) amt from order_payments p join orders o on o.id = p.order_id where o.shift_id = p_shift and o.status = 'paid' group by p.method) x;
+  -- 2.13: bill yang kemudian di-refund tetap dihitung di shift tempat ia dibayar (uangnya memang masuk laci saat itu)
+  select count(*), coalesce(sum(total), 0), coalesce(sum((bill->>'disc')::numeric), 0) into v_count, v_total, v_disc from orders where shift_id = p_shift and status in ('paid', 'refund');
+  select coalesce(jsonb_object_agg(method, amt), '{}'::jsonb) into v_by from (select p.method, sum(p.amount) amt from order_payments p join orders o on o.id = p.order_id where o.shift_id = p_shift and o.status in ('paid', 'refund') group by p.method) x;
   v_cash := coalesce((v_by->>'cash')::numeric, 0);
   select coalesce(sum(amount) filter (where type = 'topup' and method = 'cash'), 0), coalesce(sum(amount) filter (where type = 'refund'), 0) into v_top, v_ref from deposit_tx where shift_id = p_shift;
   select count(*) into v_voids from orders where status = 'void' and void_by = sh.staff_id and void_at >= sh.open_at and (sh.close_at is null or void_at <= sh.close_at);
+  -- 2.13: refund bill yang uang tunainya diambil dari laci shift ini
+  select count(*), coalesce(sum(total), 0),
+         coalesce(sum((select coalesce(sum((x->>'a')::numeric), 0) from jsonb_array_elements(coalesce(refund_pays, '[]'::jsonb)) x where x->>'m' = 'cash')), 0)
+    into v_rn, v_rtot, v_rcash from orders where refund_shift = p_shift and status = 'refund';
+  select count(*), coalesce(sum(total), 0) into v_rlater, v_rlater_tot from orders where shift_id = p_shift and status = 'refund';
   return jsonb_build_object('count', v_count, 'total', v_total, 'disc', v_disc, 'by', v_by, 'top_cash', v_top, 'refund_cash', v_ref,
-                            'expected', sh.open_cash + v_cash + v_top - v_ref, 'voids', v_voids, 'no_sale', sh.no_sale);
+                            'refunds', v_rn, 'refund_total', v_rtot, 'refund_bill_cash', v_rcash, 'refunded_later', v_rlater, 'refunded_later_total', v_rlater_tot,
+                            'expected', sh.open_cash + v_cash + v_top - v_ref - v_rcash, 'voids', v_voids, 'no_sale', sh.no_sale);
 end $$;
 
 -- Notifikasi staf. Tidak pernah menggagalkan transaksi yang memanggilnya.

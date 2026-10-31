@@ -1,7 +1,7 @@
-KALY OPS UNTUK ANDROID 1.4 - APLIKASI TABLET KASIR
+KALY OPS UNTUK ANDROID 1.5 - APLIKASI TABLET KASIR
 ==================================================
 
-Aplikasi ini membuka Kaly Ops (https://choirulefendy-blip.github.io/kalyops/) di layar penuh dan menambah
+Aplikasi ini membuka Kaly Ops (https://kalyops.vercel.app/) di layar penuh dan menambah
 kemampuan yang tidak dimiliki browser biasa:
   - mencetak LANGSUNG ke printer thermal tanpa jendela cetak dan tanpa PC, lewat:
       LAN/Wi-Fi (alamat IP, port 9100), Bluetooth (printer yang sudah dipasangkan),
@@ -27,6 +27,8 @@ MEMASANG DI TABLET
   Syarat: Android 5.0 atau lebih baru. Printer LAN: tablet dan printer di jaringan yang sama.
 
 MEMPERBARUI DARI VERSI 1.0 / 1.1 / 1.2
+  1.5: alamat Kaly Ops pindah ke Vercel (https://kalyops.vercel.app/). Saat pertama dibuka setelah update,
+       login, terminal, nama petugas, outlet, dan printer perangkat ini otomatis disalin dari alamat lama.
   1.3: alamat Kaly Ops pindah ke GitHub Pages (https://choirulefendy-blip.github.io/kalyops/);
   aplikasi lama yang masih memakai alamat Netlify otomatis pindah setelah diperbarui.
   Pasang kaly-ops.apk versi 1.3 di atas aplikasi lama (tidak perlu dihapus). Login dan pengaturan tetap.
@@ -65,7 +67,7 @@ MENYIAPKAN PRINTER LAN
 MEMBANGUN ULANG APK (untuk pengembang)
   Folder ini berisi kode sumber lengkap (Java, tanpa Gradle).
   Ubuntu 24.04:  sudo apt install android-sdk-platform-23 aapt dalvik-exchange zipalign apksigner openjdk-21-jdk
-  Lalu:          KS_PASS=<sandi di keystore/KATA-SANDI.txt> VERSION_NAME=1.4 VERSION_CODE=5 ./build.sh   (versi berikutnya: naikkan keduanya)
+  Lalu:          KS_PASS=<sandi di keystore/KATA-SANDI.txt> VERSION_NAME=1.5 VERSION_CODE=6 ./build.sh   (versi berikutnya: naikkan keduanya)
   Hasil:         build/kaly-ops.apk
   Bisa juga dibuka di Android Studio (buat proyek baru, salin src/ dan res/ serta AndroidManifest.xml).
 

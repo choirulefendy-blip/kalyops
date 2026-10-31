@@ -566,7 +566,7 @@ create table if not exists public.orders (
   type           text not null default 'dine' check (type in ('dine', 'take', 'deliv')),
   table_id       text references public.dining_tables(id) on update cascade,
   merged_tables  text[] not null default '{}',
-  status         text not null default 'open' check (status in ('open', 'paid', 'void')),
+  status         text not null default 'open' check (status in ('open', 'paid', 'void', 'refund')),
   kitchen_state  text not null default 'none' check (kitchen_state in ('none', 'new', 'cook', 'ready', 'served')),
   created_by     text references public.staff(id),
   terminal       text not null default '',
@@ -662,7 +662,7 @@ create table if not exists public.deposit_tx (
   at         timestamptz not null default now(),
   card_id    text not null references public.deposit_cards(id),
   amount     numeric(14,0) not null,
-  type       text not null check (type in ('topup', 'pay', 'refund')),
+  type       text not null check (type in ('topup', 'pay', 'refund', 'return')),
   method     text,
   ref        text,
   created_by text references public.staff(id),
@@ -938,3 +938,21 @@ create table if not exists public.audit_sessions (
 comment on table public.audit_log is 'Audit log Kaly Ops: login/logout dan setiap tambah/ubah/hapus data oleh akun staf. Disimpan 1 tahun. Hanya Owner yang bisa membaca.';
 -- 2.12 · Rahasia bersama database ↔ API Vercel (/api/push). Tidak bisa dibaca aplikasi.
 alter table public.app_secrets add column if not exists push_secret text;
+
+-- ---------------------------------------------------------------------
+-- 2.13 · Refund bill (khusus Owner/Manajer). Bill yang di-refund berstatus 'refund': tidak lagi dihitung sebagai penjualan,
+-- tetapi tetap tercatat di shift tempat bill itu dibayar. Uang tunai yang dikembalikan mengurangi kas shift tempat refund dilakukan.
+-- ---------------------------------------------------------------------
+alter table public.orders drop constraint if exists orders_status_check;
+alter table public.orders add constraint orders_status_check check (status in ('open', 'paid', 'void', 'refund'));
+alter table public.orders add column if not exists refund_at timestamptz;
+alter table public.orders add column if not exists refund_by text references public.staff(id);
+alter table public.orders add column if not exists refund_reason text;
+alter table public.orders add column if not exists refund_shift text references public.shifts(id);
+alter table public.orders add column if not exists refund_pays jsonb;
+comment on column public.orders.refund_pays is 'Uang yang dikembalikan per metode: [{"m":"cash","a":50000},{"m":"deposit","a":20000,"card":"KD-0001"}]. Tunai diambil dari laci shift refund_shift (null = kas outlet di luar laci kasir).';
+create index if not exists orders_refund_shift_idx on public.orders (refund_shift) where refund_shift is not null;
+create index if not exists orders_paid_at_idx on public.orders (location_id, paid_at desc) where paid_at is not null;
+-- Saldo kartu deposit yang dikembalikan karena refund bill
+alter table public.deposit_tx drop constraint if exists deposit_tx_type_check;
+alter table public.deposit_tx add constraint deposit_tx_type_check check (type in ('topup', 'pay', 'refund', 'return'));

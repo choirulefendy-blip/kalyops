@@ -88,11 +88,13 @@ begin
   -- UPDATE dari aplikasi: hanya data tamu, meja, member, tipe, voucher/poin, dan status kurir
   if (new.id, new.no, new.biz_day, new.location_id, new.channel, new.status, new.kitchen_state, new.created_by, new.bill, new.total, new.paid_at, new.paid_by,
       new.shift_id, new.change_amount, new.tendered, new.earned_points, new.ready_at, new.picked_at, new.void_reason, new.void_by, new.void_at,
-      new.split_from, new.merged_into, new.public_token, new.payment_pending, new.released, new.scheduled_at, new.delivery_fee, new.created_at)
+      new.split_from, new.merged_into, new.public_token, new.payment_pending, new.released, new.scheduled_at, new.delivery_fee, new.created_at,
+      new.refund_at, new.refund_by, new.refund_reason, new.refund_shift, new.refund_pays)
      is distinct from
      (old.id, old.no, old.biz_day, old.location_id, old.channel, old.status, old.kitchen_state, old.created_by, old.bill, old.total, old.paid_at, old.paid_by,
       old.shift_id, old.change_amount, old.tendered, old.earned_points, old.ready_at, old.picked_at, old.void_reason, old.void_by, old.void_at,
-      old.split_from, old.merged_into, old.public_token, old.payment_pending, old.released, old.scheduled_at, old.delivery_fee, old.created_at) then
+      old.split_from, old.merged_into, old.public_token, old.payment_pending, old.released, old.scheduled_at, old.delivery_fee, old.created_at,
+      old.refund_at, old.refund_by, old.refund_reason, old.refund_shift, old.refund_pays) then
     raise exception 'Kolom ini hanya bisa diubah lewat fungsi Kaly Ops (bayar, void, kirim ke dapur)' using errcode = '42501';
   end if;
   if new.table_id is null and old.table_id is not null then
@@ -976,3 +978,9 @@ grant execute on function public.audit_event(text, text, text, text), public.aud
 
 revoke execute on function public.push_api(text, text, jsonb) from public;
 grant execute on function public.push_api(text, text, jsonb) to anon, authenticated;
+
+-- ---------------------------------------------------------------------
+-- 2.13 · Aktivitas transaksi & refund
+-- ---------------------------------------------------------------------
+revoke execute on function public.trx_list(text, date, date, text, text, text, text, int, timestamptz), public.order_refund(text, text, text) from public, anon;
+grant execute on function public.trx_list(text, date, date, text, text, text, text, int, timestamptz), public.order_refund(text, text, text) to authenticated;

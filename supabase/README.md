@@ -163,6 +163,13 @@ Tabel baru `table_events` mencatat **pindah meja, kosongkan meja** (manual oleh 
 
 Warna grafik memakai turunan warna brand KALY dan sudah diuji dengan validator buta warna (pasangan bersebelahan aman untuk protanopia/deuteranopia). Hijau olive dan oranye brand tidak pernah dipakai berdampingan; naik/turun memakai pasangan teal ↔ oranye.
 
+## Baru di 2.13: aktivitas transaksi, refund, riwayat shift
+
+- `trx_list(p_location, p_from, p_to, p_shift, p_q, p_status, p_method, p_limit, p_before)`: daftar bill lunas / refund / batal lengkap dengan nomor nota, meja, jam bayar, petugas kasir (nama anggota shift), metode bayar, kembalian, dan jumlah cetak; plus ringkasan seluruh hasil filter. Kasir: 7 hari terakhir. Owner/Manajer: semua tanggal.
+- `order_refund(p_order, p_reason, p_shift)`: **khusus Owner/Manajer**, refund penuh bill lunas. Status bill menjadi `refund` (kolom `refund_at`, `refund_by`, `refund_reason`, `refund_shift`, `refund_pays`). Uang kembali ke metode semula: tunai dari laci shift kasir yang dipilih (atau kas outlet bila `p_shift` kosong), QRIS/kartu/transfer dari rekening bank, kartu deposit saldonya dikembalikan (`deposit_tx` tipe `return`). Jurnal penjualan dibalik, voucher & poin member dikembalikan, item yang belum selesai di dapur dihentikan, tercatat di laporan fraud. Stok bahan tidak dikembalikan.
+- `shift_summary` / `shift_reports`: bill yang kemudian di-refund tetap tercatat di shift tempat ia dibayar; refund tunai mengurangi **kas seharusnya** di shift tempat uang diambil (`refunds`, `refund_total`, `refund_bill_cash`, `refunded_later`). Riwayat shift Owner sampai 45 hari.
+- Database lama: jalankan `kaly-ops-update-2.13.sql`.
+
 ## Baru di 2.12: produksi gabungan dapur, audit log, tanpa Realtime, API di Vercel
 
 - `kitchen_batch(p_lines, p_to)`: dapur menandai banyak item (menu sama dari beberapa nota) **dimasak** atau **siap** sekaligus. Notifikasi antar tetap per item/meja.

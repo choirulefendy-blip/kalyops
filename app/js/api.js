@@ -176,3 +176,7 @@ export const pushKinds = (endpoint, kinds) => rpc('push_kinds', { p_endpoint: en
 export const pushUnsubscribe = (endpoint) => rpc('push_unsubscribe', { p_endpoint: endpoint });
 export const pushTest = () => rpc('push_test', {});
 export const printStationModel = (id, model) => rpc('print_station_model', { p_id: id, p_model: model || 'umum' });
+
+// 2.13 · Aktivitas transaksi & refund
+export const trxList = (f) => rpc('trx_list', { p_location: f.loc, p_from: f.from || null, p_to: f.to || null, p_shift: f.shift || null, p_q: f.q || '', p_status: f.status || '', p_method: f.method || '', p_limit: f.limit || 60, p_before: f.before || null });
+export const orderRefund = (orderId, reason, shiftId) => rpc('order_refund', { p_order: orderId, p_reason: reason, p_shift: shiftId || null });

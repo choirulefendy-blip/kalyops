@@ -65,9 +65,9 @@ function deviceCard(ctx) {
   if (!isApp()) return '';
   const db = ctx.db, id = devicePrinterId(), lan = (db.printers || []).filter((p) => p.active && isDirect(p)), mine = lan.find((p) => p.id === id);
   const info = appInfo();
-  const old = !(info.features || []).includes('scan');   // 2.11: versi terbaru 1.4 (cari printer otomatis)
+  const old = !(info.features || []).includes('vercel');   // 2.13: versi terbaru 1.5 (alamat Vercel; 1.4: cari printer otomatis)
   return `<section class="card"><div class="card-h"><h3>${ic('smartphone', 18)} Printer tablet ini</h3><small class="muted">Aplikasi Android ${esc(info.app || '')}</small></div>
-    ${old ? `<div class="banner info sm">${ic('download', 16)}<span>Aplikasi Android Kaly Ops versi 1.4 tersedia: cari printer USB, LAN/Wi-Fi, dan Bluetooth otomatis tanpa mengetik alamat. Pasang di atas aplikasi ini, login tetap tersimpan.</span><a class="btn btn-sm" href="android/kaly-ops.apk" download>Unduh</a></div>` : ''}
+    ${old ? `<div class="banner info sm">${ic('download', 16)}<span>Aplikasi Android Kaly Ops versi 1.5 tersedia: pindah ke alamat baru (Vercel) dan cari printer USB, LAN/Wi-Fi, Bluetooth otomatis. Pasang di atas aplikasi ini; login, terminal, dan printer ikut pindah.</span><a class="btn btn-sm" href="android/kaly-ops.apk" download>Unduh</a></div>` : ''}
     ${lan.length ? `<label class="fld"><span>Lembar "Perangkat kasir" dari tablet ini dicetak ke</span><select class="inp" data-a-change="devSet" id="dev-sel"><option value="">Jendela cetak Android</option>
       ${lan.map((p) => `<option value="${p.id}" ${p.id === id ? 'selected' : ''}>${esc(p.name)} · ${esc(connText(p))}</option>`).join('')}</select></label>
       ${mine ? `<div class="row wrap"><button class="btn" data-a="devPing">Cek koneksi</button><button class="btn btn-pri" data-a="devTest">${ic('printer', 16)} Cetak tes</button></div>` : ''}

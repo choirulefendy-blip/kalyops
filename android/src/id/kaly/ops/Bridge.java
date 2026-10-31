@@ -36,7 +36,7 @@ public final class Bridge {
             o.put("android", Build.VERSION.SDK_INT);
             o.put("model", Build.MANUFACTURER + " " + Build.MODEL);
             o.put("home", act.home());
-            o.put("features", new org.json.JSONArray().put("lan").put("bt").put("usb").put("notify").put("scan"));
+            o.put("features", new org.json.JSONArray().put("lan").put("bt").put("usb").put("notify").put("scan").put("vercel"));
         } catch (JSONException ignore) {}
         return o.toString();
     }
