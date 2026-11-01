@@ -9,7 +9,7 @@ import { rerender, go, can } from '../app.js';
 import { openFromDenah } from './pos.js';
 import { moveDialog, clearTable, bookNowDialog } from './table-actions.js';
 
-const IMG = { src: 'assets/denah.png', w: 2174, h: 1710 };
+const IMG = { src: 'assets/denah.png?v=214', w: 2576, h: 1821 };  // 2.14: denah baru (Nov 2026)
 const AR = IMG.w / IMG.h;
 const MAXW = 4200;
 const ui = { sel: null, edit: false, w: null, sx: null, sy: null, filter: 'all', area: 'all' };

@@ -1,4 +1,4 @@
-KALY OPS 2.13 - CARA MEMASANG
+KALY OPS 2.14 - CARA MEMASANG
 ============================
 
 Folder ini (app/) adalah aplikasi Kaly Ops. Sejak 2.7 diterbitkan lewat GitHub Pages dari
@@ -37,6 +37,11 @@ SUDAH MEMAKAI VERSI SEBELUMNYA? CARA UPDATE KE 2.10
       tersedia". Tekan Muat ulang.
    d. Bila server notifikasi (Edge Function kaly-push) sudah dipasang: perbarui isinya dengan
       functions/kaly-push/index.ts versi 2.5 (notifikasi dapur membuka layar dapur saat diketuk).
+
+YANG BARU DI 2.14 (denah baru)
+- Denah Meja memakai denah baru Kaly Eatery (November 2026), posisi 42 meja sesuai gambar.
+- Tambah / pindah / hapus meja: Kaly Backoffice > Denah meja > Atur meja (akun Owner/Manajer).
+  Ketuk Tambah meja, isi kode & area, lalu seret meja ke posisinya.
 
 YANG BARU DI 2.13 (transaksi, refund, riwayat shift)
 - Kasir: Kaly POS > tab Transaksi. Daftar transaksi shift ini / hari ini / 7 hari:
