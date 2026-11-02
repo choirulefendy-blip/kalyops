@@ -984,3 +984,7 @@ grant execute on function public.push_api(text, text, jsonb) to anon, authentica
 -- ---------------------------------------------------------------------
 revoke execute on function public.trx_list(text, date, date, text, text, text, text, int, timestamptz), public.order_refund(text, text, text) from public, anon;
 grant execute on function public.trx_list(text, date, date, text, text, text, text, int, timestamptz), public.order_refund(text, text, text) to authenticated;
+
+-- 2.15 · Pengaturan printer dari akun kasir
+revoke execute on function public.print_route_save(text, jsonb), public.print_copies_save(text, jsonb), public.receipt_save(jsonb) from public, anon;
+grant execute on function public.print_route_save(text, jsonb), public.print_copies_save(text, jsonb), public.receipt_save(jsonb) to authenticated;

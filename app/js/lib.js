@@ -245,3 +245,14 @@ export function speak(text) {
   } catch {}
 }
 export const spellNo = (no) => String(no).split('').map((c) => (/\d/.test(c) ? c : c + ',')).join(' ');
+
+// 2.15 · Mode ringan untuk tablet RAM kecil (≤ 4 GB) dan aplikasi Android Kaly Ops: animasi berulang & bayangan
+// dimatikan, gambar denah lebih kecil. Bisa dipaksa dengan localStorage 'kaly.lite' = '1' / '0'.
+export const LITE = (() => {
+  try { const f = localStorage.getItem('kaly.lite'); if (f === '1' || f === '0') return f === '1'; } catch {}
+  if (typeof navigator === 'undefined' || typeof window === 'undefined') return false;
+  const mem = navigator.deviceMemory;
+  return (typeof mem === 'number' && mem <= 4) || !!window.KalyAndroid || /; wv\)/.test(navigator.userAgent || '');
+})();
+if (LITE && typeof document !== 'undefined') document.documentElement.classList.add('lite');
+

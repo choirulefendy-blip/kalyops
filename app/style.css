@@ -1502,3 +1502,16 @@ td.tx-pm { display: table-cell; }
 }
 .tx-fr select, .tx-fr .inp { width: auto; flex: 0 0 auto; max-width: 100%; }
 @media (max-width: 760px) { .tx-t tr.tx-r td { background: none !important; } .tx-t tr.tx-r:hover { background: var(--paper-2); } }
+
+/* 2.15 · Kaly POS › Printer (akun kasir) & pemantauan di Backoffice */
+.pos-printer { display: grid; gap: 14px; max-width: 980px; margin: 0 auto; }
+.pos-printer > .card { box-shadow: none; border: 1px solid var(--line, #e5e5e5); margin: 0; }
+.pos-home.tab-printer { overflow: auto; }
+.pr-ro { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+
+/* 2.15 · Mode ringan (tablet RAM ≤ 4 GB / aplikasi Android): tanpa animasi berulang, bayangan, dan transisi */
+.lite *, .lite *::before, .lite *::after { transition: none !important; }
+.lite .dn-pin.st-ready, .lite .sync.wait i, .lite .pst.printing svg { animation: none !important; }
+.lite .dn-pin.st-ready { box-shadow: 0 0 0 3px rgba(236,110,40,.35); }
+.lite .card, .lite .btn, .lite .menu-grid > *, .lite .pn-tab { box-shadow: none !important; }
+.lite .modal, .lite .toast { box-shadow: 0 2px 10px rgba(0,0,0,.18) !important; }

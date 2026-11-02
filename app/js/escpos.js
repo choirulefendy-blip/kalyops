@@ -84,7 +84,7 @@ async function rasterSvg(el, scale) {
     const c = document.createElement('canvas'); c.width = Math.round(r.width * scale); c.height = Math.round(r.height * scale);
     try { c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); } catch { continue; }
     img.style.width = r.width + 'px'; img.style.height = r.height + 'px';
-    img.src = c.toDataURL('image/png');
+    img.src = c.toDataURL('image/png'); freeCanvas(c);
     await new Promise((ok) => { if (img.complete) ok(); else { img.onload = ok; img.onerror = ok; } });
   }
 }
@@ -116,12 +116,14 @@ export async function renderSlips(html, paper = 58, dotsOverride = null) {
 }
 
 // ---------- Gambar → hitam-putih ----------
+export function freeCanvas(c) { try { c.width = 0; c.height = 0; } catch {} }
 export function toMono(canvas, dots, threshold = 165) {
   const h = Math.max(1, Math.round(canvas.height * dots / canvas.width));
   const c = document.createElement('canvas'); c.width = dots; c.height = h;
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, dots, h); ctx.drawImage(canvas, 0, 0, dots, h);
   const d = ctx.getImageData(0, 0, dots, h).data;
+  freeCanvas(c);                                     // 2.15: lepaskan memori kanvas segera (tablet RAM 4 GB)
   const bpr = dots >> 3;
   let last = 0;
   const bits = new Uint8Array(bpr * h);
@@ -196,7 +198,7 @@ export async function printDirect(printer, html, paperDefault = 58) {
   const c = needApp(printer);
   const M = MODELS[modelOf(printer)];
   const paper = printer.paper || M.paper || paperDefault || 58;
-  const imgs = (await renderSlips(html, paper, dotsFor(printer, paper))).map(({ canvas, dots }) => toMono(canvas, dots));
+  const imgs = (await renderSlips(html, paper, dotsFor(printer, paper))).map(({ canvas, dots }) => { const m = toMono(canvas, dots); freeCanvas(canvas); return m; });
   const b64 = toBase64(escposJob(imgs, printer.mode, M.cut !== false));
   if (c === 'lan' && typeof native()?.send !== 'function') await call('printRaw', [printer.ip, printer.port || 9100, b64]);   // aplikasi 1.0
   else await call('send', [c, target(printer), printer.port || 9100, b64], c === 'bt' ? 90000 : 30000);

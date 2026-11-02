@@ -70,7 +70,7 @@ export async function addFound(ctx, L, k, d) {
   const M = MODELS[d.model] || MODELS.umum;
   const pre = { name: (d.model && d.model !== 'umum' ? M.label : d.name || 'Printer').slice(0, 40), loc: L, conn: k, model: d.model || 'umum', paper: M.paper,
     ...(k === 'lan' ? { ip: d.ip, port: d.port || 9100 } : k === 'bt' ? { bt: d.addr } : { usb: d.id }) };
-  const mod = await import('./views/settings.js');
+  const mod = await import('./views/printer-setup.js');
   mod.printerForm(getDb(), null, L, pre);
 }
 
@@ -88,7 +88,7 @@ export function hookUsb() {
       checkPrinter(p).catch(() => {});   // minta izin USB sekarang, bukan saat mencetak pertama kali
       return;
     }
-    if (u.role !== 'owner') return toast(`Printer USB baru terdeteksi: ${d.name}. Minta Manajer menambahkannya lewat Pengaturan › Printer di tablet ini.`, 'info', 7000);
+    if (u.role !== 'kasir') return toast(`Printer USB baru terdeteksi: ${d.name}. Tambahkan dari akun kasir: Kaly POS › Printer.`, 'info', 7000);
     openModal({
       title: 'Printer USB tersambung', size: 'sm',
       body: `<p><b>${esc(d.name)}</b><br><span class="muted sm">${esc(d.id)}${d.model && d.model !== 'umum' ? ' · ' + esc(MODELS[d.model].label) : ''}</span></p><p class="muted sm">Tambahkan sebagai printer di tablet ini? Setelah itu pilih lembar yang dicetak.</p>`,
@@ -96,7 +96,7 @@ export function hookUsb() {
       onMount(m, api) {
         m.querySelector('[data-ok]').onclick = () => {
           api.close();
-          if (!location.hash.startsWith('#/settings')) go('settings');
+          if (!location.hash.startsWith('#/pos')) go('pos?tab=printer');
           setTimeout(() => addFound({}, getOutlet(), 'usb', d), 400);
         };
       },

@@ -1,6 +1,6 @@
 // Cetak dari Kaly Ops: di perangkat ini (jendela cetak browser), dikirim ke printer lain lewat stasiun cetak (2.1),
 // atau langsung ke printer LAN/Wi-Fi lewat aplikasi Android Kaly Ops (2.2, ESC/POS ke ip:port).
-// Tujuan tiap jenis lembar diatur Owner per outlet di Pengaturan › Printer & tujuan cetak (locations.print_route).
+// Tujuan tiap jenis lembar diatur kasir per outlet di Kaly POS › Printer (2.15) (locations.print_route).
 import { getDb } from './store.js';
 import * as API from './api.js';
 import * as C from './cloud.js';

@@ -252,16 +252,24 @@ function syncBadge() {
 }
 
 // Elemen dengan data-since menampilkan durasi berjalan (timer dapur, meja)
+// 2.15: hanya menulis teks/kelas yang benar-benar berubah (tablet RAM 4 GB tidak perlu menata ulang layar tiap detik),
+// dan berhenti saat aplikasi tidak terlihat
 function tickSince() {
+  if (document.hidden) return;
   const now = Date.now();
   const sla = (getDb().settings.slaMin || 15) * 60000;
   $$('[data-since]').forEach((el) => {
     const ms = now - Number(el.dataset.since);
-    el.textContent = el.dataset.fmt === 'min' ? Math.floor(ms / 60000) + ' mnt' : dur(ms);
-    if (el.dataset.sla !== undefined) { el.classList.toggle('t-warn', ms > sla * 0.66 && ms <= sla); el.classList.toggle('t-late', ms > sla); }
+    const t = el.dataset.fmt === 'min' ? Math.floor(ms / 60000) + ' mnt' : dur(ms);
+    if (el.textContent !== t) el.textContent = t;
+    if (el.dataset.sla !== undefined) {
+      const w = ms > sla * 0.66 && ms <= sla, l = ms > sla;
+      if (el.classList.contains('t-warn') !== w) el.classList.toggle('t-warn', w);
+      if (el.classList.contains('t-late') !== l) el.classList.toggle('t-late', l);
+    }
   });
   const c = $('#clock');
-  if (c) c.textContent = fmtTime(now);
+  if (c) { const t = fmtTime(now); if (c.textContent !== t) c.textContent = t; }
 }
 
 // ---------- Event delegation ----------

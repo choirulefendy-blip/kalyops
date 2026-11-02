@@ -739,3 +739,7 @@ export function periodRange(key, custom = {}) {
   }
 }
 export const PERIODS = [['today', 'Hari ini'], ['yesterday', 'Kemarin'], ['7d', '7 hari'], ['month', 'Bulan ini'], ['30d', '30 hari'], ['custom', 'Pilih tanggal']];
+
+// 2.15: jumlah lembar sekali cetak untuk outlet (diatur kasir); bila belum diatur ikut pengaturan umum
+export const copiesFor = (db, L) => D_copies(db, L);
+function D_copies(db, L) { return db.locations.find((l) => l.id === L)?.copies || db.settings.printCopies || { cust: 1, copy: 1, bar: 1, dapur: 1 }; }

@@ -228,7 +228,7 @@ const LOADERS = {
   org: { roles: ALL, fn: async () => {
     const [e, l, a] = await Promise.all([run(sb.from('entities').select('*')), run(sb.from('locations').select('*').order('id')), run(sb.from('accounts').select('*').order('code'))]);
     db.entities = e.map((r) => ({ id: r.id, name: r.name, short: r.short }));
-    db.locations = l.filter((r) => r.active !== false).map((r) => ({ id: r.id, name: r.name, entity: r.entity_id, type: r.type, core: r.core_stock !== false, route: r.print_route || {} }));
+    db.locations = l.filter((r) => r.active !== false).map((r) => ({ id: r.id, name: r.name, entity: r.entity_id, type: r.type, core: r.core_stock !== false, route: r.print_route || {}, ...(r.print_copies ? { copies: printCopies(r.print_copies) } : {}) }));
     db.accounts = a.map((r) => ({ code: r.code, name: r.name, type: r.type, ...(r.is_cash ? { cash: true } : {}) }));
   } },
   staff: { roles: ALL, fn: async () => {

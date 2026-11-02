@@ -12,6 +12,7 @@ import { moveDialog, heldDialog, heldListDialog, heldTables, clearTable } from '
 import { doPrint, sendPrints, KIND_LABEL } from '../printing.js';
 import * as CR from '../crew.js';
 import * as TX from './trx.js';
+import * as PS from './printer-setup.js';
 
 const ui = { tab: 'meja', area: 'all', cat: 'all', q: '', orderId: null, pending: null, depQ: '', reports: null, repLoc: null, repAt: 0, repOpen: null };
 const ST = { draft: ['Belum dikirim', 'b-mute'], new: ['Antre', 'b-info'], cook: ['Dimasak', 'b-warn'], ready: ['Siap', 'b-ok'], served: ['Diantar', 'b-mute'], void: ['Batal', 'b-err'] };
@@ -71,14 +72,18 @@ function posNav(ctx) {
   const billN = openOrders(db, L).length;
   const sh = D.activeShift(db, ctx.terminal);
   const o = curOrder(db), p = ui.pending;
-  const tabs = [hasT(ctx) ? ['meja', 'Meja', 'layout-grid'] : ['pesan', 'Pesan', 'shopping-cart'], ['order', 'Bill terbuka', 'receipt', billN], ['siap', 'Checker', 'hand-platter', readyN], ...(ctx.user.role === 'service' ? [] : [['trx', 'Transaksi', 'history'], ['deposit', 'Deposit', 'wallet'], ['shift', 'Shift', 'clock']])];
+  const tabs = [hasT(ctx) ? ['meja', 'Meja', 'layout-grid'] : ['pesan', 'Pesan', 'shopping-cart'], ['order', 'Bill terbuka', 'receipt', billN], ['siap', 'Checker', 'hand-platter', readyN], ...(ctx.user.role === 'service' ? [] : [['trx', 'Transaksi', 'history'], ['deposit', 'Deposit', 'wallet'], ['shift', 'Shift', 'clock'], ['printer', 'Printer', 'printer']])];
   // Service tidak memegang kas: tanpa Deposit & Shift
-  if (ctx.user.role === 'service' && ['deposit', 'shift', 'trx'].includes(ui.tab)) ui.tab = homeTab(ctx);
+  if (ctx.user.role === 'service' && ['deposit', 'shift', 'trx', 'printer'].includes(ui.tab)) ui.tab = homeTab(ctx);
   const cur = workMode(ctx) && hasT(ctx) && (o || p) ? `<span class="pn-cur">${ic('chevron-right', 15)}<b>${o?.table || p?.table ? 'Meja ' + esc([o?.table || p?.table, ...((o?.merged || p?.merged) || [])].join('+')) : esc(o?.no || 'Pesanan baru')}</b>${o ? `<small>${esc(o.no)}</small>` : ''}</span>` : '';
   return `<nav class="pos-nav" aria-label="Kasir">
     <div class="pn-tabs" role="tablist">${tabs.map(([k, l, i, n]) => `<button class="pn-tab ${ui.tab === k ? 'on' : ''}" role="tab" aria-selected="${ui.tab === k}" data-a="tab" data-v="${k}">${ic(i, 18)}<span>${l}</span>${n ? `<b class="cnt">${n}</b>` : ''}</button>`).join('')}${cur}</div>
     <div class="pn-r"><span class="pn-term">${esc(ctx.terminal)}</span>${ctx.user.role === 'service' ? '' : `<button class="pn-shift ${sh ? 'on' : 'off'}" data-a="tab" data-v="shift" title="${sh ? 'Shift aktif' : 'Shift belum dibuka'}">${ic('user', 15)}<span>${sh ? esc(D.shiftName(db, sh)) : 'Shift belum dibuka'}</span></button>`}</div>
   </nav>`;
+}
+// 2.15: printer, pairing, pembagian lembar, jumlah lembar & tampilan nota diatur langsung dari akun kasir
+function printerPanel(ctx) {
+  return `<div class="pos-printer">${PS.printerCard(ctx)}${PS.copiesCard(ctx)}</div>`;
 }
 function homePanel(ctx) {
   if (ui.tab === 'meja') return tablesPanel(ctx);
@@ -86,6 +91,7 @@ function homePanel(ctx) {
   if (ui.tab === 'siap') return readyPanel(ctx);
   if (ui.tab === 'deposit') return depositPanel(ctx);
   if (ui.tab === 'trx') return TX.trxPanel(ctx);
+  if (ui.tab === 'printer') return printerPanel(ctx);
   return shiftPanel(ctx);
 }
 function tablesPanel(ctx) {
@@ -377,7 +383,7 @@ function ownerView(ctx) {
     <div class="banner info">${ic('info', 18)}<span>Akses Manajer/Owner: Kaly POS dipakai untuk <b>mengelola menu</b>. Transaksi, meja, dan pembayaran dilakukan dari akun kasir. Ketuk menu untuk mengubah harga, kategori, stasiun, gambar, atau resepnya.</span></div>
     <section class="card pos-om">
       <div class="pom-h"><div><h3>Menu ${esc(D.loc(db, L)?.name || '')}</h3><small class="muted">${act.length} menu aktif${off ? ` · ${off} nonaktif` : ''}${noRec ? ` · ${noRec} belum punya resep` : ''}</small></div>
-        <div class="row wrap pom-act"><button class="btn btn-pri" data-a="mNew">${ic('plus', 16)} Menu baru</button><button class="btn" data-a="mImport">${ic('upload', 16)} Impor dari Excel</button><button class="btn" data-a="mExport">${ic('download', 16)} Unduh Excel</button><button class="btn" data-a="mCats">${ic('palette', 16)} Kelola kategori</button><button class="btn" data-a="mReceipt">${ic('receipt', 16)} Tampilan nota</button></div></div>
+        <div class="row wrap pom-act"><button class="btn btn-pri" data-a="mNew">${ic('plus', 16)} Menu baru</button><button class="btn" data-a="mImport">${ic('upload', 16)} Impor dari Excel</button><button class="btn" data-a="mExport">${ic('download', 16)} Unduh Excel</button><button class="btn" data-a="mCats">${ic('palette', 16)} Kelola kategori</button></div></div>
       <div class="pos-menu-h"><div class="search">${ic('search', 17)}<input id="pom-q" data-in="mq" placeholder="Cari menu" value="${esc(mui.q)}" autocomplete="off"></div>
         ${off ? `<label class="switch sm"><input type="checkbox" data-a-change="mOff" ${mui.off ? 'checked' : ''}><span>Tampilkan menu nonaktif & outlet lain</span></label>` : ''}</div>
       <div class="chips">${[['all', 'Semua'], ...db.cats.map((c) => [c.id, c.name])].map(([k, l]) => `<button class="chip ${mui.cat === k ? 'on' : ''}" data-a="mCat" data-v="${k}">${k === 'all' ? '' : `<i class="cdot cc-${D.catColor(db, k)}"></i>`}${esc(l)}</button>`).join('')}</div>
@@ -442,7 +448,13 @@ export default {
     if (k === 'q') { ui.q = el.value; $('#pos-menu-grid').innerHTML = menuGrid(ctxNow()); }
     if (k === 'depQ') { ui.depQ = el.value; const b = $('.pos-left-b'); const pos = el.selectionStart; b.innerHTML = depositPanel(ctxNow()); const i = $('#dep-q'); i.focus(); i.setSelectionRange(pos, pos); }
   },
+  after() {
+    if (ui.tab === 'printer' && !PS.statusOn()) PS.startStatus(false);
+    else if (ui.tab !== 'printer') PS.stopStatus();
+  },
+  unmount() { PS.stopStatus(); },
   actions: {
+    ...PS.actions,
     ...TX.actions,
     repTrx(el) { TX.showShift(el.dataset.id, el.dataset.label); ui.tab = 'trx'; rerender(); },
     tab(el, e, ctx) {
@@ -509,7 +521,6 @@ export default {
     mImport() { core().then((mod) => mod.actions.menuImport()); },
     mExport() { core().then((mod) => mod.exportMenusXlsx()); },
     mCats() { core().then((mod) => mod.actions.catManage()); },
-    mReceipt(el, e, ctx) { import('./receipt-editor.js').then((mod) => mod.openReceiptEditor(ctx)); },
     mCat(el) { mui.cat = el.dataset.v; rerender(); },
     mOff(el) { mui.off = el.checked; rerender(); },
     newMenu() { import('./core-stock.js').then((mod) => mod.openMenuForm({ cat: ui.cat !== 'all' ? ui.cat : undefined })); },
@@ -909,7 +920,7 @@ export function kitchenSlipHtml(db, o, st, lines, { reprint = false, cfg } = {})
 // Sekali tekan Cetak: nota pelanggan, salinan, slip Bar (minuman & dessert) dan slip Dapur (main dish & snack) untuk item yang belum pernah tercetak
 export async function printSet(oid, { reprint = false } = {}) {
   let o = D.order(getDb(), oid); if (!o) return;
-  const pc = getDb().settings.printCopies || { cust: 1, copy: 1, bar: 1, dapur: 1 };
+  const pc = D.copiesFor(getDb(), o.loc);
   const r = await op(oid, () => API.printSlips(oid, reprint));
   const ids = new Set(r?.lines || []);
   if (!reprint && ids.size) local((d) => { const now = Date.now(); for (const l of D.order(d, oid)?.lines || []) if (ids.has(l.id)) l.slip = now; });
@@ -930,7 +941,7 @@ export async function printSet(oid, { reprint = false } = {}) {
   if (bar.length) pieces.push({ kind: 'bar', label: lab('bar', ` · ${bar.length} item`), html: rep('bar', kitchenSlipHtml(db, o, 'bar', bar, { reprint })) });
   if (dap.length) pieces.push({ kind: 'dapur', label: lab('dapur', ` · ${dap.length} item`), html: rep('dapur', kitchenSlipHtml(db, o, 'dapur', dap, { reprint })) });
   const todo = pieces.filter((x) => x.html);
-  if (!todo.length) return toast(reprint ? 'Belum ada item yang pernah dicetak di slip Bar/Dapur' : 'Tidak ada yang dicetak. Atur jumlah lembar di Pengaturan › Cetak nota.', 'warn', 5000);
+  if (!todo.length) return toast(reprint ? 'Belum ada item yang pernah dicetak di slip Bar/Dapur' : 'Tidak ada yang dicetak. Atur jumlah lembar di Kaly POS › Printer.', 'warn', 5000);
   await sendPrints(o, todo);
 }
 export { doPrint };

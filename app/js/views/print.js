@@ -1,5 +1,6 @@
 // Stasiun cetak (2.1): jadikan perangkat ini pencetak untuk satu printer, lihat antreannya, dan cara memasang di PC.
 import * as API from '../api.js';
+import { currentUser } from '../store.js';
 import * as C from '../cloud.js';
 import * as D from '../domain.js';
 import { esc, ic, toast, fmtTime, fmtDT, copyText } from '../lib.js';
@@ -20,7 +21,7 @@ function stationCard(ctx) {
   const db = ctx.db, id = PS.stationId(), mine = db.printers.find((p) => p.id === id);
   const all = outlets(ctx).map((l) => [l, printersAt(db, l.id)]).filter(([, ps]) => ps.length);
   if (!all.length) return `<section class="card"><div class="card-h"><h3>${ic('printer', 18)} Perangkat ini</h3></div>
-    <p class="empty">Belum ada printer. ${can('settings') ? '<a href="#/settings">Tambahkan printer di Pengaturan › Printer & tujuan cetak</a>.' : 'Minta Owner menambahkannya di Pengaturan › Printer & tujuan cetak.'}</p></section>`;
+    <p class="empty">Belum ada printer. Tambahkan dari akun kasir di <b>Kaly POS › Printer</b>.</p></section>`;
   const s = PS.state;
   const sel = `<label class="fld"><span>Perangkat ini mencetak untuk</span><select class="inp" data-a-change="psSet" id="ps-sel"><option value="">Bukan stasiun cetak</option>
     ${all.map(([l, ps]) => `<optgroup label="${esc(l.name)}">${ps.map((p) => `<option value="${p.id}" ${p.id === id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</optgroup>`).join('')}</select></label>`;
@@ -57,7 +58,7 @@ function allCard(ctx) {
       <p class="hint">Dicetak di perangkat kasir: ${KINDS.filter((k) => !R[k]).map((k) => KIND_LABEL[k].toLowerCase()).join(', ') || 'tidak ada'}.</p></div>`;
   }).join('');
   if (!rows) return '';
-  return `<section class="card"><div class="card-h"><h3>Semua printer</h3>${can('settings') ? `<a class="btn btn-sm" href="#/settings">${ic('settings', 15)} Atur tujuan cetak</a>` : ''}</div>${rows}</section>`;
+  return `<section class="card"><div class="card-h"><h3>Semua printer</h3>${currentUser()?.role === 'kasir' ? `<a class="btn btn-sm" href="#/pos?tab=printer">${ic('settings', 15)} Atur tujuan cetak</a>` : ''}</div>${rows}</section>`;
 }
 
 // Aplikasi Android: printer untuk lembar "Perangkat kasir" dari tablet ini
@@ -65,14 +66,14 @@ function deviceCard(ctx) {
   if (!isApp()) return '';
   const db = ctx.db, id = devicePrinterId(), lan = (db.printers || []).filter((p) => p.active && isDirect(p)), mine = lan.find((p) => p.id === id);
   const info = appInfo();
-  const old = !(info.features || []).includes('vercel');   // 2.13: versi terbaru 1.5 (alamat Vercel; 1.4: cari printer otomatis)
+  const old = !(info.features || []).includes('recover');   // 2.15: versi terbaru 1.6 (tidak tertutup sendiri saat memori tablet penuh; 1.5: alamat Vercel)
   return `<section class="card"><div class="card-h"><h3>${ic('smartphone', 18)} Printer tablet ini</h3><small class="muted">Aplikasi Android ${esc(info.app || '')}</small></div>
-    ${old ? `<div class="banner info sm">${ic('download', 16)}<span>Aplikasi Android Kaly Ops versi 1.5 tersedia: pindah ke alamat baru (Vercel) dan cari printer USB, LAN/Wi-Fi, Bluetooth otomatis. Pasang di atas aplikasi ini; login, terminal, dan printer ikut pindah.</span><a class="btn btn-sm" href="android/kaly-ops.apk" download>Unduh</a></div>` : ''}
+    ${old ? `<div class="banner info sm">${ic('download', 16)}<span>Aplikasi Android Kaly Ops versi 1.6 tersedia: tidak lagi tertutup sendiri saat memori tablet penuh (tablet RAM 4 GB), lebih ringan, dan memakai alamat Vercel. Pasang di atas aplikasi ini; login, terminal, dan printer tetap.</span><a class="btn btn-sm" href="android/kaly-ops.apk" download>Unduh</a></div>` : ''}
     ${lan.length ? `<label class="fld"><span>Lembar "Perangkat kasir" dari tablet ini dicetak ke</span><select class="inp" data-a-change="devSet" id="dev-sel"><option value="">Jendela cetak Android</option>
       ${lan.map((p) => `<option value="${p.id}" ${p.id === id ? 'selected' : ''}>${esc(p.name)} · ${esc(connText(p))}</option>`).join('')}</select></label>
       ${mine ? `<div class="row wrap"><button class="btn" data-a="devPing">Cek koneksi</button><button class="btn btn-pri" data-a="devTest">${ic('printer', 16)} Cetak tes</button></div>` : ''}
-      <p class="hint">Printer LAN/Wi-Fi, Bluetooth, dan USB yang dipilih di <b>Pengaturan › Printer & tujuan cetak</b> (mis. slip Bar ke Printer Bar) selalu dicetak langsung dari tablet ini, tanpa stasiun cetak.</p>`
-    : `<p class="empty sm">Belum ada printer LAN/Wi-Fi, Bluetooth, atau USB. ${can('settings') ? 'Tambahkan di <a href="#/settings">Pengaturan › Printer & tujuan cetak</a>.' : 'Minta Owner menambahkannya di Pengaturan › Printer & tujuan cetak.'}</p>`}</section>`;
+      <p class="hint">Printer LAN/Wi-Fi, Bluetooth, dan USB yang dipilih di <b>Kaly POS › Printer</b> (akun kasir) (mis. slip Bar ke Printer Bar) selalu dicetak langsung dari tablet ini, tanpa stasiun cetak.</p>`
+    : `<p class="empty sm">Belum ada printer LAN/Wi-Fi, Bluetooth, atau USB. Tambahkan dari akun kasir di <b>Kaly POS › Printer</b>.</p>`}</section>`;
 }
 function apkCard() {
   if (isApp()) return '';

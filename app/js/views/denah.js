@@ -3,13 +3,14 @@
 import { local, getDb } from '../store.js';
 import * as API from '../api.js';
 import * as C from '../cloud.js';
-import { $, esc, ic, rp, toast, openModal, formData, confirmBox, clamp, fmtTime, dayKey, num, sum } from '../lib.js';
+import { $, esc, ic, rp, toast, openModal, formData, confirmBox, clamp, fmtTime, dayKey, num, sum, LITE } from '../lib.js';
 import * as D from '../domain.js';
 import { rerender, go, can } from '../app.js';
 import { openFromDenah } from './pos.js';
 import { moveDialog, clearTable, bookNowDialog } from './table-actions.js';
 
-const IMG = { src: 'assets/denah.png?v=214', w: 2576, h: 1821 };  // 2.14: denah baru (Nov 2026)
+// 2.14: denah baru (Nov 2026). 2.15: mode ringan memakai gambar 1600 px (hemat memori di tablet RAM 4 GB)
+const IMG = { src: LITE ? 'assets/denah-sm.png?v=215' : 'assets/denah.png?v=214', w: 2576, h: 1821 };
 const AR = IMG.w / IMG.h;
 const MAXW = 4200;
 const ui = { sel: null, edit: false, w: null, sx: null, sy: null, filter: 'all', area: 'all' };

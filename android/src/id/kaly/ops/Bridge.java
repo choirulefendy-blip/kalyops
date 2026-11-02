@@ -22,10 +22,11 @@ import java.util.concurrent.Executors;
  */
 public final class Bridge {
     private final MainActivity act;
-    private final WebView web;
+    private volatile WebView web;   // 1.6: diganti bila WebView dibuat ulang setelah renderer dihentikan Android
     private final ExecutorService pool = Executors.newFixedThreadPool(4);
 
     Bridge(MainActivity act, WebView web) { this.act = act; this.web = web; }
+    void attach(WebView w) { this.web = w; }
 
     @JavascriptInterface
     public String info() {
@@ -36,7 +37,7 @@ public final class Bridge {
             o.put("android", Build.VERSION.SDK_INT);
             o.put("model", Build.MANUFACTURER + " " + Build.MODEL);
             o.put("home", act.home());
-            o.put("features", new org.json.JSONArray().put("lan").put("bt").put("usb").put("notify").put("scan").put("vercel"));
+            o.put("features", new org.json.JSONArray().put("lan").put("bt").put("usb").put("notify").put("scan").put("vercel").put("recover"));
         } catch (JSONException ignore) {}
         return o.toString();
     }
@@ -155,7 +156,8 @@ public final class Bridge {
     void event(String kind, String json) {
         if (!act.isOwnPage()) return;
         final String js = "window.KalyNative&&window.KalyNative._event&&window.KalyNative._event(" + JSONObject.quote(kind) + "," + JSONObject.quote(json) + ")";
-        web.post(new Runnable() { @Override public void run() { web.evaluateJavascript(js, null); } });
+        final WebView w = web; if (w == null) return;
+        w.post(new Runnable() { @Override public void run() { w.evaluateJavascript(js, null); } });
     }
 
     private interface Job { String go(UsbDevice dev) throws Exception; }
@@ -242,7 +244,8 @@ public final class Bridge {
     }
     private void notifyDone(String id, String p) {
         final String js = "window.__kalyNotifyDone&&window.__kalyNotifyDone(" + JSONObject.quote(id) + "," + JSONObject.quote(p) + ")";
-        web.post(new Runnable() { @Override public void run() { web.evaluateJavascript(js, null); } });
+        final WebView w = web; if (w == null) return;
+        w.post(new Runnable() { @Override public void run() { w.evaluateJavascript(js, null); } });
     }
 
     @JavascriptInterface
@@ -265,6 +268,7 @@ public final class Bridge {
         if (cb == null) return;
         final String js = "window.KalyNative&&window.KalyNative._done(" + JSONObject.quote(cb) + "," + (err == null ? "null" : JSONObject.quote(err))
             + "," + (data == null ? "null" : JSONObject.quote(data)) + ")";
-        web.post(new Runnable() { @Override public void run() { web.evaluateJavascript(js, null); } });
+        final WebView w = web; if (w == null) return;
+        w.post(new Runnable() { @Override public void run() { w.evaluateJavascript(js, null); } });
     }
 }

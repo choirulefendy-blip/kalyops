@@ -16,7 +16,9 @@ final class BuildInfo { static final String VERSION_NAME = "$VERSION_NAME"; stat
 JAVA
 sed -e "s/android:versionCode=\"[0-9]*\"/android:versionCode=\"$VERSION_CODE\"/" -e "s/android:versionName=\"[^\"]*\"/android:versionName=\"$VERSION_NAME\"/" AndroidManifest.xml > build/AndroidManifest.xml
 aapt package -f -m -J build/gen -M build/AndroidManifest.xml -S res -I "$AJ" -F build/app.unsigned.apk
-javac -nowarn -Xlint:-options -source 8 -target 8 -bootclasspath "$AJ" -encoding UTF-8 -d build/obj $(find src build/gen -name '*.java')
+# 1.6: kelas API 26+ (RenderProcessGoneDetail) hanya stub untuk kompilasi, tidak ikut ke APK
+mkdir -p build/stubs && javac -nowarn -Xlint:-options -source 8 -target 8 -bootclasspath "$AJ" -encoding UTF-8 -d build/stubs $(find stubs -name '*.java')
+javac -nowarn -Xlint:-options -source 8 -target 8 -bootclasspath "$AJ" -classpath build/stubs -encoding UTF-8 -d build/obj $(find src build/gen -name '*.java')
 dalvik-exchange --dex --min-sdk-version=21 --output=build/classes.dex build/obj
 (cd build && aapt add -f app.unsigned.apk classes.dex >/dev/null)
 zipalign -f -p 4 build/app.unsigned.apk build/app.aligned.apk

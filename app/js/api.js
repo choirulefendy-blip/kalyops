@@ -161,7 +161,10 @@ export const reportTables = (from, to, loc, log = 400) => C.rpc('report_tables',
 export const printStationSave = (id, name, loc, active = true, lan = {}) => rpc('print_station_save', { p_id: id || null, p_name: name, p_loc: loc, p_active: active,
   p_ip: lan.ip || null, p_port: Number(lan.port) || 9100, p_paper: lan.paper ? Number(lan.paper) : null, p_mode: lan.mode || 'raster',
   p_conn: lan.conn || (lan.ip ? 'lan' : 'pc'), p_bt: lan.bt || null, p_usb: lan.usb || null });
-export const printRouteSave = (loc, route) => tableUpdate('locations', { id: loc }, { print_route: route });
+// 2.15: pembagian lembar & jumlah lembar per outlet diatur dari akun kasir (RPC), Backoffice hanya memantau
+export const printRouteSave = (loc, route) => rpc('print_route_save', { p_loc: loc, p_route: route });
+export const printCopiesSave = (loc, copies) => rpc('print_copies_save', { p_loc: loc, p_copies: copies });
+export const receiptSave = (cfg) => rpc('receipt_save', { p_cfg: cfg });
 export const printEnqueue = (jobs) => rpc('print_enqueue', { p_jobs: jobs });
 export const printClaim = (station) => rpc('print_claim', { p_station: station });
 export const printDone = (ids, ok = true, error = '') => rpc('print_done', { p_ids: ids, p_ok: ok, p_error: error });

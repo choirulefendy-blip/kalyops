@@ -73,10 +73,31 @@ public class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);   // layar kasir tidak mati sendiri
         getWindow().setStatusBarColor(0xFF2A3220);
 
-        web = new WebView(this);
-        web.setBackgroundColor(0xFFF2F2F3);
+        bridge = new Bridge(this, null);
+        web = buildWeb();
         setContentView(web);
 
+        tts = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
+            @Override public void onInit(int status) {
+                if (status != TextToSpeech.SUCCESS) return;
+                int r = tts.setLanguage(new Locale("id", "ID"));
+                ttsReady = r != TextToSpeech.LANG_MISSING_DATA && r != TextToSpeech.LANG_NOT_SUPPORTED;
+                if (!ttsReady) ttsReady = tts.setLanguage(Locale.getDefault()) >= 0;
+                tts.setSpeechRate(0.95f);
+            }
+        });
+        startWeb(state);
+    }
+
+    // 1.6: WebView dibuat di satu tempat supaya bisa dibuat ulang bila Android menghentikan renderer-nya
+    // (tablet RAM 4 GB). Tanpa ini, aplikasi ikut tertutup sendiri.
+    private WebView buildWeb() {
+        WebView web = new WebView(this);
+        web.setBackgroundColor(0xFFF2F2F3);
+        if (Build.VERSION.SDK_INT >= 26) {
+            // Renderer Kaly Ops diprioritaskan; tetap "penting" walau aplikasi tidak terlihat sebentar
+            try { WebView.class.getMethod("setRendererPriorityPolicy", int.class, boolean.class).invoke(web, 2, false); } catch (Exception ignore) {}
+        }
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);            // sesi login & pengaturan perangkat (localStorage)
@@ -88,21 +109,14 @@ public class MainActivity extends Activity {
         s.setUseWideViewPort(true);
         s.setUserAgentString(s.getUserAgentString() + " KalyOpsAndroid/" + BuildInfo.VERSION_NAME);
 
-        bridge = new Bridge(this, web);
+        bridge.attach(web);
         web.addJavascriptInterface(bridge, "KalyAndroid");
         web.setWebViewClient(new Client());
         web.setWebChromeClient(new Chrome());
+        return web;
+    }
 
-        tts = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
-            @Override public void onInit(int status) {
-                if (status != TextToSpeech.SUCCESS) return;
-                int r = tts.setLanguage(new Locale("id", "ID"));
-                ttsReady = r != TextToSpeech.LANG_MISSING_DATA && r != TextToSpeech.LANG_NOT_SUPPORTED;
-                if (!ttsReady) ttsReady = tts.setLanguage(Locale.getDefault()) >= 0;
-                tts.setSpeechRate(0.95f);
-            }
-        });
-
+    private void startWeb(Bundle state) {
         registerUsbReceiver();
         registerUsbAttach();
 
@@ -332,7 +346,32 @@ public class MainActivity extends Activity {
     }
 
     // ---------- Navigasi ----------
+    // 1.6: renderer WebView dihentikan Android (memori penuh) atau macet → buat WebView baru dan buka lagi
+    // halaman terakhir. Data tidak hilang: bill & pembayaran sudah tersimpan di server, sesi login di localStorage.
+    private long lastRecover;
+    private int recoverCount;
+    private void recoverWeb(WebView dead) {
+        if (dead != web) { try { dead.destroy(); } catch (Exception ignore) {} return; }
+        long now = System.currentTimeMillis();
+        recoverCount = now - lastRecover < 60000 ? recoverCount + 1 : 1;
+        lastRecover = now;
+        String url = currentUrl;
+        try { dead.setVisibility(View.GONE); dead.destroy(); } catch (Exception ignore) {}
+        web = buildWeb();
+        setContentView(web);
+        if (foreground) web.onResume();
+        if (recoverCount > 3 || url == null || url.length() == 0 || url.startsWith("data:") || !hostOf(url).equals(hostOf(home()))) loadHome();
+        else web.loadUrl(url);
+        toast(recoverCount > 3 ? "Memori tablet penuh. Tutup aplikasi lain yang tidak dipakai." : "Kaly Ops dimuat ulang karena memori tablet penuh. Data tetap aman.");
+    }
+
     private class Client extends WebViewClient {
+        // API 26+: dipanggil saat proses renderer mati. Mengembalikan true = aplikasi tidak ikut ditutup.
+        public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+            recoverWeb(view);
+            return true;
+        }
+
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, String url) {
             Uri u = Uri.parse(url);
@@ -438,6 +477,11 @@ public class MainActivity extends Activity {
         final WebView pw = new WebView(this);
         pw.getSettings().setJavaScriptEnabled(false);
         pw.setWebViewClient(new WebViewClient() {
+            public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                if (printWeb == view) printWeb = null;
+                if (view != web) { try { view.destroy(); } catch (Exception ignore) {} }
+                return true;
+            }
             @Override public void onPageFinished(WebView view, String url) {
                 PrintManager pm = (PrintManager) getSystemService(Context.PRINT_SERVICE);
                 String job = name == null || name.length() == 0 ? "Kaly Ops" : name;

@@ -68,7 +68,7 @@ export function openReceiptEditor(ctx) {
       });
       m.querySelector('[data-ok]').onclick = async () => {
         const btn = m.querySelector('[data-ok]'); btn.disabled = true;
-        try { await API.saveSettings({ receipt: C.receiptCfg({ ...R, name: R.name.trim(), header: R.header.trim(), footer: R.footer.trim() }) }); await C.refresh('settings'); }
+        try { await API.receiptSave(C.receiptCfg({ ...R, name: R.name.trim(), header: R.header.trim(), footer: R.footer.trim() })); await C.refresh('settings'); }
         catch (err) { btn.disabled = false; return toast(err.message, 'err', 6000); }
         api.close(); toast('Tampilan nota disimpan. Berlaku untuk cetakan berikutnya di semua kasir.'); rerender();
       };

@@ -956,3 +956,6 @@ create index if not exists orders_paid_at_idx on public.orders (location_id, pai
 -- Saldo kartu deposit yang dikembalikan karena refund bill
 alter table public.deposit_tx drop constraint if exists deposit_tx_type_check;
 alter table public.deposit_tx add constraint deposit_tx_type_check check (type in ('topup', 'pay', 'refund', 'return'));
+
+-- 2.15 · Jumlah lembar cetak per outlet (diatur kasir). Kosong = ikut settings.print_copies.
+alter table public.locations add column if not exists print_copies jsonb;

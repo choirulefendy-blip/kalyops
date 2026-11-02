@@ -163,6 +163,15 @@ Tabel baru `table_events` mencatat **pindah meja, kosongkan meja** (manual oleh 
 
 Warna grafik memakai turunan warna brand KALY dan sudah diuji dengan validator buta warna (pasangan bersebelahan aman untuk protanopia/deuteranopia). Hijau olive dan oranye brand tidak pernah dipakai berdampingan; naik/turun memakai pasangan teal ↔ oranye.
 
+## Baru di 2.15: printer diatur dari akun kasir, Backoffice memantau
+
+- Printer, pairing Bluetooth/USB, pencarian printer, cetak tes, model printer, pembagian lembar ke printer, jumlah lembar, dan tampilan nota diatur langsung dari **akun kasir** di tablet: **Kaly POS › Printer**. Kaly Backoffice › Pengaturan hanya menampilkan status printer, pembagian lembar, dan jumlah lembar per outlet (baca saja).
+- `print_station_save` & `print_station_model`: kini untuk Owner **dan kasir**, terbatas pada outlet yang boleh diakses staf itu.
+- `print_route_save(p_loc, p_route)`: pembagian lembar (`cust`, `copy`, `bar`, `dapur`) ke `local` atau printer aktif di outlet yang sama.
+- `print_copies_save(p_loc, p_copies)`: jumlah lembar 0 sampai 5 **per outlet** (kolom baru `locations.print_copies`; kosong = ikut `settings.print_copies`).
+- `receipt_save(p_cfg)`: tampilan nota (logo, nama, header, footer, kertas 58/80, ukuran huruf, QRIS), disaring di database.
+- Database 2.13 atau 2.14: jalankan `kaly-ops-update-2.15.sql`.
+
 ## Baru di 2.13: aktivitas transaksi, refund, riwayat shift
 
 - `trx_list(p_location, p_from, p_to, p_shift, p_q, p_status, p_method, p_limit, p_before)`: daftar bill lunas / refund / batal lengkap dengan nomor nota, meja, jam bayar, petugas kasir (nama anggota shift), metode bayar, kembalian, dan jumlah cetak; plus ringkasan seluruh hasil filter. Kasir: 7 hari terakhir. Owner/Manajer: semua tanggal.
