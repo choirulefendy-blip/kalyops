@@ -15,7 +15,8 @@ const native = () => (window.KalyAndroid && typeof window.KalyAndroid.notify ===
 export const FN_NAME = 'kaly-push';
 // 2.12: di Vercel (Next.js) server notifikasi adalah API /api/push di domain yang sama; selain itu Edge Function Supabase
 export const onVercel = () => !!CFG.API_BASE;
-export const fnUrl = () => (onVercel() ? `${location.origin}${CFG.API_BASE}/push` : `${String(CFG.SUPABASE_URL || '').trim().replace(/\/+$/, '')}/functions/v1/${FN_NAME}`);
+// 2.16: Kaly Backoffice memakai server notifikasi yang sama di alamat Kaly Ops (CFG.PUSH_URL)
+export const fnUrl = () => (onVercel() ? (CFG.PUSH_URL || `${location.origin}${CFG.API_BASE}/push`) : `${String(CFG.SUPABASE_URL || '').trim().replace(/\/+$/, '')}/functions/v1/${FN_NAME}`);
 
 let kindsOf = () => [];          // diisi notify.js: jenis notifikasi yang dinyalakan di perangkat ini
 let info = null;                 // { url, public_key, devices } dari server

@@ -1,6 +1,6 @@
 import { $, esc, ic, toast, formData, logo } from '../lib.js';
 import * as C from '../cloud.js';
-import { HOME, portal } from '../app.js';
+import { HOME, portal, MODE, OPS_URL, BO_URL, wrongApp } from '../app.js';
 
 const BO_MODS = [
   ['layout-dashboard', 'Dashboard & laporan', 'Penjualan, laba rugi, laporan shift, fraud'],
@@ -35,9 +35,22 @@ function setupCard() {
   </div>`;
 }
 
+// 2.16: kartu "alamat yang benar" saat akun masuk di aplikasi yang bukan untuknya
+function wrongCard(bo) {
+  const url = bo ? OPS_URL : BO_URL, name = bo ? 'Kaly Ops' : 'Kaly Backoffice', apk = bo ? 'kaly-ops.apk' : 'kaly-backoffice.apk';
+  if (!url) return '';
+  return `<div class="banner warn login-wrong">${ic('info', 18)}<span>${bo ? 'Akun kasir, dapur, gudang, dan service masuk lewat <b>Kaly Ops</b>.' : 'Akun Owner / Manajer masuk lewat <b>Kaly Backoffice</b>, aplikasi dan alamat tersendiri.'}
+    <br><a class="btn btn-sm btn-pri" href="${esc(url)}/" target="_blank" rel="noopener">Buka ${name}</a><a class="btn btn-sm" href="${esc(url)}/android/${apk}" download>Unduh aplikasi Android ${name}</a><br><small class="muted">${esc(url.replace(/^https?:\/\//, ''))}</small></span></div>`;
+}
+const otherLink = (bo) => {
+  if (MODE === 'backoffice') return OPS_URL ? `Staf operasional? <a href="${esc(OPS_URL)}/" target="_blank" rel="noopener">Masuk ke Kaly Ops</a> (${esc(OPS_URL.replace(/^https?:\/\//, ''))}).` : '';
+  if (MODE === 'ops') return BO_URL ? `Owner / Manajer? <a href="${esc(BO_URL)}/" target="_blank" rel="noopener">Buka Kaly Backoffice</a> (${esc(BO_URL.replace(/^https?:\/\//, ''))}).` : '';
+  return bo ? 'Staf operasional? <a href="#/login">Masuk ke Kaly Ops</a>.' : 'Owner / Manajer? <a href="#/backoffice">Masuk ke Kaly Backoffice</a>.';
+};
+
 export default {
   render(ctx) {
-    const brand = ctx.db.settings.brand, bo = !!ctx.r?.bo || ctx.path === 'backoffice';
+    const brand = ctx.db.settings.brand, bo = MODE ? MODE === 'backoffice' : (!!ctx.r?.bo || ctx.path === 'backoffice');
     const mods = bo ? BO_MODS : MODS;
     return `<div class="login ${bo ? 'login-bo' : ''}">
       <section class="login-art terrace">
@@ -46,13 +59,14 @@ export default {
         <p class="login-note">${ic(bo ? 'lock' : 'refresh-cw', 16)} ${bo ? 'Akun kasir, dapur, gudang, dan service tidak bisa masuk ke Backoffice.' : 'Semua kasir, dapur, layar antrean, dan HP pelanggan memakai data yang sama dan tersinkron otomatis.'}</p>
       </section>
       <section class="login-side">
+        ${MODE && ctx.q.wrong ? wrongCard(bo) : ''}
         ${C.configured ? `<form data-submit="login" class="card login-card">
           <h2>${bo ? 'Masuk ke Kaly Backoffice' : 'Masuk ke Kaly Ops'}</h2>
           ${bo ? '<p class="muted sm">Khusus akun Owner / Manajer.</p>' : '<p class="muted sm">Untuk kasir, dapur, gudang, dan service.</p>'}
           <label class="fld"><span>Email</span><input name="email" id="lg-email" type="email" autocomplete="username" required placeholder="nama@email.com" value="${esc(ctx.q.email || '')}"></label>
           <label class="fld"><span>Kata sandi</span><input name="pass" id="lg-pass" type="password" autocomplete="current-password" required></label>
           <button class="btn btn-pri btn-block btn-lg" type="submit" id="lg-btn">Masuk</button>
-          <p class="hint">${bo ? 'Staf operasional? <a href="#/login">Masuk ke Kaly Ops</a>.' : 'Owner / Manajer? <a href="#/backoffice">Masuk ke Kaly Backoffice</a>.'} Akun dibuat Owner di Supabase (Authentication → Users) dengan email yang sama seperti di daftar staf.</p>
+          <p class="hint">${otherLink(bo)} Akun dibuat Owner di Supabase (Authentication → Users) dengan email yang sama seperti di daftar staf.</p>
         </form>` : setupCard()}
         ${bo ? '' : `<div class="pub-links">
           <h3>Halaman untuk pelanggan</h3>
@@ -70,15 +84,21 @@ export default {
       const btn = $('#lg-btn');
       btn.disabled = true; btn.textContent = 'Memeriksa…';
       try {
-        const bo = ctx.path === 'backoffice';
+        const bo = MODE ? MODE === 'backoffice' : ctx.path === 'backoffice';
         const u = await C.signIn(f.email, f.pass);
+        if (MODE && wrongApp(u.role)) {   // 2.16: alamat/aplikasi terpisah per peran
+          await C.signOut();
+          toast(MODE === 'backoffice' ? 'Kaly Backoffice khusus Owner / Manajer. Akun ini masuk lewat Kaly Ops.' : 'Akun Owner / Manajer masuk lewat Kaly Backoffice.', 'warn', 8000);
+          location.hash = (bo ? '#/backoffice' : '#/login') + '?wrong=1&email=' + encodeURIComponent(f.email);
+          btn.disabled = false; btn.textContent = 'Masuk'; return;
+        }
         if (bo && u.role !== 'owner') {   // Backoffice hanya untuk Owner / Manajer
           await C.signOut();
           toast('Kaly Backoffice khusus Owner / Manajer. Akun ini masuk lewat Kaly Ops.', 'warn', 7000);
           location.hash = '#/login?email=' + encodeURIComponent(f.email); return;
         }
         portal(u.role === 'owner' ? 'bo' : 'ops');
-        toast(u.role === 'owner' && !bo ? `Selamat datang, ${u.name}. Akun Owner / Manajer dibuka di Kaly Backoffice.` : `Selamat datang, ${u.name}`, 'ok', 5000);
+        toast(u.role === 'owner' && !bo && !MODE ? `Selamat datang, ${u.name}. Akun Owner / Manajer dibuka di Kaly Backoffice.` : `Selamat datang, ${u.name}`, 'ok', 5000);
         const next = ctx.q.next;
         location.hash = '#/' + (next && next !== 'login' ? next : HOME[u.role] ?? '');
       } catch (err) {

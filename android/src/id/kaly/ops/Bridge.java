@@ -34,6 +34,7 @@ public final class Bridge {
         try {
             o.put("app", BuildInfo.VERSION_NAME);
             o.put("code", BuildInfo.VERSION_CODE);
+            o.put("flavor", BuildInfo.FLAVOR);   // ops | backoffice
             o.put("android", Build.VERSION.SDK_INT);
             o.put("model", Build.MANUFACTURER + " " + Build.MODEL);
             o.put("home", act.home());

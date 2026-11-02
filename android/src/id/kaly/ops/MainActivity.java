@@ -39,7 +39,9 @@ import java.util.Locale;
  * jendela cetak Android, simpan file, suara pemberitahuan, dan (1.2) notifikasi Android.
  */
 public class MainActivity extends Activity {
-    static final String DEFAULT_HOME = "https://kalyops.vercel.app/";   // 1.5: Vercel (sebelumnya GitHub Pages, sebelum itu Netlify)
+    // 1.5: Vercel (sebelumnya GitHub Pages, sebelum itu Netlify). 1.7: alamat dari build (Kaly Ops atau Kaly Backoffice)
+    static final String DEFAULT_HOME = BuildInfo.HOME;
+    static final boolean BACKOFFICE = "backoffice".equals(BuildInfo.FLAVOR);
     static final String OLD_HOME = "https://choirulefendy-blip.github.io/kalyops/";
     // 1.5: data perangkat (login, terminal, petugas, printer) dipindah dari alamat lama ke Vercel sekali saja
     private boolean moving;
@@ -55,7 +57,7 @@ public class MainActivity extends Activity {
     private static final String CHANNEL = "kaly";
     private Runnable notifyOk, notifyDeny;
     private volatile boolean foreground;
-    private static final String USB_PERMISSION = "id.kaly.ops.USB_PERMISSION";
+    private String USB_PERMISSION;   // per paket: id.kaly.ops / id.kaly.backoffice
     private Runnable btOk, btDeny, usbOk, usbDeny;
     private BroadcastReceiver usbReceiver;
 
@@ -70,6 +72,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        USB_PERMISSION = getPackageName() + ".USB_PERMISSION";
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);   // layar kasir tidak mati sendiri
         getWindow().setStatusBarColor(0xFF2A3220);
 
@@ -107,7 +110,7 @@ public class MainActivity extends Activity {
         s.setAllowContentAccess(true);
         s.setLoadWithOverviewMode(false);
         s.setUseWideViewPort(true);
-        s.setUserAgentString(s.getUserAgentString() + " KalyOpsAndroid/" + BuildInfo.VERSION_NAME);
+        s.setUserAgentString(s.getUserAgentString() + " KalyOpsAndroid/" + BuildInfo.VERSION_NAME + (BACKOFFICE ? " KalyBackoffice" : ""));
 
         bridge.attach(web);
         web.addJavascriptInterface(bridge, "KalyAndroid");
@@ -322,6 +325,7 @@ public class MainActivity extends Activity {
     static boolean isOldHome(String h) { return h != null && (h.contains("kaly-ops.netlify.app") || h.contains("choirulefendy-blip.github.io/kalyops")); }
     /** Perlu memindahkan data perangkat dari GitHub Pages? (aplikasi 1.4 ke bawah, alamat belum diubah manual) */
     private boolean needsMove() {
+        if (BACKOFFICE) return false;   // aplikasi Backoffice baru: tidak ada data lama untuk dipindah
         if (prefs().getBoolean("moved_vercel", false)) return false;
         String h = prefs().getString("home", null);
         return h == null || isOldHome(h);

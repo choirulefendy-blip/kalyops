@@ -4,7 +4,7 @@ import { esc, ic, toast, formData, openModal, uid, confirmBox } from '../lib.js'
 import * as D from '../domain.js';
 import * as C from '../cloud.js';
 import * as API from '../api.js';
-import { rerender, ctxNow } from '../app.js';
+import { rerender, ctxNow, OPS_URL, BO_URL } from '../app.js';
 import * as DN from '../devnotify.js';
 import { deviceStatus, openPrefs } from '../notify.js';
 import { printerCard, copiesCard } from './printer-setup.js';
@@ -78,6 +78,10 @@ export default {
           <label class="fld"><span>Kata sandi baru</span><input name="p1" type="password" autocomplete="new-password" minlength="6"></label>
           <label class="fld"><span>Ulangi kata sandi baru</span><input name="p2" type="password" autocomplete="new-password" minlength="6"></label>
           <button class="btn">Ganti kata sandi</button></form>
+        <div class="card"><div class="card-h"><h3>${ic('smartphone', 17)} Aplikasi & alamat</h3></div>
+          <ul class="rules"><li><b>Kaly Backoffice</b> · Owner / Manajer<small>${BO_URL ? `<a href="${esc(BO_URL)}/" target="_blank" rel="noopener">${esc(BO_URL.replace(/^https?:\/\//, ''))}</a> · ` : ''}<a href="${esc(BO_URL || '.')}/android/kaly-backoffice.apk" download>Unduh APK Kaly Backoffice</a></small></li>
+            <li><b>Kaly Ops</b> · kasir, dapur, service, gudang<small>${OPS_URL ? `<a href="${esc(OPS_URL)}/" target="_blank" rel="noopener">${esc(OPS_URL.replace(/^https?:\/\//, ''))}</a> · ` : ''}<a href="${esc(OPS_URL || '.')}/android/kaly-ops.apk" download>Unduh APK Kaly Ops</a></small></li></ul>
+          <p class="hint">Akun Owner / Manajer hanya bisa masuk di Kaly Backoffice; akun staf operasional hanya di Kaly Ops. Keduanya memakai database yang sama.</p></div>
         <div class="card"><div class="card-h"><h3>Database</h3><span class="sync ${st === 'ok' ? '' : 'off'}"><i></i>${st === 'ok' ? 'Tersambung' : 'Terputus'}</span></div>
           <p class="muted sm">Semua data tersimpan di Supabase (${esc(C.projectHost)}) dan tersinkron ke semua perangkat. Cadangan database tersedia di dashboard Supabase (Database → Backups).</p></div>
         <div class="card"><div class="card-h"><h3>Langkah berikutnya</h3></div><ul class="rules"><li><b>Payment gateway</b><small>Midtrans atau Xendit untuk QRIS dinamis dan status bayar otomatis. Fungsi konfirmasi pembayaran sudah tersedia di database.</small></li><li><b>WhatsApp Business API</b><small>Kirim campaign dan konfirmasi reservasi otomatis.</small></li></ul></div>

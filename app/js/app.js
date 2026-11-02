@@ -48,6 +48,13 @@ export const NAV = [
 export const HOME = { owner: '', kasir: 'pos', dapur: 'kitchen', gudang: 'goods', service: 'denah' };
 // 2.7 · Kaly Backoffice: akun Owner/Manajer memakai portal & menu tersendiri, terpisah dari operasional (POS, dapur, gudang, service)
 export const isBO = (u = currentUser()) => u?.role === 'owner';
+// 2.16 · Alamat & aplikasi terpisah: APP_MODE 'ops' (kasir, dapur, service, gudang) atau 'backoffice' (Owner/Manajer).
+// Kosong (cadangan GitHub Pages, uji lokal) = semua akun boleh masuk seperti sebelumnya.
+export const MODE = CFG.APP_MODE || '';
+export const OPS_URL = CFG.OPS_URL || '';
+export const BO_URL = CFG.BO_URL || '';
+export const wrongApp = (role) => (MODE === 'backoffice' && role !== 'owner') || (MODE === 'ops' && role === 'owner');
+let kicking = false;
 const BO_NAV = [
   ['Backoffice', [['', 'Dashboard', 'layout-dashboard'], ['core', 'Stok, resep & laporan', 'chart-column'], ['goods', 'Pembelian & supplier', 'truck'], ['pos', 'Menu & harga', 'utensils'],
     ['loop', 'Member & promo', 'award'], ['book-admin', 'Reservasi', 'calendar-check'], ['transaksi', 'Transaksi & shift', 'receipt'], ['order-admin', 'Pesanan online & QR', 'qr-code'], ['settings', 'Pengaturan & printer', 'settings'], ['audit', 'Audit log', 'history']]],
@@ -128,12 +135,23 @@ export function auditDevice() {
 }
 function route() {
   const { path, q } = parseHash();
+  // Kaly Ops: halaman Backoffice pindah ke alamatnya sendiri. Kaly Backoffice: halaman masuk = masuk Backoffice.
+  if (MODE === 'ops' && path === 'backoffice' && BO_URL) { location.replace(BO_URL + '/#/backoffice'); return; }
+  if (MODE === 'backoffice' && path === 'login') { location.replace('#/backoffice' + (location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : '')); return; }
   let r = ROUTES[path];
   if (!r) { go(''); return; }
   const u = currentUser();
+  if (u && wrongApp(u.role)) {   // sesi lama di alamat yang salah: keluar, lalu tunjukkan alamat yang benar
+    if (!kicking) {
+      kicking = true;
+      const em = u.email || '';
+      C.signOut().catch(() => {}).finally(() => { kicking = false; location.hash = (MODE === 'backoffice' ? '#/backoffice' : '#/login') + '?wrong=1&email=' + encodeURIComponent(em); });
+    }
+    return;
+  }
   if (!r.pub && !u) {
     const qs = new URLSearchParams(q).toString();
-    const bo = (r.roles && r.roles.length === 1 && r.roles[0] === 'owner') || portal() === 'bo';
+    const bo = MODE ? MODE === 'backoffice' : (r.roles && r.roles.length === 1 && r.roles[0] === 'owner') || portal() === 'bo';
     location.hash = (bo ? '#/backoffice' : '#/login') + (path ? '?next=' + encodeURIComponent(path + (qs ? '?' + qs : '')) : ''); return;
   }
   if ((path === 'login' || path === 'backoffice') && u) { go(HOME[u.role] ?? ''); return; }
@@ -311,7 +329,7 @@ function run(fn, el, e) {
 export const ctxNow = () => ({ ...cur.ctx, user: currentUser(), db: getDb(), outlet: getOutlet(), terminal: getTerminal() });
 
 const GLOBAL = {
-  async logout() { const bo = isBO(); await DN.onLogout(); await C.signOut(); toast('Kamu sudah keluar'); location.hash = bo ? '#/backoffice' : '#/login'; },
+  async logout() { const bo = isBO(); await DN.onLogout(); await C.signOut(); toast('Kamu sudah keluar'); location.hash = (MODE ? MODE === 'backoffice' : bo) ? '#/backoffice' : '#/login'; },
   outlet(el) { setOutlet(el.value); },
   toggleRail() {
     const off = !document.body.classList.contains('rail-off');
