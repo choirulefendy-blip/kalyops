@@ -1,7 +1,7 @@
 import { esc, ic, rp, num, startOfDay, fmtDate, qrSvg } from '../lib.js';
 import * as D from '../domain.js';
 import { navFor } from '../app.js';
-import { stationId } from '../print-station.js';
+import { stationIds } from '../print-station.js';
 import * as DN from '../devnotify.js';
 import { deviceAction } from '../notify.js';
 import { rerender, BO_LABEL, BO_ORDER } from '../app.js';
@@ -35,7 +35,7 @@ function status(db, r, L, role) {
     case 'loop': { const mo = String(new Date().getMonth() + 1).padStart(2, '0'); return [`${num(db.members.length)} member`, `${db.members.filter((m) => m.bday?.startsWith(mo)).length} ulang tahun bulan ini`]; }
     case 'book-admin': { const k = new Date(); const key = `${k.getFullYear()}-${String(k.getMonth() + 1).padStart(2, '0')}-${String(k.getDate()).padStart(2, '0')}`; const rs = db.reservations.filter((x) => x.date === key && D.RES_ACTIVE.includes(x.status)); return [`${rs.length} reservasi hari ini`, `${db.reservations.filter((x) => x.status === 'menunggu').length} menunggu konfirmasi`]; }
     case 'goods': return [`${db.pos.filter((p) => p.status === 'diajukan').length} PO menunggu persetujuan`, `${db.pos.filter((p) => p.status === 'diterima').length} tagihan supplier belum dibayar`];
-    case 'print': { const ps = (db.printers || []).filter((p) => p.active && p.loc === L), on = ps.filter((p) => p.seen && Date.now() - p.seen < 90000).length; const me = ps.find((p) => p.id === stationId());
+    case 'print': { const ps = (db.printers || []).filter((p) => p.active && p.loc === L), on = ps.filter((p) => p.seen && Date.now() - p.seen < 90000).length; const me = ps.find((p) => stationIds().includes(p.id));
       return [ps.length ? `${on}/${ps.length} printer aktif` : 'Belum ada printer', me ? `Perangkat ini: ${me.name}` : 'Perangkat ini bukan stasiun']; }
     default: return ['', ''];
   }

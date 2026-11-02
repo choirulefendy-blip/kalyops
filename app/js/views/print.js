@@ -1,4 +1,4 @@
-// Stasiun cetak (2.1): jadikan perangkat ini pencetak untuk satu printer, lihat antreannya, dan cara memasang di PC.
+// Stasiun cetak (2.1): jadikan perangkat ini pencetak untuk satu atau beberapa printer (2.17), lihat antreannya, dan cara memasang di PC.
 import * as API from '../api.js';
 import { currentUser } from '../store.js';
 import * as C from '../cloud.js';
@@ -17,31 +17,38 @@ const outlets = (ctx) => ctx.db.locations.filter((l) => l.type === 'outlet' && (
 const base = () => location.href.split('#')[0];
 const slug = (s) => s.replace(/[^\w]+/g, '-').replace(/^-|-$/g, '') || 'Printer';
 
+// 2.17: satu perangkat bisa menjadi stasiun beberapa printer sekaligus (centang printernya)
 function stationCard(ctx) {
-  const db = ctx.db, id = PS.stationId(), mine = db.printers.find((p) => p.id === id);
+  const db = ctx.db, ids = PS.stationIds(), multi = isApp();
   const all = outlets(ctx).map((l) => [l, printersAt(db, l.id)]).filter(([, ps]) => ps.length);
   if (!all.length) return `<section class="card"><div class="card-h"><h3>${ic('printer', 18)} Perangkat ini</h3></div>
     <p class="empty">Belum ada printer. Tambahkan dari akun kasir di <b>Kaly POS › Printer</b>.</p></section>`;
-  const s = PS.state;
-  const sel = `<label class="fld"><span>Perangkat ini mencetak untuk</span><select class="inp" data-a-change="psSet" id="ps-sel"><option value="">Bukan stasiun cetak</option>
-    ${all.map(([l, ps]) => `<optgroup label="${esc(l.name)}">${ps.map((p) => `<option value="${p.id}" ${p.id === id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</optgroup>`).join('')}</select></label>`;
-  let body;
-  if (id && !mine) body = `<div class="banner warn">${ic('triangle-alert', 18)}<span>Printer yang dipilih di perangkat ini sudah dihapus. Pilih printer lain.</span></div>`;
-  else if (mine) body = `<div class="ps-now ${s.status}"><span class="ps-ic">${ic('printer', 26)}</span><div><b>${esc(mine.name)}</b><small>${esc(D.loc(db, mine.loc)?.name || '')}</small>
-      <p class="${s.status === 'error' ? 'neg' : ''}">${esc(s.status === 'error' ? s.error || ST_TXT.error : ST_TXT[s.status] || '')}</p>
-      <small class="muted"><span id="ps-checked">${s.checked ? `Terakhir cek ${fmtTime(s.checked)}` : 'Menyambung…'}</span>${s.printed ? ` · ${s.printed} lembar dicetak sejak halaman dibuka` : ''}</small></div></div>
-    <div class="row wrap"><button class="btn btn-pri" data-a="psTest">${ic('printer', 16)} Cetak tes</button><button class="btn btn-ghost" data-a="psOff">Berhenti jadi stasiun</button></div>`;
-  else body = `<p class="muted sm">Pilih printer bila perangkat ini tersambung ke printer itu (kabel USB, LAN, atau Wi-Fi yang sudah terpasang di perangkat ini). Lembar yang dikirim kasir ke printer tersebut akan dicetak otomatis dari perangkat ini, di halaman apa pun yang sedang terbuka.</p>`;
-  return `<section class="card"><div class="card-h"><h3>${ic('printer', 18)} Perangkat ini</h3></div>${sel}${body}</section>`;
+  const gone = ids.filter((id) => !db.printers.some((p) => p.id === id && p.active));
+  const dup = new Set(), seen = new Set();
+  for (const [, ps] of all) for (const p of ps) { if (seen.has(p.name)) dup.add(p.name); seen.add(p.name); }
+  const row = (p) => {
+    const on = ids.includes(p.id), x = PS.state.per[p.id] || {}, st = on ? (x.status || 'idle') : 'off';
+    const txt = !on ? (isDirect(p) ? connText(p) : 'PC / stasiun cetak') : st === 'error' ? (x.error || ST_TXT.error) : st === 'printing' ? 'Sedang mencetak…' : `Siap${x.checked ? ' · cek ' + fmtTime(x.checked) : ''}${x.printed ? ` · ${x.printed} lembar dicetak` : ''}`;
+    return `<div class="ps-pick ${on ? 'on ' + st : ''}"><label class="ps-pick-l"><input type="${multi ? 'checkbox' : 'radio'}" name="ps-pick" data-a-change="psTg" data-id="${p.id}" ${on ? 'checked' : ''}>
+        <span class="ps-ic">${ic('printer', 20)}</span><span><b>${esc(p.name)}</b>${dup.has(p.name) ? ` <small class="muted">(${esc(connText(p))})</small>` : ''}<small class="${st === 'error' ? 'neg' : ''}">${esc(txt)}</small></span></label>
+      ${on ? `<button class="btn btn-sm" data-a="psTest" data-id="${p.id}">${ic('printer', 14)} Cetak tes</button>` : ''}</div>`;
+  };
+  return `<section class="card"><div class="card-h"><h3>${ic('printer', 18)} Perangkat ini</h3>${ids.length ? `<span class="badge b-ok">${ids.length} printer</span>` : ''}</div>
+    <p class="muted sm">${multi ? 'Centang <b>semua printer</b> yang dilayani tablet ini (mis. Printer Kasir, Bar, dan Dapur). Lembar yang dikirim kasir ke printer-printer itu dicetak otomatis dari sini, bersamaan, di halaman apa pun yang sedang terbuka.' : 'Pilih printer yang tersambung ke perangkat ini. Lembar yang dikirim kasir ke printer tersebut dicetak otomatis dari sini. Satu PC bisa melayani beberapa printer dengan satu jendela Chrome per printer (lihat cara memasang di PC).'}</p>
+    ${gone.length ? `<div class="banner warn">${ic('triangle-alert', 18)}<span>${gone.length} printer yang dipilih di perangkat ini sudah dihapus dan dilewati.</span></div>` : ''}
+    ${dup.size ? `<p class="hint">${ic('info', 14)} Ada printer dengan nama sama (${[...dup].map(esc).join(', ')}). Ganti namanya di Kaly POS › Printer, mis. <b>Printer Kasir</b>, <b>Printer Bar</b>, <b>Printer Dapur</b>, supaya tidak tertukar.</p>` : ''}
+    ${all.map(([l, ps]) => `${all.length > 1 ? `<h4 class="sec-t">${esc(l.name)}</h4>` : ''}<div class="ps-picks">${ps.map(row).join('')}</div>`).join('')}
+    ${ids.length ? `<div class="row wrap">${ids.length > 1 ? `<button class="btn btn-pri" data-a="psTestAll">${ic('printer', 16)} Cetak tes semua</button>` : ''}<button class="btn btn-ghost" data-a="psOff">Berhenti jadi stasiun</button></div>` : ''}</section>`;
 }
 
 function jobsCard(ctx) {
-  const db = ctx.db, id = PS.stationId(), mine = db.printers.find((p) => p.id === id);
-  if (!mine) return '';
-  const jobs = db.printJobs.filter((j) => j.station === id).slice(0, 40);
-  return `<section class="card"><div class="card-h"><h3>Antrean & riwayat ${esc(mine.name)}</h3><small class="muted">12 jam terakhir</small></div>
+  const db = ctx.db, ids = PS.stationIds().filter((id) => db.printers.some((p) => p.id === id));
+  if (!ids.length) return '';
+  const nm = (id) => db.printers.find((p) => p.id === id)?.name || '';
+  const jobs = db.printJobs.filter((j) => ids.includes(j.station)).slice(0, 60);
+  return `<section class="card"><div class="card-h"><h3>Antrean & riwayat ${ids.length > 1 ? `${ids.length} printer` : esc(nm(ids[0]))}</h3><small class="muted">12 jam terakhir</small></div>
     ${jobs.length ? `<div class="olist ps-jobs">${jobs.map((j) => { const [l, c] = JOB_ST[j.status] || [j.status, 'b-mute'];
-      return `<div class="ol static"><span><b>${esc(j.label || KIND_LABEL[j.kind] || j.kind)}</b><small>${fmtTime(j.at)}${j.by ? ' · ' + esc(D.userName(db, j.by)) : ''}${j.printedAt ? ` · tercetak ${fmtTime(j.printedAt)}` : ''}${j.error ? ` · ${esc(j.error)}` : ''}</small></span>
+      return `<div class="ol static"><span><b>${esc(j.label || KIND_LABEL[j.kind] || j.kind)}</b><small>${ids.length > 1 ? esc(nm(j.station)) + ' · ' : ''}${fmtTime(j.at)}${j.by ? ' · ' + esc(D.userName(db, j.by)) : ''}${j.printedAt ? ` · tercetak ${fmtTime(j.printedAt)}` : ''}${j.error ? ` · ${esc(j.error)}` : ''}</small></span>
         <span class="row-xs"><span class="badge ${c}">${l}</span>${j.status !== 'queued' ? `<button class="btn btn-sm btn-ghost" data-a="psRetry" data-id="${j.id}">Cetak lagi</button>` : ''}</span></div>`; }).join('')}</div>`
     : '<p class="empty sm">Belum ada lembar untuk printer ini.</p>'}</section>`;
 }
@@ -106,7 +113,7 @@ export default {
   render(ctx) {
     if (ctx.q.st) {
       const p = ctx.db.printers.find((x) => x.id === ctx.q.st && x.active);
-      if (p) { if (PS.stationId() !== p.id) { PS.setStation(p.id); toast(`Perangkat ini menjadi stasiun ${p.name}`); } }
+      if (p) { if (!PS.isStation(p.id)) { if (isApp()) PS.toggleStation(p.id, true); else PS.setStation(p.id); toast(`Perangkat ini menjadi stasiun ${p.name}`); } }
       else toast('Printer di tautan ini tidak ditemukan atau sudah dihapus', 'warn', 6000);
       delete ctx.q.st; try { history.replaceState(null, '', '#/print'); } catch {}
     }
@@ -115,19 +122,30 @@ export default {
   after(root, ctx, first) {
     if (first) {
       clearInterval(refreshT); clearInterval(clockT);
-      refreshT = setInterval(async () => { await C.loadQuiet('printers').catch(() => {}); if (document.activeElement?.id !== 'ps-sel') rerender(); }, 30000); C.refresh('printers', 'printJobs').catch(() => {});
+      refreshT = setInterval(async () => { await C.loadQuiet('printers').catch(() => {}); if (!document.activeElement?.closest?.('select, input')) rerender(); }, 30000); C.refresh('printers', 'printJobs').catch(() => {});
       clockT = setInterval(() => { const el = document.getElementById('ps-checked'); if (el && PS.state.checked) el.textContent = `Terakhir cek ${new Date(PS.state.checked).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`; }, 1000);
     }
   },
   unmount() { clearInterval(refreshT); clearInterval(clockT); refreshT = clockT = null; },
   actions: {
-    psSet(el) { const id = el.value || null; PS.setStation(id); const p = C.db.printers.find((x) => x.id === id); toast(p ? `Perangkat ini menjadi stasiun ${p.name}` : 'Perangkat ini bukan stasiun cetak lagi', p ? 'ok' : 'info'); rerender(); },
+    psTg(el) {
+      const id = el.dataset.id, p = C.db.printers.find((x) => x.id === id);
+      if (el.type === 'radio') PS.setStation(id); else PS.toggleStation(id, el.checked);
+      toast(el.checked ? `Perangkat ini juga mencetak untuk ${p?.name || 'printer ini'}` : `${p?.name || 'Printer'} tidak dilayani perangkat ini lagi`, el.checked ? 'ok' : 'info');
+      rerender();
+    },
+    async psTestAll(el, e, ctx) {
+      const ps = PS.stationIds().map((id) => ctx.db.printers.find((x) => x.id === id && x.active)).filter(Boolean);
+      el.disabled = true;
+      try { await API.printEnqueue(ps.map((p) => ({ station: p.id, kind: 'test', label: 'Cetak tes', html: testSlipHtml(ctx.db, p, ctx.user.name) }))); toast(`Cetak tes masuk antrean ${ps.map((p) => p.name).join(', ')}`); PS.kick(); await C.refresh('printJobs'); }
+      catch (err) { toast(err.message, 'err', 6000); } finally { el.disabled = false; }
+    },
     devSet(el) { setDevicePrinter(el.value || null); const p = C.db.printers.find((x) => x.id === el.value); toast(p ? `Lembar "Perangkat kasir" dari tablet ini dicetak ke ${p.name}` : 'Lembar "Perangkat kasir" memakai jendela cetak Android'); rerender(); },
     async devPing(el, e, ctx) { const p = ctx.db.printers.find((x) => x.id === devicePrinterId()); if (!p) return; el.disabled = true; try { await checkPrinter(p); toast(`${p.name} tersambung`); } catch (err) { toast(`${p.name}: ${err.message}`, 'err', 7000); } finally { el.disabled = false; } },
     async devTest(el, e, ctx) { const p = ctx.db.printers.find((x) => x.id === devicePrinterId()); if (!p) return; el.disabled = true; try { await printDirect(p, testSlipHtml(ctx.db, p, ctx.user.name), paperOf(ctx.db)); toast(`Cetak tes dikirim ke ${p.name}`); } catch (err) { toast(`${p.name}: ${err.message}`, 'err', 7000); } finally { el.disabled = false; } },
     psOff() { PS.setStation(null); toast('Perangkat ini bukan stasiun cetak lagi', 'info'); rerender(); },
     async psTest(el, e, ctx) {
-      const p = ctx.db.printers.find((x) => x.id === PS.stationId()); if (!p) return;
+      const p = ctx.db.printers.find((x) => x.id === (el.dataset.id || PS.stationId())); if (!p) return;
       el.disabled = true;
       try { await API.printEnqueue([{ station: p.id, kind: 'test', label: 'Cetak tes', html: testSlipHtml(ctx.db, p, ctx.user.name) }]); toast(`Cetak tes masuk antrean ${p.name}`); PS.kick(); await C.refresh('printJobs'); }
       catch (err) { toast(err.message, 'err', 6000); } finally { el.disabled = false; }

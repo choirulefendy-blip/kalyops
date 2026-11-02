@@ -253,12 +253,13 @@ function updateShell() {
 // Tanda di kanan atas bila perangkat ini menjadi stasiun cetak
 function paintStation() {
   const el = $('#pst'); if (!el) return;
-  const s = PS.state, p = getDb().printers.find((x) => x.id === PS.stationId());
-  el.hidden = !(s.status !== 'off' && PS.stationId());
+  const s = PS.state, ids = PS.stationIds(), ps = ids.map((id) => getDb().printers.find((x) => x.id === id)).filter(Boolean);
+  el.hidden = !(s.status !== 'off' && ids.length);
   if (el.hidden) return;
+  const names = ps.map((p) => p.name).join(', ') || s.name || 'printer';
   el.className = 'pst ' + s.status;
-  el.title = s.status === 'error' ? `Stasiun cetak: ${s.error}` : `Perangkat ini mencetak untuk ${p?.name || s.name || 'printer'}`;
-  el.innerHTML = `${ic('printer', 16)}<span>${esc(p?.name || s.name || 'Stasiun cetak')}</span>`;
+  el.title = s.status === 'error' ? `Stasiun cetak: ${s.error}` : `Perangkat ini mencetak untuk ${names}`;
+  el.innerHTML = `${ic('printer', 16)}<span>${esc(ps.length > 1 ? `${ps.length} printer` : names || 'Stasiun cetak')}</span>`;
 }
 const SYNC = { ok: ['Tersinkron', ''], loading: ['Memuat data…', 'wait'], offline: ['Offline, mencoba lagi…', 'off'], expired: ['Sesi habis, masuk lagi', 'off'], off: ['', ''] };
 function syncBadge() {
