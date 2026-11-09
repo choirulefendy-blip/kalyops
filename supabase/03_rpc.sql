@@ -69,11 +69,13 @@ begin
   return jsonb_build_object('kitchen_items', v_n, 'sent', v_drafts);
 end $$;
 
+-- 2.19 · Diskon angka bebas kini KHUSUS Owner/Manajer. Kasir memakai template diskon (discount_apply)
+-- yang disiapkan Owner/Manajer di Kaly Backoffice, supaya tidak ada diskon karangan di kasir.
 create or replace function public.apply_manual_discount(p_order text, p_type text, p_value numeric, p_reason text, p_pin text default null)
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
 declare me public.staff; o public.orders; b jsonb; v_ratio numeric; v_val numeric; v_ok boolean := false; s public.settings := engine.cfg();
 begin
-  me := engine.require_role(array['owner', 'kasir']);
+  me := engine.require_role(array['owner']);
   perform engine.on_();
   select * into o from orders where id = p_order for update;
   if o.id is null or o.status <> 'open' then raise exception 'Pesanan tidak ditemukan atau sudah ditutup'; end if;
@@ -101,6 +103,91 @@ begin
   perform engine.on_();
   if p_kind not in ('manual', 'voucher', 'points') then raise exception 'Jenis diskon tidak dikenal'; end if;
   update orders set discount = discount - p_kind, updated_at = now() where id = p_order and status = 'open';
+  return engine.compute_bill(p_order);
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 2.19 · Template diskon (public.discounts)
+-- Owner/Manajer menyiapkan daftarnya di Kaly Backoffice; kasir hanya memilih.
+-- p_value memakai satuan manusia: pct = persen (20 untuk 20%), amt = rupiah.
+-- ---------------------------------------------------------------------
+create or replace function public.discount_save(p_id text, p_name text, p_type text, p_value numeric, p_max numeric default 0,
+  p_outlets text[] default null, p_need_reason boolean default false, p_need_pin boolean default false,
+  p_active boolean default true, p_until timestamptz default null, p_sort int default 0)
+returns text language plpgsql security definer set search_path = public as $$
+declare v_id text; v_val numeric; v_outs text[]; o text;
+begin
+  perform engine.require_role(array['owner']);
+  if coalesce(trim(p_name), '') = '' then raise exception 'Isi nama diskon, misalnya Diskon Karyawan 20%%'; end if;
+  if length(trim(p_name)) > 60 then raise exception 'Nama diskon maksimal 60 huruf'; end if;
+  if coalesce(p_type, '') not in ('pct', 'amt') then raise exception 'Jenis diskon harus persen atau nominal'; end if;
+  if coalesce(p_value, 0) <= 0 then raise exception 'Isi nilai diskon'; end if;
+  if p_type = 'pct' then
+    if p_value > 100 then raise exception 'Diskon persen maksimal 100%%'; end if;
+    v_val := p_value / 100;
+  else
+    if p_value > 100000000 then raise exception 'Nilai diskon terlalu besar'; end if;
+    v_val := p_value;
+  end if;
+  if coalesce(p_max, 0) < 0 then raise exception 'Batas rupiah tidak boleh minus'; end if;
+  v_outs := (select array_agg(distinct x) from unnest(coalesce(p_outlets, '{}')) x where nullif(trim(x), '') is not null);
+  foreach o in array coalesce(v_outs, '{}') loop
+    if not exists (select 1 from locations where id = o and type = 'outlet') then raise exception 'Outlet % tidak ditemukan', o; end if;
+  end loop;
+  perform engine.on_();
+  if p_id is null or not exists (select 1 from discounts where id = p_id) then
+    insert into discounts (id, name, type, value, max_disc, outlets, need_reason, need_pin, active, until, sort)
+      values (coalesce(nullif(p_id, ''), public.new_id('dsc')), trim(p_name), p_type, v_val, coalesce(p_max, 0), v_outs,
+              coalesce(p_need_reason, false), coalesce(p_need_pin, false), coalesce(p_active, true), p_until, coalesce(p_sort, 0))
+      returning id into v_id;
+  else
+    update discounts set name = trim(p_name), type = p_type, value = v_val, max_disc = coalesce(p_max, 0), outlets = v_outs,
+      need_reason = coalesce(p_need_reason, false), need_pin = coalesce(p_need_pin, false), active = coalesce(p_active, true),
+      until = p_until, sort = coalesce(p_sort, 0)
+     where id = p_id returning id into v_id;
+  end if;
+  return v_id;
+end $$;
+
+create or replace function public.discount_delete(p_id text) returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform engine.require_role(array['owner']);
+  perform engine.on_();
+  delete from discounts where id = p_id;
+  if not found then raise exception 'Diskon tidak ditemukan'; end if;
+end $$;
+
+-- Kasir memakai salah satu template. Nilainya disalin ke orders.discount->'manual' supaya
+-- nota, laporan, dan pembatalan diskon tetap memakai jalur yang sama seperti sebelumnya.
+create or replace function public.discount_apply(p_order text, p_disc text, p_reason text default null, p_pin text default null)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare me public.staff; o public.orders; d public.discounts; v_ok boolean := false; v_reason text;
+begin
+  me := engine.require_role(array['owner', 'kasir']);
+  perform engine.on_();
+  select * into o from orders where id = p_order for update;
+  if o.id is null or o.status <> 'open' then raise exception 'Pesanan tidak ditemukan atau sudah ditutup'; end if;
+  select * into d from discounts where id = p_disc;
+  if d.id is null then raise exception 'Diskon tidak ditemukan. Minta Owner/Manajer membuatnya di Backoffice.'; end if;
+  if not d.active then raise exception 'Diskon % sudah dinonaktifkan', d.name; end if;
+  if d.until is not null and d.until < now() then raise exception 'Diskon % sudah lewat masa berlakunya', d.name; end if;
+  if d.outlets is not null and cardinality(d.outlets) > 0 and not (o.location_id = any(d.outlets)) then
+    raise exception 'Diskon % tidak berlaku di outlet ini', d.name;
+  end if;
+  v_reason := nullif(trim(coalesce(p_reason, '')), '');
+  if d.need_reason and v_reason is null then raise exception 'Alasan wajib diisi untuk diskon %', d.name; end if;
+  if d.need_pin then
+    v_ok := exists (select 1 from app_secrets where id = 1 and manager_pin_hash = extensions.crypt(coalesce(p_pin, ''), manager_pin_hash));
+    if not v_ok then raise exception 'PIN manajer salah. Diskon % perlu persetujuan manajer.', d.name; end if;
+  end if;
+  update orders set discount = discount || jsonb_build_object('manual', jsonb_strip_nulls(jsonb_build_object(
+      'type', d.type, 'value', d.value, 'name', d.name, 'disc', d.id, 'max', d.max_disc,
+      'reason', v_reason, 'by', me.id, 'approved', v_ok))), updated_at = now()
+   where id = p_order;
+  if v_ok then
+    perform engine.flag('Diskon perlu persetujuan manajer', 'sedang',
+      'Diskon ' || d.name || ' di ' || o.no || ' disetujui manajer.' || coalesce(' Alasan: ' || v_reason, ''), me.id, o.id, o.location_id);
+  end if;
   return engine.compute_bill(p_order);
 end $$;
 
@@ -2052,6 +2139,67 @@ begin
        left join members m on m.id = o.member_id left join staff rb on rb.id = o.refund_by left join staff vb on vb.id = o.void_by)
     into v_sum, v_rows;
   return jsonb_build_object('rows', v_rows, 'sum', v_sum, 'more', jsonb_array_length(v_rows) = v_lim, 'from', v_from, 'to', v_to, 'min', v_min);
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 2.19 · Laporan per transaksi untuk diunduh di Kaly Backoffice (khusus Owner/Manajer).
+-- Filter sama seperti trx_list, tetapi tanpa halaman: semua bill yang cocok ikut,
+-- lengkap dengan rincian item per bill, supaya bisa dibuka di Excel.
+-- ---------------------------------------------------------------------
+create or replace function public.trx_export(p_location text, p_from date default null, p_to date default null, p_shift text default null,
+  p_q text default '', p_status text default '', p_method text default '')
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare v_to date; v_from date; v_q text := nullif(trim(coalesce(p_q, '')), ''); v_cap int := 5000;
+  v_bills jsonb; v_items jsonb; v_n int;
+begin
+  perform engine.require_role(array['owner']);
+  if not public.can_loc(p_location) then raise exception 'Tidak punya akses ke outlet ini' using errcode = '42501'; end if;
+  if coalesce(p_status, '') not in ('', 'paid', 'refund', 'void') then raise exception 'Status tidak dikenal'; end if;
+  v_to := coalesce(p_to, public.biz_date()); v_from := coalesce(p_from, v_to);
+  with f as (
+    select o.id, coalesce(o.paid_at, o.void_at, o.created_at) t from orders o
+     where o.location_id = p_location and o.status in ('paid', 'refund', 'void') and o.merged_into is null
+       and (case when p_shift is not null then (o.shift_id = p_shift or o.refund_shift = p_shift)
+                 else o.biz_day between v_from and v_to end)
+       and (coalesce(p_status, '') = '' or o.status = p_status)
+       and (coalesce(p_method, '') = '' or exists (select 1 from order_payments p where p.order_id = o.id and p.method = p_method))
+       and (v_q is null or o.no ilike '%' || v_q || '%' or coalesce(o.table_id, '') ilike v_q || '%' or o.customer_name ilike '%' || v_q || '%'
+            or exists (select 1 from members m where m.id = o.member_id and (m.name ilike '%' || v_q || '%' or m.phone like '%' || v_q || '%')))
+     order by coalesce(o.paid_at, o.void_at, o.created_at) desc, o.id desc
+     limit v_cap
+  )
+  select
+    (select coalesce(jsonb_agg(jsonb_build_object(
+        'no', o.no, 'day', o.biz_day, 't', x.t, 'opened_at', o.created_at, 'paid_at', o.paid_at, 'status', o.status,
+        'channel', o.channel, 'type', o.type,
+        'table', nullif(concat_ws(' + ', o.table_id, nullif(array_to_string(o.merged_tables, ' + '), '')), ''),
+        'terminal', o.terminal, 'cashier', coalesce(nullif(s.crew_name, ''), sp.name, sc.name), 'shift', o.shift_id,
+        'customer', o.customer_name, 'member', m.name, 'member_phone', m.phone,
+        'items', (select coalesce(sum(l.qty), 0) from order_lines l where l.order_id = o.id and l.parent_line_id is null and l.status <> 'void'),
+        'sub', coalesce((o.bill->>'sub')::numeric, 0), 'disc', coalesce((o.bill->>'disc')::numeric, 0),
+        'disc_labels', (select string_agg(d->>'label', ' + ') from jsonb_array_elements(coalesce(o.bill->'discs', '[]'::jsonb)) d),
+        'svc', coalesce((o.bill->>'svc')::numeric, 0), 'tax', coalesce((o.bill->>'tax')::numeric, 0),
+        'deliv', coalesce(o.delivery_fee, 0), 'total', coalesce(o.total, (o.bill->>'total')::numeric, 0),
+        'pays', (select string_agg(p.method || ' ' || engine.jsround(p.amount)::text, ' + ' order by p.id) from order_payments p where p.order_id = o.id),
+        'change', coalesce(o.change_amount, 0), 'prints', coalesce(o.prints, 0), 'points', coalesce(o.earned_points, 0),
+        'refund_at', o.refund_at, 'refund_by', rb.name, 'refund_reason', o.refund_reason,
+        'void_reason', o.void_reason, 'void_by', vb.name) order by x.t desc, o.no desc), '[]'::jsonb)
+      from f x join orders o on o.id = x.id
+      left join shifts s on s.id = o.shift_id left join staff sp on sp.id = o.paid_by left join staff sc on sc.id = o.created_by
+      left join members m on m.id = o.member_id left join staff rb on rb.id = o.refund_by left join staff vb on vb.id = o.void_by),
+    (select coalesce(jsonb_agg(jsonb_build_object(
+        'no', o.no, 'day', o.biz_day, 'paid_at', o.paid_at, 'status', o.status, 'table', o.table_id,
+        'menu', l.name, 'category', c.name, 'station', l.station, 'qty', l.qty, 'price', l.price,
+        'amount', engine.jsround(l.qty * l.price), 'note', l.note,
+        'line_status', case when l.status = 'void' then 'batal' else l.status end,
+        'void_reason', l.void_reason) order by x.t desc, o.no desc, l.sort), '[]'::jsonb)
+      from f x join orders o on o.id = x.id
+      join order_lines l on l.order_id = o.id and l.parent_line_id is null
+      left join menus mn on mn.id = l.menu_id left join menu_categories c on c.id = mn.category_id),
+    (select count(*) from f)
+    into v_bills, v_items, v_n;
+  return jsonb_build_object('bills', v_bills, 'items', v_items, 'from', v_from, 'to', v_to,
+    'count', jsonb_array_length(v_bills), 'capped', v_n >= v_cap, 'cap', v_cap);
 end $$;
 
 -- Refund penuh satu bill (khusus Owner/Manajer). Uang kembali ke metode semula:

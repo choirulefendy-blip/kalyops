@@ -600,26 +600,40 @@ export default {
         footer: `<button class="btn" data-close>Batal</button><button class="btn btn-pri" data-ok>Tukar</button>`,
         onMount(mm, api) { mm.querySelector('[data-ok]').onclick = async () => { const v = Math.min(max, Math.max(0, Math.floor(Number(mm.querySelector('input').value)))); api.close(); try { await op(o.id, () => API.setPoints(o.id, v)); await C.refreshOrder(o.id); } catch (e) { failToast(e); } rerender(); }; } });
     },
+    // 2.19 · Kasir memilih dari template diskon yang dibuat Owner/Manajer di Backoffice.
+    // Tidak ada lagi kolom angka bebas di kasir: nilainya sudah ditentukan per template.
     manualDisc(el, e, ctx) {
-      const o = curOrder(ctx.db);
-      openModal({ title: 'Diskon manual', size: 'sm', body: `<div class="seg" role="radiogroup"><label><input type="radio" name="t" value="pct" checked> Persen</label><label><input type="radio" name="t" value="amt"> Nominal</label></div>
-        <label class="fld"><span>Nilai</span><input name="v" type="number" min="0" placeholder="10" autofocus></label><label class="fld"><span>Alasan</span><input name="r" placeholder="Contoh: kompensasi pesanan terlambat"></label>
-        <p class="hint">Diskon di atas ${Math.round(ctx.db.settings.discApproval * 100)}% perlu PIN manajer dan tercatat di laporan fraud.</p>`,
-        footer: `<button class="btn" data-close>Batal</button><button class="btn btn-pri" data-ok>Terapkan</button>`,
+      const db = ctx.db, o = curOrder(db), L = o.loc;
+      const cur = o.disc?.manual?.disc || '';
+      const ds = (db.discounts || []).filter((d) => d.active && (!d.until || d.until > Date.now()) && (!d.outlets || d.outlets.includes(L)));
+      const val = (d) => (d.type === 'pct' ? `${Math.round(d.value * 1000) / 10}%${d.max ? ` maks. ${rp(d.max)}` : ''}` : rp(d.value));
+      const empty = db.hasDiscounts === false
+        ? 'Daftar diskon belum aktif di database. Minta Owner/Manajer menjalankan update database 2.19 di Supabase.'
+        : 'Belum ada diskon yang disiapkan untuk outlet ini. Minta Owner/Manajer membuatnya di Kaly Backoffice › Member & promo › Diskon kasir.';
+      openModal({ title: 'Pilih diskon', size: 'sm',
+        body: `${ds.length ? `<div class="disc-pick" role="radiogroup">${ds.map((d) => `<label class="disc-opt ${cur === d.id ? 'on' : ''}"><input type="radio" name="d" value="${d.id}" ${cur === d.id ? 'checked' : ''}>
+            <span><b>${esc(d.name)}</b><small>${esc(val(d))}${d.needPin ? ' · perlu PIN manajer' : ''}${d.needReason ? ' · perlu alasan' : ''}</small></span></label>`).join('')}</div>
+          <label class="fld"><span>Alasan (wajib untuk diskon tertentu)</span><input name="r" placeholder="Contoh: kompensasi pesanan terlambat"></label>
+          <p class="hint">Nilai diskon sudah ditentukan Owner/Manajer. Diskon berpersen dihitung dari tagihan setelah promo dan voucher.</p>`
+          : `<p class="empty sm">${esc(empty)}</p>`}`,
+        footer: `${cur ? '<button class="btn btn-danger-ghost" data-rm>Lepas diskon</button>' : ''}<button class="btn" data-close>Batal</button>${ds.length ? '<button class="btn btn-pri" data-ok>Terapkan</button>' : ''}`,
         onMount(mm, api) {
-          mm.querySelector('[data-ok]').onclick = async () => {
-            const f = formData(mm);
-            const val = Number(f.v);
-            if (!val || val <= 0) return toast('Isi nilai diskon', 'warn');
-            if (!f.r.trim()) return toast('Alasan wajib diisi', 'warn');
-            const b = D.bill(ctx.db, o);
-            const ratio = f.t === 'pct' ? val / 100 : val / Math.max(1, b.sub);
+          mm.addEventListener('change', () => mm.querySelectorAll('.disc-opt').forEach((x) => x.classList.toggle('on', x.querySelector('input').checked)));
+          mm.querySelector('[data-rm]')?.addEventListener('click', async () => {
+            api.close();
+            try { await op(o.id, () => API.removeDiscount(o.id, 'manual')); await C.refreshOrder(o.id); toast('Diskon dilepas'); } catch (err) { failToast(err); }
+            rerender();
+          });
+          mm.querySelector('[data-ok]')?.addEventListener('click', async () => {
+            const f = formData(mm), d = ds.find((x) => x.id === f.d);
+            if (!d) return toast('Pilih diskonnya dulu', 'warn');
+            if (d.needReason && !f.r.trim()) return toast(`${d.name} wajib diisi alasannya`, 'warn');
             api.close();
             let pin = null;
-            if (ratio > ctx.db.settings.discApproval) { pin = await askPin(`Diskon ${f.t === 'pct' ? val + '%' : rp(val)} melebihi batas ${Math.round(ctx.db.settings.discApproval * 100)}%.`); if (!pin) return toast('Diskon dibatalkan', 'warn'); }
-            try { await op(o.id, () => API.manualDiscount(o.id, f.t, val, f.r.trim(), pin)); await C.refreshOrder(o.id); toast('Diskon diterapkan'); } catch (e) { failToast(e); }
+            if (d.needPin) { pin = await askPin(`${d.name} perlu persetujuan manajer.`); if (!pin) return toast('Diskon dibatalkan', 'warn'); }
+            try { await op(o.id, () => API.discountApply(o.id, d.id, f.r.trim(), pin)); await C.refreshOrder(o.id); toast(`${d.name} diterapkan`); } catch (err) { failToast(err); }
             rerender();
-          };
+          });
         } });
     },
     more(el, e, ctx) {

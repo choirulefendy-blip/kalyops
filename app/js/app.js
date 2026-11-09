@@ -9,6 +9,7 @@ import * as DN from './devnotify.js';
 import * as CR from './crew.js';
 import * as CFG from './config.js';
 import { hookUsb } from './printer-finder.js';
+import * as APK from './apk.js';   // 2.19 · pemberitahuan pembaruan aplikasi Android
 import Login from './views/login.js';
 import Audit from './views/audit.js';
 import Trx from './views/trx.js';
@@ -200,8 +201,11 @@ function renderShell() {
         <span class="clock" id="clock"></span>
       </div>
     </header>
+    <div id="apk-bar"></div>
     <main id="view" class="view"></main>
-  </div>`;
+  </div>
+  ${APK.gateHtml()}`;
+  paintApkBar();
 }
 
 export function rerender(src) { draw(false, src); }
@@ -234,8 +238,17 @@ function paintRailBtn() {
   b.setAttribute('aria-label', off ? 'Tampilkan menu samping' : 'Sembunyikan menu samping');
   b.setAttribute('aria-expanded', String(!off));
 }
+// 2.19 · Banner pembaruan aplikasi Android: satu tempat, tampil di semua halaman
+export function paintApkBar() {
+  const el = document.getElementById('apk-bar');
+  if (!el) return;
+  const h = APK.bannerHtml();
+  if (el.innerHTML !== h) el.innerHTML = h;
+}
+
 function updateShell() {
   if (document.body.classList.contains('bare')) return;
+  paintApkBar();
   paintRailBtn();
   const t = $('#top-title');
   if (t) t.textContent = (cur.view?.title && cur.view.title(cur.ctx)) || (isBO() && BO_LABEL[cur.name]) || cur.r?.title || '';
@@ -342,6 +355,13 @@ const GLOBAL = {
   soundPrefs() { N.openPrefs(); },
   crewPick() { CR.pickDialog({ onDone: () => rerender() }); },
   async syncNow() { try { await C.refreshNow(); toast('Data dimuat ulang'); rerender(); } catch (e) { toast(e.message, 'err'); } },
+  // 2.19 · Pemberitahuan pembaruan aplikasi Android
+  apkLater(el) { APK.hideBanner(); el.closest('[data-apk-banner]')?.remove(); },
+  async apkRecheck() {
+    const s = await APK.check(true);
+    if (s.st === 'required') return toast('Masih versi lama. Pasang APK yang sudah terunduh, lalu buka Kaly Ops lagi.', 'warn', 7000);
+    toast('Terima kasih, aplikasi sudah diperbarui'); rerender();
+  },
   notices(el, e, ctx) {
     if (ctx.user?.role === 'dapur') return N.openKitchenFeed(ctx.outlet, () => updateShell());
     import('./views/pos.js').then((m) => m.showNotices(ctx));
@@ -384,5 +404,20 @@ async function start() {
   N.start({ getOutlet });
   hookUsb();   // 2.11: printer USB dicolok ke tablet (aplikasi Android 1.4)
   setTimeout(releaseTick, 2000);
+  apkTick();
+  setInterval(apkTick, 6 * 3600 * 1000);
+}
+// 2.19 · Periksa versi aplikasi Android: banner bila ada versi baru, layar terkunci bila wajib
+async function apkTick() {
+  try {
+    const before = APK.status().st;
+    const s = await APK.check(true);
+    if (s.st === 'ok') return;
+    APK.notifyOnce().catch(() => {});
+    paintApkBar();
+    // layar terkunci dipasang di shell, jadi perlu digambar ulang sekali
+    if (s.st === 'required' && !document.querySelector('.apk-gate')) route();
+    else if (s.st !== before) rerender();
+  } catch (e) { console.warn(e); }
 }
 start();

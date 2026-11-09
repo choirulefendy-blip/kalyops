@@ -156,7 +156,7 @@ const mapFlag = (r) => ({ id: r.id, at: T(r.at), type: r.type, sev: r.severity, 
 function emptyDb() {
   return {
     version: 3, rev: 1, settings: { ...DEFAULT_SETTINGS, brand: { ...DEFAULT_SETTINGS.brand } },
-    entities: [], locations: [], users: [], accounts: [], items: [], stock: {}, moves: [], menus: [], cats: [], promos: [], vouchers: [], areas: [], tables: [],
+    entities: [], locations: [], users: [], accounts: [], items: [], stock: {}, moves: [], menus: [], cats: [], promos: [], vouchers: [], discounts: [], areas: [], tables: [],
     orders: [], shifts: [], crew: [], flags: [], notices: [], members: [], tiers: [], missions: [], campaigns: [], deposits: [], depositTx: [], reservations: [],
     suppliers: [], supplierPrices: [], itemSup: {}, pos: [], transfers: [], productions: [], opnames: [], b2b: [], journals: [], journalDetail: null, counters: {}, alerts: [],
     printers: [], printJobs: [],
@@ -277,8 +277,9 @@ const LOADERS = {
     db.stock = st;
   } },
   loyalty: { roles: ALL, fn: async () => {
-    const [t, ms, p, v, c] = await Promise.all([run(sb.from('tiers').select('*').order('sort')), run(sb.from('missions').select('*')), run(sb.from('promos').select('*')),
-      all(() => sb.from('vouchers').select('*')), run(sb.from('campaigns').select('*').order('created_at', { ascending: false }))]);
+    const [t, ms, p, v, c, dsc] = await Promise.all([run(sb.from('tiers').select('*').order('sort')), run(sb.from('missions').select('*')), run(sb.from('promos').select('*')),
+      all(() => sb.from('vouchers').select('*')), run(sb.from('campaigns').select('*').order('created_at', { ascending: false })),
+      all(() => sb.from('discounts').select('*').order('sort').order('name')).catch(() => null)]);
     db.tiers = t.map((r) => ({ id: r.id, name: r.name, min: N(r.min_spend), disc: N(r.discount), mult: N(r.multiplier) || 1, perks: r.perks || '', sort: N(r.sort) }));
     db.missions = ms.map((r) => ({ id: r.id, name: r.name, desc: r.description || '', kind: r.kind, ...(r.menu_id ? { menu: r.menu_id } : {}), ...(r.category_id ? { cat: r.category_id } : {}),
       target: N(r.target), reward: N(r.reward), active: r.active }));
@@ -290,6 +291,12 @@ const LOADERS = {
       rev: N(r.revenue), cost: N(r.cost), ...(r.new_only ? { newOnly: true } : {}), ...(r.member_ids?.length ? { members: r.member_ids } : {}),
       ...(r.campaign_id ? { campaign: r.campaign_id } : {}), active: r.active, ...(r.until ? { until: T(r.until) } : {}) }));
     db.campaigns = c.map((r) => ({ id: r.id, name: r.name, seg: r.segment || {}, voucher: r.voucher_code, msg: r.message || '', reach: r.reach || [], sent: N(r.sent), status: r.status, created: T(r.created_at) }));
+    // 2.19 · Template diskon: dibuat Owner/Manajer di Backoffice, dipakai kasir di Kaly POS.
+    // dsc === null: database belum diperbarui ke 2.19, aplikasi tetap jalan tanpa template.
+    db.hasDiscounts = dsc !== null;
+    db.discounts = (dsc || []).map((r) => ({ id: r.id, name: r.name, type: r.type, value: N(r.value), max: N(r.max_disc),
+      outlets: r.outlets?.length ? r.outlets : null, needReason: !!r.need_reason, needPin: !!r.need_pin,
+      active: r.active, ...(r.until ? { until: T(r.until) } : {}), sort: N(r.sort) }));
   } },
   orders: { roles: ALL, fn: () => loadOrders() },
   // Notifikasi staf 6 jam terakhir (suara & kartu notifikasi, lihat notify.js)

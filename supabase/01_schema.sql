@@ -371,6 +371,29 @@ create table if not exists public.vouchers (
 );
 comment on column public.vouchers.value is 'pct: 0,15 = 15%. amt: nominal rupiah.';
 
+-- 2.19 · Template diskon: Owner/Manajer menyiapkan daftar diskon di Kaly Backoffice, kasir hanya memilih.
+create table if not exists public.discounts (
+  id          text primary key default public.new_id('dsc'),
+  name        text not null,
+  type        text not null check (type in ('pct', 'amt')),
+  value       numeric(14,4) not null,
+  max_disc    numeric(14,0) not null default 0,
+  outlets     text[],
+  need_reason boolean not null default false,
+  need_pin    boolean not null default false,
+  active      boolean not null default true,
+  until       timestamptz,
+  sort        int not null default 0,
+  created_at  timestamptz not null default now(),
+  check ((type = 'pct' and value > 0 and value <= 1) or (type = 'amt' and value > 0))
+);
+comment on table public.discounts is 'Template diskon yang dibuat Owner/Manajer di Kaly Backoffice (2.19). Kasir hanya memilih template ini, tidak mengisi angka sendiri (apply_manual_discount kini khusus Owner).';
+comment on column public.discounts.value is 'pct: 0,20 = 20%. amt: nominal rupiah.';
+comment on column public.discounts.max_disc is 'Batas rupiah untuk diskon persen. 0 = tanpa batas.';
+comment on column public.discounts.outlets is 'Outlet yang boleh memakai. Kosong = semua outlet.';
+comment on column public.discounts.need_reason is 'Kasir wajib mengisi alasan saat memakai diskon ini.';
+comment on column public.discounts.need_pin is 'Perlu PIN manajer setiap kali dipakai, berapa pun nilainya.';
+
 -- ---------------------------------------------------------------------
 -- Kartu deposit (Play Corner)
 -- ---------------------------------------------------------------------

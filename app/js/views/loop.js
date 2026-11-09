@@ -2,7 +2,7 @@
 import { getDb } from '../store.js';
 import * as API from '../api.js';
 import * as C from '../cloud.js';
-import { esc, ic, rp, num, pct, toast, openModal, formData, hbars, sum, fmtDate, fmtShort, fmtDT, DAY, copyText, uid, startOfDay, dayKey } from '../lib.js';
+import { esc, ic, rp, num, pct, toast, openModal, formData, confirmBox, hbars, sum, fmtDate, fmtShort, fmtDT, DAY, copyText, uid, startOfDay, dayKey } from '../lib.js';
 import * as D from '../domain.js';
 import { rerender } from '../app.js';
 
@@ -106,10 +106,82 @@ function whitelabel(ctx) {
       <p class="hint">Di versi produksi, halaman ini bisa dipasang di domain sendiri, misalnya member.kalyeatery.id.</p></div></div>`;
 }
 
+// ---------------------------------------------------------------------
+// 2.19 · Template diskon: Owner/Manajer menyiapkan daftarnya di sini,
+// kasir di Kaly POS hanya memilih (tidak bisa mengisi angka sendiri).
+// ---------------------------------------------------------------------
+export const discValue = (d) => (d.type === 'pct' ? `${Math.round(d.value * 1000) / 10}%${d.max ? ` (maks. ${rp(d.max)})` : ''}` : rp(d.value));
+const discStatus = (d) => (!d.active ? ['Nonaktif', 'b-mute'] : d.until && d.until < Date.now() ? ['Kedaluwarsa', 'b-warn'] : ['Aktif', 'b-ok']);
+
+function discTemplates(ctx) {
+  const db = ctx.db, ds = db.discounts || [];
+  // dipakai = bill lunas yang masih tersimpan di aplikasi (bill lunas memakai rincian tersimpan)
+  const use = db.orders.reduce((m, o) => {
+    const id = o.disc?.manual?.disc;
+    if (!id || o.status !== 'paid') return m;
+    const x = (m[id] ||= { n: 0, a: 0 });
+    x.n++; x.a += (o.bill?.discs || []).find((y) => y.kind === 'manual')?.amt || 0;
+    return m;
+  }, {});
+  const outName = (id) => db.locations.find((l) => l.id === id)?.name || id;
+  return `<div class="card"><div class="card-h"><h3>${ic('percent', 17)} Diskon yang boleh dipakai kasir</h3><button class="btn btn-sm btn-pri" data-a="dNew">${ic('plus', 15)} Diskon baru</button></div>
+    <p class="muted sm">Kasir di Kaly POS hanya bisa memilih dari daftar ini, tidak bisa mengisi angka diskon sendiri. Owner/Manajer tetap bisa memberi diskon angka bebas dari Backoffice bila perlu.</p>
+    ${db.hasDiscounts === false ? `<p class="banner warn sm">${ic('triangle-alert', 16)}<span>Daftar diskon belum aktif di database. Jalankan <b>kaly-ops-update-2.19.sql</b> di Supabase, lalu muat ulang halaman ini.</span></p>` : ''}
+    ${ds.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nama diskon</th><th>Nilai</th><th>Outlet</th><th>Syarat</th><th class="r">Dipakai</th><th class="r">Total diskon</th><th>Status</th><th></th></tr></thead><tbody>
+      ${ds.map((d) => { const u = use[d.id] || { n: 0, a: 0 }, [lbl, cls] = discStatus(d); return `<tr><td><b>${esc(d.name)}</b>${d.until ? `<small class="muted"> · sampai ${fmtDate(d.until)}</small>` : ''}</td>
+        <td>${esc(discValue(d))}</td><td class="muted">${d.outlets ? esc(d.outlets.map(outName).join(', ')) : 'Semua outlet'}</td>
+        <td class="muted sm">${[d.needPin ? 'PIN manajer' : '', d.needReason ? 'alasan' : ''].filter(Boolean).join(' + ') || '—'}</td>
+        <td class="r">${num(u.n)}</td><td class="r">${rp(u.a)}</td><td><button class="badge ${cls}" data-a="dToggle" data-id="${d.id}" title="Ketuk untuk aktif / nonaktif">${lbl}</button></td>
+        <td class="r"><button class="btn btn-sm" data-a="dEdit" data-id="${d.id}">${ic('settings', 14)} Atur</button></td></tr>`; }).join('')}
+      </tbody></table></div>` : `<p class="empty sm">Belum ada diskon. Tekan <b>Diskon baru</b>, misalnya "Diskon Karyawan 20%" atau "Potongan Rp 10.000".</p>`}
+    <p class="hint">Diskon yang perlu <b>PIN manajer</b> tercatat di laporan fraud setiap kali dipakai. Diskon berpersen bisa dibatasi rupiahnya, misalnya 25% maksimal Rp 20.000. Angka <b>Dipakai</b> dihitung dari bill lunas yang masih tersimpan di aplikasi.</p></div>`;
+}
+
+function discForm(ctx, d) {
+  const db = ctx.db, outs = db.locations.filter((l) => l.type === 'outlet');
+  const val = d ? (d.type === 'pct' ? Math.round(d.value * 1000) / 10 : d.value) : '';
+  openModal({ title: d ? `Atur ${d.name}` : 'Diskon baru', size: 'md',
+    body: `<label class="fld"><span>Nama diskon (tampil di nota & di kasir)</span><input name="name" value="${esc(d?.name || '')}" placeholder="Contoh: Diskon Karyawan 20%" maxlength="60" autofocus></label>
+      <div class="grid2"><label class="fld"><span>Jenis</span><select name="type"><option value="pct" ${d?.type !== 'amt' ? 'selected' : ''}>Persen (%)</option><option value="amt" ${d?.type === 'amt' ? 'selected' : ''}>Nominal (Rp)</option></select></label>
+        <label class="fld"><span>Nilai</span><input name="value" type="number" min="0" step="any" value="${val}" placeholder="20"></label></div>
+      <div class="grid2"><label class="fld" data-for="pct"><span>Batas rupiah (0 = tanpa batas)</span><input name="max" type="number" min="0" step="1000" value="${d?.max || 0}"></label>
+        <label class="fld"><span>Berlaku sampai (kosong = selamanya)</span><input name="until" type="date" value="${d?.until ? new Date(d.until).toISOString().slice(0, 10) : ''}"></label></div>
+      <div class="fld"><span>Outlet yang boleh memakai</span><label class="switch sm"><input type="checkbox" name="all" ${d?.outlets ? '' : 'checked'}><span>Semua outlet</span></label>
+        ${outs.map((l) => `<label class="switch sm"><input type="checkbox" name="out_${l.id}" ${d?.outlets?.includes(l.id) ? 'checked' : ''}><span>${esc(l.name)}</span></label>`).join('')}</div>
+      <label class="switch"><input type="checkbox" name="needPin" ${d?.needPin ? 'checked' : ''}><span>Perlu PIN manajer setiap kali dipakai</span></label>
+      <label class="switch"><input type="checkbox" name="needReason" ${d?.needReason ? 'checked' : ''}><span>Kasir wajib mengisi alasan</span></label>
+      <label class="switch"><input type="checkbox" name="active" ${d?.active !== false ? 'checked' : ''}><span>Aktif (bisa dipilih kasir)</span></label>`,
+    footer: `${d ? '<button class="btn btn-danger-ghost" data-del>Hapus</button>' : ''}<button class="btn" data-close>Batal</button><button class="btn btn-pri" data-ok>Simpan</button>`,
+    onMount(m, api) {
+      const ts = m.querySelector('[name=type]');
+      const show = () => m.querySelectorAll('[data-for]').forEach((el) => { el.hidden = el.dataset.for !== ts.value; });
+      ts.onchange = show; show();
+      m.querySelector('[data-del]')?.addEventListener('click', async () => {
+        if (!(await confirmBox('Hapus diskon ini?', `<b>${esc(d.name)}</b> tidak akan muncul lagi di kasir. Bill yang sudah memakainya tidak berubah.`, 'Hapus'))) return;
+        try { await API.discountDelete(d.id); await C.refresh('loyalty'); } catch (e) { return toast(e.message, 'err', 6000); }
+        api.close(); toast('Diskon dihapus'); rerender();
+      });
+      m.querySelector('[data-ok]').onclick = async () => {
+        const f = formData(m), v = Number(f.value);
+        if (!f.name.trim()) return toast('Isi nama diskon', 'warn');
+        if (!v || v <= 0) return toast('Isi nilai diskon', 'warn');
+        if (f.type === 'pct' && v > 100) return toast('Diskon persen maksimal 100%', 'warn');
+        const outlets = f.all ? null : outs.filter((l) => f['out_' + l.id]).map((l) => l.id);
+        if (outlets && !outlets.length) return toast('Pilih minimal satu outlet, atau centang Semua outlet', 'warn');
+        try {
+          await API.discountSave(d?.id, { name: f.name.trim(), type: f.type, value: v, max: f.type === 'pct' ? Number(f.max) || 0 : 0,
+            outlets, needReason: !!f.needReason, needPin: !!f.needPin, active: !!f.active, until: f.until ? `${f.until}T23:59:59` : null, sort: d?.sort || 0 });
+          await C.refresh('loyalty');
+        } catch (e) { return toast(e.message, 'err', 7000); }
+        api.close(); toast(d ? 'Diskon diperbarui' : 'Diskon ditambahkan'); rerender();
+      };
+    } });
+}
+
 const V = {
   render(ctx) {
-    const tabs = [['dash', 'Dashboard promo'], ['mem', 'Member'], ['camp', 'Smart campaign'], ['tier', 'Tier & misi'], ['bday', 'Birthday treats'], ['wl', 'Halaman member']];
-    const body = { dash, mem: members, camp: campaigns, tier: tiers, bday: birthday, wl: whitelabel }[ui.tab](ctx);
+    const tabs = [['dash', 'Dashboard promo'], ['disc', 'Diskon kasir'], ['mem', 'Member'], ['camp', 'Smart campaign'], ['tier', 'Tier & misi'], ['bday', 'Birthday treats'], ['wl', 'Halaman member']];
+    const body = { dash, disc: discTemplates, mem: members, camp: campaigns, tier: tiers, bday: birthday, wl: whitelabel }[ui.tab](ctx);
     return `<div class="tabs scroll">${tabs.map(([k, l]) => `<button class="tab ${ui.tab === k ? 'on' : ''}" data-a="tab" data-v="${k}">${l}</button>`).join('')}</div><div class="tabbody">${body}</div>`;
   },
   input(k, el) { if (k === 'q') { ui.q = el.value; rerender(); } },
@@ -117,6 +189,15 @@ const V = {
     tab(el) { ui.tab = el.dataset.v; rerender(); },
     tierF(el) { ui.tier = el.dataset.v; rerender(); },
     async vToggle(el) { const v = getDb().vouchers.find((x) => x.code === el.dataset.v); await API.tableUpdate('vouchers', { code: v.code }, { active: !v.active }); await C.refresh('loyalty'); rerender(); },
+    dNew(el, e, ctx) { discForm(ctx, null); },
+    dEdit(el, e, ctx) { const d = ctx.db.discounts.find((x) => x.id === el.dataset.id); if (d) discForm(ctx, d); },
+    async dToggle(el, e, ctx) {
+      const d = ctx.db.discounts.find((x) => x.id === el.dataset.id); if (!d) return;
+      el.disabled = true;
+      try { await API.discountSave(d.id, { ...d, value: d.type === 'pct' ? d.value * 100 : d.value, active: !d.active }); await C.refresh('loyalty'); }
+      catch (err) { el.disabled = false; return toast(err.message, 'err', 6000); }
+      rerender();
+    },
     async pToggle(el) { const p = getDb().promos.find((x) => x.id === el.dataset.id); await API.tableUpdate('promos', { id: p.id }, { active: !p.active }); await C.refresh('loyalty'); rerender(); },
     async misToggle(el) { const m = getDb().missions.find((x) => x.id === el.dataset.id); await API.tableUpdate('missions', { id: m.id }, { active: !m.active }); await C.refresh('loyalty'); rerender(); },
     memView(el, e, ctx) {

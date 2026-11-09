@@ -38,7 +38,13 @@ export const setMember = (orderId, memberId) => rpc('order_set_member', { p_orde
 export const setVoucher = (orderId, code) => rpc('order_set_discount', { p_order: orderId, p_voucher: code || '' });
 export const setPoints = (orderId, pts) => rpc('order_set_discount', { p_order: orderId, p_points: Math.max(0, Math.floor(pts || 0)) });
 export const removeDiscount = (orderId, kind) => rpc('remove_discount', { p_order: orderId, p_kind: kind });
+// 2.19 · Diskon angka bebas khusus Owner/Manajer; kasir memakai template diskon di bawah
 export const manualDiscount = (orderId, type, value, reason, pin) => rpc('apply_manual_discount', { p_order: orderId, p_type: type, p_value: value, p_reason: reason, p_pin: pin || null });
+export const discountSave = (id, f) => rpc('discount_save', { p_id: id || null, p_name: f.name, p_type: f.type, p_value: f.value,
+  p_max: f.max || 0, p_outlets: f.outlets?.length ? f.outlets : null, p_need_reason: !!f.needReason, p_need_pin: !!f.needPin,
+  p_active: f.active !== false, p_until: f.until ? new Date(f.until).toISOString() : null, p_sort: f.sort || 0 });
+export const discountDelete = (id) => rpc('discount_delete', { p_id: id });
+export const discountApply = (orderId, disc, reason, pin) => rpc('discount_apply', { p_order: orderId, p_disc: disc, p_reason: reason || null, p_pin: pin || null });
 export const sendToKitchen = (orderId) => rpc('pos_send', { p_order: orderId });
 export const voidLine = (lineId, reason) => rpc('void_line', { p_line: lineId, p_reason: reason });
 export const voidOrder = (orderId, reason, pin) => rpc('void_order', { p_order: orderId, p_reason: reason, p_pin: pin || null });
@@ -182,4 +188,6 @@ export const printStationModel = (id, model) => rpc('print_station_model', { p_i
 
 // 2.13 · Aktivitas transaksi & refund
 export const trxList = (f) => rpc('trx_list', { p_location: f.loc, p_from: f.from || null, p_to: f.to || null, p_shift: f.shift || null, p_q: f.q || '', p_status: f.status || '', p_method: f.method || '', p_limit: f.limit || 60, p_before: f.before || null });
+// 2.19 · Laporan per transaksi untuk diunduh di Backoffice (semua bill yang cocok + rincian item)
+export const trxExport = (f) => rpc('trx_export', { p_location: f.loc, p_from: f.from || null, p_to: f.to || null, p_shift: f.shift || null, p_q: f.q || '', p_status: f.status || '', p_method: f.method || '' });
 export const orderRefund = (orderId, reason, shiftId) => rpc('order_refund', { p_order: orderId, p_reason: reason, p_shift: shiftId || null });

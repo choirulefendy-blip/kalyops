@@ -183,9 +183,9 @@ export const shortNum = (v, money) => {
 };
 
 // ---------- File ----------
+export const csvText = (rows) => rows.map((r) => r.map((c) => { const s = String(c ?? ''); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(',')).join('\n');
 export function downloadCSV(filename, rows) {
-  const csv = rows.map((r) => r.map((c) => { const s = String(c ?? ''); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(',')).join('\n');
-  downloadBlob(filename, new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+  downloadBlob(filename, new Blob(['﻿' + csvText(rows)], { type: 'text/csv;charset=utf-8' }));
 }
 // Di aplikasi Android Kaly Ops unduhan disimpan lewat jendela simpan Android
 async function appSave(filename, blob) {

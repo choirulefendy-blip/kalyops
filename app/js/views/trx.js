@@ -6,7 +6,7 @@ import { getDb, getTerminal } from '../store.js';
 import * as API from '../api.js';
 import * as C from '../cloud.js';
 import * as D from '../domain.js';
-import { esc, ic, rp, num, toast, openModal, fmtTime, fmtDate, dayKey, startOfDay, DAY } from '../lib.js';
+import { esc, ic, rp, num, toast, openModal, fmtTime, fmtDate, fmtDT, dayKey, startOfDay, DAY, downloadCSV } from '../lib.js';
 import { rerender } from '../app.js';
 import { sendPrints } from '../printing.js';
 
@@ -86,8 +86,10 @@ export function trxPanel(ctx) {
         <select class="inp inp-sm" data-a-change="txStatus" aria-label="Status">${[['', 'Semua status'], ['paid', 'Lunas'], ['refund', 'Refund'], ['void', 'Batal']].map(([k, l]) => `<option value="${k}" ${S.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
         <select class="inp inp-sm" data-a-change="txMethod" aria-label="Metode bayar"><option value="">Semua metode</option>${Object.entries(D.PAY).map(([k, p]) => `<option value="${k}" ${S.method === k ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select>
         <button class="btn btn-sm btn-ghost" data-a="txReload" title="Muat ulang">${ic('refresh-cw', 15)}</button>
+        ${owner ? `<button class="btn btn-sm" data-a="txCsv" title="Unduh laporan per transaksi (CSV)">${ic('download', 15)} Unduh laporan</button>` : ''}
       </div></div>
-    ${!owner ? `<p class="muted sm tx-help">Ketuk transaksi untuk melihat rincian & struk, atau mencetak ulang nota. Refund hanya bisa dilakukan Owner/Manajer di Kaly Backoffice.</p>` : ''}
+    ${!owner ? `<p class="muted sm tx-help">Ketuk transaksi untuk melihat rincian & struk, atau mencetak ulang nota. Refund hanya bisa dilakukan Owner/Manajer di Kaly Backoffice.</p>`
+      : `<p class="muted sm tx-help">${ic('download', 14)} <b>Unduh laporan</b> mengambil <i>semua</i> transaksi sesuai filter di atas (bukan hanya yang tampil), dalam dua file CSV: ringkasan per nota dan rincian item per nota. Keduanya bisa langsung dibuka di Excel.</p>`}
     ${S.err ? `<p class="banner warn sm">${esc(S.err)}</p>` : ''}
     ${sumStrip(ctx)}
     <div class="tbl-wrap"><table class="tbl hover tx-t"><thead><tr><th>Jam</th><th>Nota</th><th>Petugas</th><th>Bayar</th><th class="r">Total</th><th>Status</th></tr></thead>
@@ -253,6 +255,57 @@ export const actions = {
   txTo(el, e, ctx) { S.to = el.value; load(ctx); },
   txStatus(el, e, ctx) { S.status = el.value; load(ctx); },
   txMethod(el, e, ctx) { S.method = el.value; load(ctx); },
+  // 2.19 · Unduh laporan per transaksi. Dua file CSV terpisah (nota & rincian item): tiap file
+  // diunduh dengan tombolnya sendiri supaya tidak diblokir browser sebagai "unduhan berganda",
+  // plus pilihan .zip bila ingin sekali klik.
+  async txCsv(el, e, ctx) {
+    const f = filterOf(ctx);
+    const t0 = el.innerHTML; el.disabled = true; el.innerHTML = 'Menyiapkan…';
+    let r;
+    try { r = await API.trxExport(f); } catch (err) {
+      return toast(/trx_export|schema cache|function/i.test(err.message || '') ? 'Unduhan laporan belum aktif: jalankan update database 2.19 di Supabase.' : err.message, 'err', 8000);
+    } finally { el.disabled = false; el.innerHTML = t0; }
+    const bills = r.bills || [], items = r.items || [];
+    if (!bills.length) return toast('Tidak ada transaksi untuk filter ini', 'warn');
+    const loc = ctx.db.locations.find((l) => l.id === f.loc)?.name || f.loc;
+    const tag = f.from === f.to ? f.from : `${f.from}_sd_${f.to}`;
+    const dt = (x) => (x ? fmtDT(Date.parse(x)) : '');
+    const stLabel = (x) => ({ paid: 'Lunas', refund: 'Refund', void: 'Batal' }[x] || x);
+    const billRows = [
+      ['No nota', 'Hari transaksi', 'Dibuka', 'Waktu bayar', 'Status', 'Outlet', 'Channel', 'Tipe', 'Meja', 'Terminal', 'Petugas', 'Shift',
+        'Nama tamu', 'Member', 'HP member', 'Jumlah item', 'Subtotal', 'Diskon', 'Rincian diskon', 'Service', 'PB1', 'Ongkir', 'Total',
+        'Pembayaran', 'Kembalian', 'Poin didapat', 'Jumlah cetak', 'Refund pada', 'Refund oleh', 'Alasan refund', 'Alasan batal', 'Dibatalkan oleh'],
+      ...bills.map((b) => [b.no, b.day, dt(b.opened_at), dt(b.paid_at), stLabel(b.status),
+        loc, D.CH_LABEL?.[b.channel] || b.channel, D.TYPE_LABEL?.[b.type] || b.type, b.table || '', b.terminal || '', b.cashier || '', b.shift || '',
+        b.customer || '', b.member || '', b.member_phone || '', b.items, b.sub, b.disc, b.disc_labels || '', b.svc, b.tax, b.deliv, b.total,
+        b.pays || '', b.change, b.points, b.prints, dt(b.refund_at), b.refund_by || '', b.refund_reason || '', b.void_reason || '', b.void_by || '']),
+    ];
+    const itemRows = [
+      ['No nota', 'Hari transaksi', 'Waktu bayar', 'Status nota', 'Meja', 'Menu', 'Kategori', 'Stasiun', 'Jumlah', 'Harga satuan', 'Jumlah harga', 'Catatan', 'Status item', 'Alasan batal item'],
+      ...items.map((x) => [x.no, x.day, dt(x.paid_at), stLabel(x.status), x.table || '',
+        x.menu, x.category || '', x.station || '', x.qty, x.price, x.amount, x.note || '', x.line_status || '', x.void_reason || '']),
+    ];
+    const fn1 = `transaksi-nota-${tag}.csv`, fn2 = `transaksi-rincian-item-${tag}.csv`;
+    openModal({ title: 'Laporan siap diunduh', size: 'sm',
+      body: `<p class="muted sm">${esc(loc)} · ${f.from === f.to ? fmtDate(Date.parse(f.from)) : `${fmtDate(Date.parse(f.from))} s/d ${fmtDate(Date.parse(f.to))}`}${f.status ? ` · ${stLabel(f.status)}` : ''}${f.q ? ` · cari "${esc(f.q)}"` : ''}</p>
+        <div class="dl-list">
+          <div class="dl-row"><span><b>Ringkasan per nota</b><small>${num(bills.length)} nota · ${num(billRows[0].length)} kolom</small></span><button class="btn btn-pri btn-sm" data-dl="1">${ic('download', 15)} CSV</button></div>
+          <div class="dl-row"><span><b>Rincian item per nota</b><small>${num(items.length)} baris item</small></span><button class="btn btn-pri btn-sm" data-dl="2">${ic('download', 15)} CSV</button></div>
+        </div>
+        ${r.capped ? `<p class="banner warn sm">${ic('triangle-alert', 16)}<span>Hanya ${num(r.cap)} nota terbaru yang ikut. Persempit rentang tanggalnya supaya lengkap.</span></p>` : ''}
+        <p class="hint">Keduanya langsung terbuka di Excel. Nomor nota di file rincian item bisa dipakai untuk VLOOKUP ke file ringkasan.</p>`,
+      footer: `<button class="btn" data-close>Tutup</button><button class="btn" data-zip>${ic('download', 15)} Kedua file (.zip)</button>`,
+      onMount(m) {
+        m.querySelector('[data-dl="1"]').onclick = () => { downloadCSV(fn1, billRows); toast(`${num(bills.length)} nota diunduh`); };
+        m.querySelector('[data-dl="2"]').onclick = () => { downloadCSV(fn2, itemRows); toast(`${num(items.length)} baris item diunduh`); };
+        m.querySelector('[data-zip]').onclick = async () => {
+          const { writeZip } = await import('../xlsx.js');
+          const { downloadBlob, csvText } = await import('../lib.js');
+          downloadBlob(`laporan-transaksi-${tag}.zip`, writeZip([[fn1, '\ufeff' + csvText(billRows)], [fn2, '\ufeff' + csvText(itemRows)]]));
+          toast('Dua file CSV diunduh dalam satu .zip');
+        };
+      } });
+  },
   txReload(el, e, ctx) { load(ctx); },
   txMore(el, e, ctx) { load(ctx, true); },
   txShiftX(el, e, ctx) { S.shift = null; S.shiftLabel = ''; load(ctx); },

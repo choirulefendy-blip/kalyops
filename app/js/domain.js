@@ -307,10 +307,12 @@ export function bill(db, o, ts) {
     run -= a;
   }
   if (o.disc?.manual) {
+    // 2.19 · diskon dari template Backoffice: pakai namanya, hormati batas rupiahnya (sama seperti engine.compute_bill)
     const md = o.disc.manual;
-    let a = md.type === 'pct' ? run * md.value : md.value;
-    a = Math.min(Math.round(a), run);
-    if (a > 0) { discs.push({ label: `Diskon manual${md.type === 'pct' ? ' ' + Math.round(md.value * 100) + '%' : ''}`, amt: a, kind: 'manual' }); run -= a; }
+    let a = Math.round(md.type === 'pct' ? run * md.value : md.value);
+    if (md.max > 0) a = Math.min(a, md.max);
+    a = Math.min(a, run);
+    if (a > 0) { discs.push({ label: md.name || `Diskon manual${md.type === 'pct' ? ' ' + Math.round(md.value * 100) + '%' : ''}`, amt: a, kind: 'manual' }); run -= a; }
   }
   const disc = sub - run;
   const svc = Math.round(run * db.settings.serviceRate);

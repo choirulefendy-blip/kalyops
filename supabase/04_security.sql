@@ -269,7 +269,7 @@ declare t text;
 begin
   foreach t in array array['settings', 'app_secrets', 'entities', 'locations', 'accounts', 'staff', 'areas', 'dining_tables', 'items', 'item_bom',
     'menu_categories', 'menus', 'menu_outlets', 'menu_bom', 'menu_package_items', 'stock', 'stock_moves', 'productions', 'tiers', 'missions', 'members',
-    'member_missions', 'point_tx', 'promos', 'campaigns', 'vouchers', 'deposit_cards', 'deposit_tx', 'suppliers', 'supplier_prices', 'item_suppliers',
+    'member_missions', 'point_tx', 'promos', 'campaigns', 'vouchers', 'discounts', 'deposit_cards', 'deposit_tx', 'suppliers', 'supplier_prices', 'item_suppliers',
     'purchase_orders', 'purchase_order_lines', 'transfers', 'transfer_lines', 'opnames', 'opname_lines', 'b2b_invoices', 'b2b_lines', 'shifts', 'counters',
     'reservations', 'orders', 'order_lines', 'order_payments', 'order_notices', 'journals', 'journal_lines', 'fraud_flags'] loop
     execute format('alter table public.%I enable row level security', t);
@@ -296,7 +296,7 @@ declare
 begin
   -- Data master: semua staf boleh baca, yang mengubah sesuai peran
   foreach t in array array['settings', 'entities', 'locations', 'accounts', 'staff', 'areas', 'dining_tables', 'menu_categories', 'menus', 'menu_outlets',
-                           'menu_bom', 'menu_package_items', 'tiers', 'missions', 'promos', 'vouchers', 'campaigns'] loop
+                           'menu_bom', 'menu_package_items', 'tiers', 'missions', 'promos', 'vouchers', 'campaigns', 'discounts'] loop
     perform engine.policy(t, 'staf baca', 'select', staff_all);
     perform engine.policy(t, 'owner tambah', 'insert', null, owner_only);
     perform engine.policy(t, 'owner ubah', 'update', owner_only);
@@ -437,7 +437,7 @@ declare t text;
 begin
   foreach t in array array['settings', 'entities', 'locations', 'accounts', 'staff', 'areas', 'dining_tables', 'items', 'item_bom',
     'menu_categories', 'menus', 'menu_outlets', 'menu_bom', 'menu_package_items', 'stock', 'stock_moves', 'productions', 'tiers', 'missions', 'members',
-    'member_missions', 'point_tx', 'promos', 'campaigns', 'vouchers', 'deposit_cards', 'deposit_tx', 'suppliers', 'supplier_prices', 'item_suppliers',
+    'member_missions', 'point_tx', 'promos', 'campaigns', 'vouchers', 'discounts', 'deposit_cards', 'deposit_tx', 'suppliers', 'supplier_prices', 'item_suppliers',
     'purchase_orders', 'purchase_order_lines', 'transfers', 'transfer_lines', 'opnames', 'opname_lines', 'b2b_invoices', 'b2b_lines', 'shifts',
     'reservations', 'orders', 'order_lines', 'order_payments', 'order_notices', 'journals', 'journal_lines', 'fraud_flags'] loop
     execute format('drop trigger if exists sync_log on public.%I', t);
@@ -955,7 +955,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['orders', 'order_lines', 'order_payments', 'shifts', 'deposit_cards', 'deposit_tx', 'reservations', 'members',
-    'menus', 'menu_categories', 'menu_outlets', 'menu_bom', 'menu_package_items', 'items', 'item_bom', 'promos', 'vouchers', 'campaigns', 'tiers', 'missions',
+    'menus', 'menu_categories', 'menu_outlets', 'menu_bom', 'menu_package_items', 'items', 'item_bom', 'promos', 'vouchers', 'discounts', 'campaigns', 'tiers', 'missions',
     'settings', 'staff', 'crew', 'print_stations', 'dining_tables', 'areas', 'locations', 'purchase_orders', 'purchase_order_lines', 'transfers', 'transfer_lines',
     'opnames', 'opname_lines', 'productions', 'b2b_invoices', 'suppliers', 'supplier_prices', 'fraud_flags'] loop
     if to_regclass('public.' || t) is not null then
@@ -988,3 +988,13 @@ grant execute on function public.trx_list(text, date, date, text, text, text, te
 -- 2.15 · Pengaturan printer dari akun kasir
 revoke execute on function public.print_route_save(text, jsonb), public.print_copies_save(text, jsonb), public.receipt_save(jsonb) from public, anon;
 grant execute on function public.print_route_save(text, jsonb), public.print_copies_save(text, jsonb), public.receipt_save(jsonb) to authenticated;
+
+-- 2.19 · Template diskon: dibuat Owner/Manajer, dipakai kasir lewat discount_apply
+revoke execute on function public.discount_save(text, text, text, numeric, numeric, text[], boolean, boolean, boolean, timestamptz, int),
+  public.discount_delete(text), public.discount_apply(text, text, text, text) from public, anon;
+grant execute on function public.discount_save(text, text, text, numeric, numeric, text[], boolean, boolean, boolean, timestamptz, int),
+  public.discount_delete(text), public.discount_apply(text, text, text, text) to authenticated;
+
+-- 2.19 · Laporan per transaksi untuk diunduh (khusus Owner/Manajer)
+revoke execute on function public.trx_export(text, date, date, text, text, text, text) from public, anon;
+grant execute on function public.trx_export(text, date, date, text, text, text, text) to authenticated;

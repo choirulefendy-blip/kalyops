@@ -163,6 +163,14 @@ Tabel baru `table_events` mencatat **pindah meja, kosongkan meja** (manual oleh 
 
 Warna grafik memakai turunan warna brand KALY dan sudah diuji dengan validator buta warna (pasangan bersebelahan aman untuk protanopia/deuteranopia). Hijau olive dan oranye brand tidak pernah dipakai berdampingan; naik/turun memakai pasangan teal ↔ oranye.
 
+## Baru di 2.19: template diskon, laporan transaksi, pemberitahuan APK
+
+- **Template diskon** (tabel `discounts`): Owner/Manajer menyiapkan di Kaly Backoffice › Member & promo › Diskon kasir. Kasir hanya memilih dari daftar (`discount_apply`), tanpa kolom angka bebas. `apply_manual_discount` kini khusus Owner. Template bisa dibatasi per outlet, berlaku sampai tanggal tertentu, dan bisa mewajibkan alasan atau PIN manajer.
+- **Laporan per transaksi**: `trx_export` (khusus Owner) dipakai tombol Unduh laporan di Backoffice › Transaksi & shift, menghasilkan dua CSV (ringkasan nota dan rincian item) atau satu .zip.
+- **Pemberitahuan pembaruan APK**: aplikasi Android membaca `android/versions.json`. `min` di atas 0 mengunci layar sampai APK baru dipasang.
+- Role `anon` tidak punya hak apa pun di tabel `discounts`. Ini dicabut langsung di migrasi karena database yang sudah ada mewarisi hak default.
+- **Urutan migrasi**: jalankan `kaly-ops-update-2.18.sql` dulu (jika belum), lalu `kaly-ops-update-2.19.sql`.
+
 ## Baru di 2.18: satu jenis lembar ke beberapa printer
 
 - `print_route_save(p_loc, p_route)`: setiap jenis lembar (`cust`, `copy`, `bar`, `dapur`) boleh punya **beberapa printer** (larik id). Teks tunggal tetap sah.

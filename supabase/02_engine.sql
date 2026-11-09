@@ -460,9 +460,14 @@ begin
   v_md := o.discount->'manual';
   if v_md is not null and jsonb_typeof(v_md) = 'object' then
     v_a := case when v_md->>'type' = 'pct' then v_run * (v_md->>'value')::numeric else (v_md->>'value')::numeric end;
-    v_a := least(engine.jsround(v_a), v_run);
+    v_a := engine.jsround(v_a);
+    -- 2.19: template diskon boleh punya batas rupiah untuk diskon persen
+    if coalesce((v_md->>'max')::numeric, 0) > 0 then v_a := least(v_a, (v_md->>'max')::numeric); end if;
+    v_a := least(v_a, v_run);
     if v_a > 0 then
-      v_discs := v_discs || jsonb_build_object('label', 'Diskon manual' || case when v_md->>'type' = 'pct' then ' ' || engine.jsround((v_md->>'value')::numeric * 100)::int || '%' else '' end, 'amt', v_a, 'kind', 'manual');
+      -- 2.19: nota memakai nama template diskon bila ada
+      v_discs := v_discs || jsonb_build_object('label', coalesce(nullif(v_md->>'name', ''),
+        'Diskon manual' || case when v_md->>'type' = 'pct' then ' ' || engine.jsround((v_md->>'value')::numeric * 100)::int || '%' else '' end), 'amt', v_a, 'kind', 'manual');
       v_run := v_run - v_a;
     end if;
   end if;

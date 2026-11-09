@@ -8,6 +8,7 @@ import { rerender, can } from '../app.js';
 import * as PS from '../print-station.js';
 import { KINDS, KIND_LABEL, stationOnline, seenText, routeOf, printersAt, testSlipHtml, paperOf, devicePrinterId, setDevicePrinter } from '../printing.js';
 import { isApp, appInfo, printDirect, checkPrinter, isDirect, connText } from '../escpos.js';
+import * as APK from '../apk.js';
 
 const JOB_ST = { queued: ['Antre', 'b-warn'], printing: ['Mencetak', 'b-info'], printed: ['Tercetak', 'b-ok'], failed: ['Gagal', 'b-err'], cancelled: ['Dibatalkan', 'b-mute'], expired: ['Kedaluwarsa', 'b-mute'] };
 const ST_TXT = { idle: 'Siap. Antrean printer ini dicek otomatis setiap beberapa detik.', printing: 'Sedang mencetak…', error: 'Gagal menghubungi database', off: '' };
@@ -73,9 +74,8 @@ function deviceCard(ctx) {
   if (!isApp()) return '';
   const db = ctx.db, id = devicePrinterId(), lan = (db.printers || []).filter((p) => p.active && isDirect(p)), mine = lan.find((p) => p.id === id);
   const info = appInfo();
-  const old = !(info.features || []).includes('recover');   // 2.15: versi terbaru 1.6 (tidak tertutup sendiri saat memori tablet penuh; 1.5: alamat Vercel)
+
   return `<section class="card"><div class="card-h"><h3>${ic('smartphone', 18)} Printer tablet ini</h3><small class="muted">Aplikasi Android ${esc(info.app || '')}</small></div>
-    ${old ? `<div class="banner info sm">${ic('download', 16)}<span>Aplikasi Android Kaly Ops versi 1.6 tersedia: tidak lagi tertutup sendiri saat memori tablet penuh (tablet RAM 4 GB), lebih ringan, dan memakai alamat Vercel. Pasang di atas aplikasi ini; login, terminal, dan printer tetap.</span><a class="btn btn-sm" href="android/kaly-ops.apk" download>Unduh</a></div>` : ''}
     ${lan.length ? `<label class="fld"><span>Lembar "Perangkat kasir" dari tablet ini dicetak ke</span><select class="inp" data-a-change="devSet" id="dev-sel"><option value="">Jendela cetak Android</option>
       ${lan.map((p) => `<option value="${p.id}" ${p.id === id ? 'selected' : ''}>${esc(p.name)} · ${esc(connText(p))}</option>`).join('')}</select></label>
       ${mine ? `<div class="row wrap"><button class="btn" data-a="devPing">Cek koneksi</button><button class="btn btn-pri" data-a="devTest">${ic('printer', 16)} Cetak tes</button></div>` : ''}
@@ -86,7 +86,7 @@ function apkCard() {
   if (isApp()) return '';
   return `<section class="card"><div class="card-h"><h3>${ic('smartphone', 18)} Tablet Android</h3></div>
     <p class="muted sm">Kasir memakai tablet Android? Pasang <b>aplikasi Android Kaly Ops</b>: tablet langsung mencetak ke printer LAN/Wi-Fi, Bluetooth, atau USB tanpa PC dan tanpa jendela cetak, dan menampilkan notifikasi Android saat kasir membuka aplikasi lain.</p>
-    <div class="row wrap"><a class="btn btn-pri" href="android/kaly-ops.apk" download>${ic('download', 16)} Unduh aplikasi Android (APK)</a></div>
+    <div class="row wrap"><a class="btn btn-pri" href="${APK.apkFile()}" download>${ic('download', 16)} Unduh aplikasi Android ${esc(APK.status().latest?.version || '')} (APK)</a></div>
     <p class="hint">Buka tautan ini dari tablet, izinkan pemasangan dari browser, lalu masuk dengan akun staf seperti biasa.</p></section>`;
 }
 function howCard(ctx) {

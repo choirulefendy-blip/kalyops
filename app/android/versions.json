@@ -1,0 +1,17 @@
+{
+  "_baca": "Daftar versi aplikasi Android Kaly Ops. Dibaca js/apk.js di tablet: code = versionCode APK terbaru di folder ini; min = versionCode paling tua yang masih boleh dipakai (di bawah min, layar tablet terkunci sampai APK baru dipasang). min: 0 = tidak ada pemaksaan, hanya banner. Setelah membangun APK baru, perbarui version, code, notes, dan date di sini.",
+  "ops": {
+    "version": "1.7",
+    "code": 8,
+    "min": 0,
+    "notes": "Tidak tertutup sendiri saat memori tablet penuh (tablet RAM 4 GB), lebih ringan, dan satu tablet bisa melayani beberapa printer",
+    "date": "2026-11-02"
+  },
+  "backoffice": {
+    "version": "1.7",
+    "code": 8,
+    "min": 0,
+    "notes": "Aplikasi Kaly Backoffice tersendiri untuk Owner/Manajer",
+    "date": "2026-11-02"
+  }
+}
