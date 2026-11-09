@@ -61,8 +61,8 @@ function allCard(ctx) {
     return `<div class="ps-loc"><h4 class="sec-t">${esc(l.name)}</h4>${ps.map((p) => { const q = db.printJobs.filter((j) => j.station === p.id && j.status === 'queued').length;
       const st = isDirect(p) ? `${connText(p)} · ${isApp() ? 'dicetak langsung dari tablet ini' : 'dicetak dari aplikasi Android'}${p.seen ? ' · stasiun ' + seenText(p, now).toLowerCase() : ''}` : seenText(p, now);
       return `<div class="ps-row"><span class="dot ${stationOnline(p, now) || (isDirect(p) && isApp()) ? 'on' : ''}"></span><span><b>${esc(p.name)}</b><small>${esc(st)}${q ? ` · ${q} lembar antre` : ''}</small></span>
-        <small class="muted">${KINDS.filter((k) => R[k]?.id === p.id).map((k) => KIND_LABEL[k]).join(', ') || 'Belum dipakai'}</small></div>`; }).join('')}
-      <p class="hint">Dicetak di perangkat kasir: ${KINDS.filter((k) => !R[k]).map((k) => KIND_LABEL[k].toLowerCase()).join(', ') || 'tidak ada'}.</p></div>`;
+        <small class="muted">${KINDS.filter((k) => R[k].some((x) => x.id === p.id)).map((k) => KIND_LABEL[k]).join(', ') || 'Belum dipakai'}</small></div>`; }).join('')}
+      <p class="hint">Dicetak di perangkat kasir: ${KINDS.filter((k) => !R[k].length).map((k) => KIND_LABEL[k].toLowerCase()).join(', ') || 'tidak ada'}.</p></div>`;
   }).join('');
   if (!rows) return '';
   return `<section class="card"><div class="card-h"><h3>Semua printer</h3>${currentUser()?.role === 'kasir' ? `<a class="btn btn-sm" href="#/pos?tab=printer">${ic('settings', 15)} Atur tujuan cetak</a>` : ''}</div>${rows}</section>`;

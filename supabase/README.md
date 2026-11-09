@@ -163,6 +163,12 @@ Tabel baru `table_events` mencatat **pindah meja, kosongkan meja** (manual oleh 
 
 Warna grafik memakai turunan warna brand KALY dan sudah diuji dengan validator buta warna (pasangan bersebelahan aman untuk protanopia/deuteranopia). Hijau olive dan oranye brand tidak pernah dipakai berdampingan; naik/turun memakai pasangan teal ↔ oranye.
 
+## Baru di 2.18: satu jenis lembar ke beberapa printer
+
+- `print_route_save(p_loc, p_route)`: setiap jenis lembar (`cust`, `copy`, `bar`, `dapur`) boleh punya **beberapa printer** (larik id). Teks tunggal tetap sah.
+- Printer yang dinonaktifkan dibuang dari larik tujuan; sisanya tetap dipakai.
+- Database 2.15 sampai 2.17: jalankan `kaly-ops-update-2.18.sql`.
+
 ## Baru di 2.15: printer diatur dari akun kasir, Backoffice memantau
 
 - Printer, pairing Bluetooth/USB, pencarian printer, cetak tes, model printer, pembagian lembar ke printer, jumlah lembar, dan tampilan nota diatur langsung dari **akun kasir** di tablet: **Kaly POS › Printer**. Kaly Backoffice › Pengaturan hanya menampilkan status printer, pembagian lembar, dan jumlah lembar per outlet (baca saja).

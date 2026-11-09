@@ -7,7 +7,7 @@ import * as D from '../domain.js';
 import * as C from '../cloud.js';
 import * as API from '../api.js';
 import { rerender, ctxNow } from '../app.js';
-import { KINDS, KIND_LABEL, stationOnline, seenText, printersAt, testSlipHtml, paperOf } from '../printing.js';
+import { KINDS, KIND_LABEL, stationOnline, seenText, printersAt, testSlipHtml, paperOf, routeMap, routeValue } from '../printing.js';
 import { isApp, printDirect, checkPrinter, isDirect, connOf, connText, CONN_LABEL, listDevices, appFeatures, MODELS, modelOf, scanLan, scanBt, pairBt } from '../escpos.js';
 
 // ---------- Printer & tujuan cetak (2.1; LAN 2.2; Bluetooth & USB 2.3 untuk aplikasi Android) ----------
@@ -17,15 +17,15 @@ let prT = null;  // status printer diperbarui setiap 30 detik selama layar print
 // 2.6: pengaturan per printer. Setiap printer punya panel sendiri: sambungan, kertas, dan lembar yang dicetaknya.
 const SLIP_HINT = { cust: 'dengan harga & total', copy: 'bertanda SALINAN KASIR', bar: 'minuman, tanpa harga', dapur: 'makanan, tanpa harga' };
 function slipChips(R, id, L, copies, ro) {
-  if (ro) { const mine = KINDS.filter((k) => R[k] === id); return `<p class="pr-ro">${mine.length ? mine.map((k) => `<span class="badge b-ok">${KIND_LABEL[k]}${copies?.[k] !== undefined ? ` · ${copies[k]} lembar` : ''}</span>`).join(' ') : '<span class="muted sm">Belum ada lembar</span>'}</p>`; }
+  if (ro) { const mine = KINDS.filter((k) => R[k].includes(id)); return `<p class="pr-ro">${mine.length ? mine.map((k) => `<span class="badge b-ok">${KIND_LABEL[k]}${copies?.[k] !== undefined ? ` · ${copies[k]} lembar` : ''}</span>`).join(' ') : '<span class="muted sm">Belum ada lembar</span>'}</p>`; }
   return `<div class="pr-slips" role="group" aria-label="Lembar yang dicetak">${KINDS.map((k) => {
-    const on = R[k] === id;
-    return `<button type="button" class="pr-slip ${on ? 'on' : ''}" data-a="prSlip" data-k="${k}" data-p="${id}" data-loc="${L}" aria-pressed="${on}" title="${on ? 'Ketuk: kembalikan ke perangkat kasir' : 'Ketuk: cetak di printer ini'}">
+    const on = R[k].includes(id);
+    return `<button type="button" class="pr-slip ${on ? 'on' : ''}" data-a="prSlip" data-k="${k}" data-p="${id}" data-loc="${L}" aria-pressed="${on}" title="${on ? 'Ketuk: lepas dari printer ini' : 'Ketuk: ikut cetak di printer ini'}">
       ${ic(on ? 'check' : 'plus', 14)}<span><b>${KIND_LABEL[k]}</b><small>${SLIP_HINT[k]}${on && copies?.[k] !== undefined ? ` · ${copies[k]} lembar` : ''}</small></span></button>`;
   }).join('')}</div>`;
 }
 function printerPanel(p, i, R, L, now, copies, ro) {
-  const mine = KINDS.filter((k) => R[k] === p.id);
+  const mine = KINDS.filter((k) => R[k].includes(p.id));
   const online = stationOnline(p, now) || (isDirect(p) && isApp());
   const addr = { lan: p.ip ? `${p.ip}:${p.port || 9100}` : '', bt: p.bt || '', usb: p.usb || '' }[connOf(p)] || '';
   return `<section class="pr-panel ${mine.length ? '' : 'idle'}" data-pr="${p.id}">
@@ -43,12 +43,12 @@ const locOf = (ctx, ro) => (ro && ctx.db.locations.some((l) => l.type === 'outle
 export function printerCard(ctx, { ro = false } = {}) {
   const db = ctx.db, outs = db.locations.filter((l) => l.type === 'outlet');
   const L = locOf(ctx, ro);
-  const ps = printersAt(db, L), R = db.locations.find((l) => l.id === L)?.route || {}, now = Date.now(), copies = D.copiesFor(db, L);
-  const local = KINDS.filter((k) => !ps.some((p) => p.id === R[k]));
+  const ps = printersAt(db, L), R = routeMap(db.locations.find((l) => l.id === L)?.route), now = Date.now(), copies = D.copiesFor(db, L);
+  const local = KINDS.filter((k) => !R[k].some((id) => ps.some((p) => p.id === id)));
   return `<div class="card" id="pr-card"><div class="card-h"><h3>${ic('printer', 17)} Printer & tujuan cetak${ro ? ' <span class="badge b-mute">pantau</span>' : ''}</h3>${ro ? '' : `<span class="row-xs">${isApp() && appFeatures().includes('scan') ? `<button class="btn btn-sm btn-pri" data-a="prFind">${ic('search', 15)} Cari printer</button>` : ''}<button class="btn btn-sm" data-a="prNew">${ic('plus', 15)} Tambah printer</button></span>`}</div>
     ${!ro && isApp() && !appFeatures().includes('recover') ? `<div class="banner info sm">${ic('download', 16)}<span>Aplikasi Android Kaly Ops <b>1.6</b> tersedia: tidak tertutup sendiri saat memori tablet penuh dan lebih ringan. Pasang di atas aplikasi ini; login dan printer tetap.</span><a class="btn btn-sm" href="android/kaly-ops.apk" download>Unduh</a></div>` : ''}
     ${ro ? `<p class="banner info sm">${ic('info', 16)}<span>Printer, pairing Bluetooth/USB, pembagian nota, jumlah lembar, dan tampilan nota diatur dari <b>akun kasir</b> di tablet: <b>Kaly POS › Printer</b>. Halaman ini hanya untuk memantau.</span></p>` : ''}
-    <p class="muted sm">Setiap printer diatur sendiri: sambungan, lebar kertas, dan lembar yang dicetaknya. Satu lembar hanya keluar di satu printer; memilihnya di printer lain otomatis memindahkannya. Contoh: <b>Printer 1</b> nota pelanggan & salinan, <b>Printer 2</b> slip Bar, <b>Printer 3</b> slip Dapur.</p>
+    <p class="muted sm">Setiap printer diatur sendiri: sambungan, lebar kertas, dan lembar yang dicetaknya. Satu jenis lembar boleh dicetak di lebih dari satu printer, misalnya slip Dapur di dua printer dapur. Ketuk printer lain untuk menambahkannya. Contoh: <b>Printer 1</b> nota pelanggan & salinan, <b>Printer 2</b> slip Bar, <b>Printer 3</b> slip Dapur.</p>
     ${ro || (isApp() && appFeatures().includes('scan')) ? '' : `<p class="hint">${ic('search', 14)} <b>Cari printer otomatis</b> (USB, LAN/Wi-Fi, Bluetooth tanpa mengetik alamat) tersedia di tablet dengan aplikasi Android Kaly Ops 1.4 ke atas. ${isApp() ? '<a href="android/kaly-ops.apk" download>Unduh versi 1.6</a>.' : ''}</p>`}
     ${ro && outs.length > 1 ? `<div class="chips">${outs.map((l) => `<button class="chip ${l.id === L ? 'on' : ''}" data-a="prLoc" data-v="${l.id}">${esc(l.name)}</button>`).join('')}</div>` : ''}
     <div class="pr-list pr-panels">${ps.length ? ps.map((p, i) => printerPanel(p, i, R, L, now, copies, ro)).join('') : '<p class="empty sm">Belum ada printer di outlet ini. ' + (ro ? 'Kasir menambahkannya dari Kaly POS › Printer.' : 'Tekan <b>Tambah printer</b> untuk setiap printer di lapangan (mis. 3 printer: Kasir, Bar, Dapur).') + '</p>'}</div>
@@ -104,8 +104,8 @@ export function printerForm(db, p, L, pre = null) {
       <div class="pr-lan" data-for="pc"><p class="hint">Printer yang tersambung ke PC atau laptop (USB, LAN, Wi-Fi yang terpasang di Windows). Lembarnya dicetak oleh PC itu lewat halaman <b>Stasiun cetak</b>.</p></div>
       <div class="grid2" data-for="lan bt usb"><label class="fld"><span>Lebar kertas</span><select name="paper"><option value="">Ikuti Tampilan nota</option><option value="58" ${v?.paper === 58 ? 'selected' : ''}>58 mm</option><option value="80" ${v?.paper === 80 ? 'selected' : ''}>80 mm</option></select></label>
         <label class="fld"><span>Cara kirim gambar</span><select name="mode"><option value="raster">Standar (GS v 0)</option><option value="escstar" ${v?.mode === 'escstar' ? 'selected' : ''}>Printer lama (ESC *)</option></select></label></div>
-      <div class="fld"><span>Lembar yang dicetak di printer ini</span><div class="pr-formslips">${KINDS.map((k) => `<label class="switch sm"><input type="checkbox" name="slip_${k}" ${p && (db.locations.find((l) => l.id === p.loc)?.route || {})[k] === p.id ? 'checked' : ''}><span>${KIND_LABEL[k]}</span></label>`).join('')}</div>
-        <small class="muted">Lembar yang dicentang pindah ke printer ini dari printer lain.</small></div>
+      <div class="fld"><span>Lembar yang dicetak di printer ini</span><div class="pr-formslips">${KINDS.map((k) => `<label class="switch sm"><input type="checkbox" name="slip_${k}" ${p && routeMap(db.locations.find((l) => l.id === p.loc)?.route)[k].includes(p.id) ? 'checked' : ''}><span>${KIND_LABEL[k]}</span></label>`).join('')}</div>
+        <small class="muted">Lembar yang dicentang ikut dicetak di printer ini. Satu lembar boleh dicetak di lebih dari satu printer.</small></div>
       <p class="hint" data-for="lan bt usb">Dicetak langsung oleh tablet dengan aplikasi Android Kaly Ops. Pakai <b>Printer lama (ESC *)</b> bila hasil cetak tes berupa huruf acak.${app && !feat.includes('bt') ? ' Bluetooth & USB perlu aplikasi Android versi 1.1.' : ''}</p>`,
     footer: `${p ? '<button class="btn btn-danger-ghost" data-del>Hapus printer</button>' : ''}<button class="btn" data-close>Batal</button><button class="btn btn-pri" data-ok>Simpan</button>`,
     onMount(m, api) {
@@ -161,9 +161,9 @@ export function printerForm(db, p, L, pre = null) {
           if (active && id && (f.model || 'umum') !== modelOf(p)) await API.printStationModel(id, f.model).catch((e) => toast('Model printer belum tersimpan: jalankan SQL Kaly Ops 2.8 di Supabase. ' + e.message, 'warn', 8000));
           if (active && id) {   // lembar yang dicentang diarahkan ke printer ini; yang dilepas kembali ke perangkat kasir
             await C.refresh('org');
-            const loc = db.locations.find((l) => l.id === f.loc), R0 = { ...(loc?.route || {}) }, R1 = { ...R0 };
-            for (const k of KINDS) { if (f['slip_' + k]) R1[k] = id; else if (R1[k] === id) R1[k] = 'local'; }
-            if (JSON.stringify(R0) !== JSON.stringify(R1)) await API.printRouteSave(f.loc, R1);
+            const loc = db.locations.find((l) => l.id === f.loc), M0 = routeMap(loc?.route), R1 = { ...(loc?.route || {}) };
+            for (const k of KINDS) { const ids = M0[k].filter((x) => x !== id); if (f['slip_' + k]) ids.push(id); R1[k] = routeValue(ids); }
+            if (JSON.stringify(M0) !== JSON.stringify(routeMap(R1))) await API.printRouteSave(f.loc, R1);
           }
           await C.refresh('printers', 'org');
         } catch (e) { return toast(e.message, 'err', 6000); }
@@ -185,12 +185,13 @@ export const actions = {
     prEdit(el, e, ctx) { const p = ctx.db.printers.find((x) => x.id === el.dataset.id); if (p) printerForm(ctx.db, p, p.loc); },
     async prSlip(el, e, ctx) {
       const L = el.dataset.loc, k = el.dataset.k, pid = el.dataset.p, loc = ctx.db.locations.find((l) => l.id === L);
-      const cur = (loc?.route || {})[k], to = cur === pid ? 'local' : pid;
-      const from = ctx.db.printers.find((x) => x.id === cur), dest = ctx.db.printers.find((x) => x.id === to);
+      // 2.18: ketuk untuk menambah/melepas printer ini dari jenis lembar itu (boleh lebih dari satu printer)
+      const cur = routeMap(loc?.route)[k], next = cur.includes(pid) ? cur.filter((x) => x !== pid) : [...cur, pid];
+      const dests = next.map((id) => ctx.db.printers.find((x) => x.id === id)).filter(Boolean);
       el.disabled = true;
-      try { await API.printRouteSave(L, { ...(loc?.route || {}), [k]: to }); await C.refresh('org'); }
+      try { await API.printRouteSave(L, { ...(loc?.route || {}), [k]: routeValue(next) }); await C.refresh('org'); }
       catch (err) { el.disabled = false; return toast(err.message, 'err', 6000); }
-      toast(dest ? `${KIND_LABEL[k]} dicetak di ${dest.name}${from && from.id !== dest.id ? ` (dipindah dari ${from.name})` : ''}` : `${KIND_LABEL[k]} dicetak di perangkat kasir`); rerender();
+      toast(dests.length ? `${KIND_LABEL[k]} dicetak di ${dests.map((d) => d.name).join(' & ')}` : `${KIND_LABEL[k]} dicetak di perangkat kasir`); rerender();
     },
     async prRoute(el, e, ctx) {
       const L = el.dataset.loc, k = el.dataset.k, loc = ctx.db.locations.find((l) => l.id === L);

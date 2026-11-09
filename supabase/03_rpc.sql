@@ -1614,7 +1614,14 @@ begin
   end if;
   if not coalesce(p_active, true) then
     -- printer dihapus: tujuan cetak yang memakainya kembali ke perangkat kasir, antreannya dibatalkan
-    update locations set print_route = (select coalesce(jsonb_object_agg(k, case when v = to_jsonb(v_id) then '"local"'::jsonb else v end), '{}') from jsonb_each(print_route) e(k, v))
+    -- 2.18: satu jenis lembar bisa punya beberapa printer (larik); printer ini dibuang dari larik itu
+    update locations set print_route = (
+      select coalesce(jsonb_object_agg(e.k, case
+          when jsonb_typeof(e.v) = 'array' then (select case when count(*) = 0 then '"local"'::jsonb else jsonb_agg(x) end
+               from jsonb_array_elements(e.v) x where x #>> '{}' <> v_id)
+          when e.v #>> '{}' = v_id then '"local"'::jsonb
+          else e.v end), '{}')
+      from jsonb_each(print_route) e(k, v))
      where print_route::text like '%' || v_id || '%';
     if exists (select 1 from print_jobs where station_id = v_id and status = 'queued') then
       update print_jobs set status = 'cancelled', error = 'Printer dihapus' where station_id = v_id and status = 'queued';
@@ -2125,17 +2132,25 @@ end $$;
 -- Kaly Backoffice (Owner/Manajer) hanya memantau.
 -- ---------------------------------------------------------------------
 create or replace function public.print_route_save(p_loc text, p_route jsonb) returns jsonb language plpgsql security definer set search_path = public as $$
-declare v jsonb := '{}'::jsonb; r record;
+declare v jsonb := '{}'::jsonb; r record; el jsonb; pid text; arr text[]; n int;
 begin
   perform engine.require_role(array['owner', 'kasir']);
   if not public.can_loc(p_loc) then raise exception 'Tidak punya akses ke outlet ini' using errcode = '42501'; end if;
   if not exists (select 1 from locations where id = p_loc and type = 'outlet') then raise exception 'Outlet % tidak ditemukan', coalesce(p_loc, ''); end if;
-  for r in select key k, value #>> '{}' val from jsonb_each(coalesce(p_route, '{}'::jsonb)) loop
+  for r in select key k, value val from jsonb_each(coalesce(p_route, '{}'::jsonb)) loop
     if r.k not in ('cust', 'copy', 'bar', 'dapur') then raise exception 'Jenis lembar tidak dikenal: %', r.k; end if;
-    if coalesce(r.val, 'local') <> 'local' and not exists (select 1 from print_stations where id = r.val and location_id = p_loc and active) then
-      raise exception 'Printer % tidak ada di outlet ini', r.val;
-    end if;
-    v := v || jsonb_build_object(r.k, coalesce(r.val, 'local'));
+    -- 2.18: satu jenis lembar boleh ke beberapa printer: teks tunggal ('local' atau id) atau larik id
+    arr := '{}';
+    for el in select x from jsonb_array_elements(case when jsonb_typeof(r.val) = 'array' then r.val else jsonb_build_array(r.val) end) x loop
+      pid := el #>> '{}';
+      if pid is null or pid = '' or pid = 'local' then continue; end if;
+      if not exists (select 1 from print_stations where id = pid and location_id = p_loc and active) then
+        raise exception 'Printer % tidak ada di outlet ini', pid;
+      end if;
+      if not (pid = any(arr)) then arr := arr || pid; end if;
+    end loop;
+    n := coalesce(cardinality(arr), 0);
+    v := v || jsonb_build_object(r.k, case when n = 0 then to_jsonb('local'::text) when n = 1 then to_jsonb(arr[1]) else to_jsonb(arr) end);
   end loop;
   perform engine.on_();
   update locations set print_route = v where id = p_loc;

@@ -63,9 +63,14 @@ export function testSlipHtml(db, p, who = '') {
     <p>${esc(D.loc(db, p.loc)?.name || '')}<br>${fmtDT(Date.now())}${who ? ' · ' + esc(who) : ''}</p><hr><p>Lembar ini keluar di printer yang benar? Stasiun cetak siap dipakai.</p></div></div>`;
 }
 // Tujuan tiap jenis lembar di outlet L: objek printer, atau null = perangkat yang menekan Cetak
+// 2.18: satu jenis lembar boleh ke beberapa printer. Nilai tersimpan: 'local' | id | [id, ...] (teks lama tetap dibaca)
+export function routeIds(v) { return [...new Set((Array.isArray(v) ? v : [v]).filter((x) => x && x !== 'local'))]; }
+export function routeMap(route) { return Object.fromEntries(KINDS.map((k) => [k, routeIds(route?.[k])])); }
+export function routeValue(ids) { return !ids.length ? 'local' : ids.length === 1 ? ids[0] : [...ids]; }
+// Tujuan tiap jenis lembar di outlet L: daftar objek printer (kosong = perangkat yang menekan Cetak)
 export function routeOf(db, L) {
-  const r = D.loc(db, L)?.route || {};
-  return Object.fromEntries(KINDS.map((k) => [k, printersAt(db, L).find((p) => p.id === r[k]) || null]));
+  const ps = printersAt(db, L), m = routeMap(D.loc(db, L)?.route);
+  return Object.fromEntries(KINDS.map((k) => [k, m[k].map((id) => ps.find((p) => p.id === id)).filter(Boolean)]));
 }
 
 function askLanFail(p, pieces, msg) {
@@ -100,12 +105,17 @@ function askOffline(list) {
 export async function sendPrints(order, pieces, { forceLocal = false } = {}) {
   const db = getDb(), R = routeOf(db, order.loc);
   const here = [], remote = [], lan = new Map();
+  const toLan = (p, pc) => { if (!lan.has(p.id)) lan.set(p.id, { p, pieces: [] }); lan.get(p.id).pieces.push(pc); };
   for (const pc of pieces) {
-    const st = forceLocal ? null : R[pc.kind];
-    // Aplikasi Android: printer ber-IP dicetak langsung; "Perangkat kasir" = printer perangkat ini
-    const tgt = isApp() ? (st ? (isDirect(st) ? st : null) : devicePrinter(db)) : null;
-    if (tgt) { if (!lan.has(tgt.id)) lan.set(tgt.id, { p: tgt, pieces: [] }); lan.get(tgt.id).pieces.push(pc); continue; }
-    if (st) remote.push({ ...pc, st }); else here.push(pc);
+    const sts = forceLocal ? [] : R[pc.kind];
+    if (!sts.length) {
+      // Tanpa printer tujuan: "perangkat kasir" = printer perangkat ini (aplikasi Android)
+      const dev = isApp() ? devicePrinter(db) : null;
+      if (dev) toLan(dev, pc); else here.push(pc);
+      continue;
+    }
+    // 2.18: beberapa printer untuk satu jenis lembar, tiap printer menerima salinannya sendiri
+    for (const st of sts) { if (isApp() && isDirect(st)) toLan(st, pc); else remote.push({ ...pc, st }); }
   }
   const sent = [];
   if (lan.size) {
