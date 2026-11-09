@@ -163,6 +163,11 @@ Tabel baru `table_events` mencatat **pindah meja, kosongkan meja** (manual oleh 
 
 Warna grafik memakai turunan warna brand KALY dan sudah diuji dengan validator buta warna (pasangan bersebelahan aman untuk protanopia/deuteranopia). Hijau olive dan oranye brand tidak pernah dipakai berdampingan; naik/turun memakai pasangan teal ↔ oranye.
 
+## Baru di 2.21: refund per item dalam satu nota
+- Jalankan `kaly-ops-update-2.21.sql` setelah SQL 2.20 (fresh install memakai SQL 2.21 terbaru).
+- Isi: tabel `order_refunds` (satu baris per item yang di-refund), fungsi `order_refund_items` (Owner), dan `order_refund` penuh kini menolak bila bill sudah pernah di-refund sebagian. Kas laci di `shift_summary` ikut mengurangi refund tunai parsial.
+- Belum termasuk: CSV laporan per transaksi (`trx_export`) belum memuat refund per item.
+
 ## Baru di 2.20: kontak & ikon di nota, catatan umum pesanan
 - Jalankan `kaly-ops-update-2.20.sql` setelah SQL 2.19 (atau fresh install memakai SQL 2.20 terbaru).
 - Isi: kolom `orders.note` (catatan umum pesanan, tampil di slip Bar & Dapur) dan `receipt_save` yang menyimpan `contacts` (ikon IG, WA, web, dst.).

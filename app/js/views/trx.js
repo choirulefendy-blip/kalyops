@@ -104,7 +104,7 @@ const ctxFresh = (ctx) => ({ ...ctx, db: getDb(), terminal: getTerminal() });
 let receiptHtml = null;
 const rc = async () => { if (!receiptHtml) receiptHtml = (await import('./pos.js')).receiptHtml; };
 async function fetchOrder(id) {
-  const { data, error } = await C.sb.from('orders').select('*, order_lines(*), order_payments(method, amount, card_id)').eq('id', id).maybeSingle();
+  const { data, error } = await C.sb.from('orders').select('*, order_lines(*), order_payments(method, amount, card_id), order_refunds(*)').eq('id', id).maybeSingle();
   if (error) throw new Error(C.errMsg(error));
   if (!data) throw new Error('Transaksi tidak ditemukan');
   return C.mapOrder(data);
@@ -131,7 +131,7 @@ function detailBody(db, o, r) {
         ${m ? `<dt>Member</dt><dd>${esc(m)}${o.earned ? ` <small class="muted">· +${o.earned} poin</small>` : ''}</dd>` : ''}
         ${o.status !== 'void' ? `<dt>Total</dt><dd><b>${rp(o.bill?.total ?? o.total)}</b></dd>${pays}${o.change ? `<dt>Kembalian</dt><dd>${rp(o.change)}</dd>` : ''}` : ''}
         ${o.prints ? `<dt>Nota dicetak</dt><dd>${o.prints}×</dd>` : ''}
-      </dl>${refund}${vd}</div>
+      </dl>${refund}${partialRefund(db, o)}${vd}</div>
     <div class="tx-rc">${refundStamp(o)}${receiptHtml(db, o)}</div></div>`;
 }
 export async function openTrx(ctx, id) {
@@ -144,7 +144,7 @@ export async function openTrx(ctx, id) {
   openModal({
     title: `Transaksi ${o.no}`, size: 'lg',
     body: detailBody(db, o, r),
-    footer: `${owner && o.status === 'paid' ? `<button class="btn btn-danger-ghost" data-refund>${ic('rotate-ccw', 16)} Refund</button>` : ''}<span class="grow"></span>
+    footer: `${owner && o.status === 'paid' ? `${(o.refunds || []).length ? '' : `<button class="btn btn-danger-ghost" data-refund>${ic('rotate-ccw', 16)} Refund</button>`}<button class="btn btn-danger-ghost" data-refund-item>${ic('rotate-ccw', 16)} Refund per item</button>` : ''}<span class="grow"></span>
       ${canPrint && owner ? `<button class="btn btn-ghost" data-here title="Cetak lewat jendela cetak perangkat ini">${ic('printer', 16)} Cetak di perangkat ini</button>` : ''}
       ${canPrint ? `<button class="btn btn-pri" data-print>${ic('printer', 16)} Cetak ulang nota</button>` : ''}<button class="btn" data-close>Tutup</button>`,
     onMount(m, api) {
@@ -162,6 +162,7 @@ export async function openTrx(ctx, id) {
       m.querySelector('[data-print]')?.addEventListener('click', (e) => pr(false, e.currentTarget));
       m.querySelector('[data-here]')?.addEventListener('click', (e) => pr(true, e.currentTarget));
       m.querySelector('[data-refund]')?.addEventListener('click', () => { api.close(); refundDialog(ctx, o); });
+      m.querySelector('[data-refund-item]')?.addEventListener('click', () => { api.close(); refundItemDialog(ctx, o); });
     },
   });
 }
@@ -334,3 +335,69 @@ export default {
   input(k, el, e, ctx) { input(k, el, ctx); },
   actions: { ...actions, txTab(el) { V.tab = el.dataset.v; rerender(); } },
 };
+
+// ---------- 2.21 · Refund per item dalam satu nota (khusus Owner) ----------
+// Sisa item yang bisa di-refund = qty pesanan dikurangi yang sudah di-refund pada item itu
+const refundedQty = (o, lineId) => (o.refunds || []).filter((x) => x.line === lineId).reduce((a, x) => a + x.qty, 0);
+function partialRefund(db, o) {
+  const rs = o.refunds || [];
+  if (!rs.length) return '';
+  const byB = {};
+  rs.forEach((x) => { (byB[x.batch] ||= []).push(x); });
+  return `<div class="tx-refund"><h4>${ic('rotate-ccw', 16)} Refund per item</h4>${Object.values(byB).map((g) => `<dl class="kv">
+    <dt>${fmtDate(g[0].at)} ${fmtTime(g[0].at)} · ${esc(D.userName(db, g[0].by))}</dt>
+    <dd>${esc(g.map((x) => `${x.qty}× ${x.name}`).join(', '))} · <b>${rp(g.reduce((a, x) => a + x.amt, 0))}</b><br>
+    <small class="muted">${esc(D.PAY[g[0].m]?.label || g[0].m)}${g[0].m === 'cash' && g[0].shift ? ' dari laci kasir' : ''} · ${esc(g[0].reason)}</small></dd></dl>`).join('')}</div>`;
+}
+async function refundItemDialog(ctx, o) {
+  try { await C.refresh('shifts'); } catch {}
+  const db = getDb();
+  const left = o.lines.filter((l) => !l.par && l.s !== 'void').map((l) => ({ l, left: l.q - refundedQty(o, l.id) })).filter((x) => x.left > 0);
+  if (!left.length) return toast('Semua item di bill ini sudah di-refund', 'warn');
+  const open = db.shifts.filter((s) => !s.closeAt && s.loc === o.loc).sort((a, b) => a.term.localeCompare(b.term));
+  const cards = o.pays.filter((p) => p.m === 'deposit' && p.card);
+  const methods = [...new Set(['cash', 'qris', 'card', 'transfer', ...(cards.length ? ['deposit'] : [])])];
+  openModal({
+    title: `Refund per item · ${o.no}`, size: 'md',
+    body: `<p class="banner warn sm">${ic('triangle-alert', 17)}<span>Bill tetap lunas dengan total bersih. Jumlah yang dikembalikan dihitung dari harga item setelah diskon dan pajak, dan jurnal penjualan dibalik sebagian. Refund tidak bisa dibatalkan.</span></p>
+      <div class="rf-list">${left.map(({ l, left: n }) => `<div class="rf-p"><span><b>${esc(l.n)}</b><small>sisa ${n}× · ${rp(l.p)}</small></span><input type="number" class="inp inp-sm" min="0" max="${n}" step="1" value="0" data-rq="${l.id}" aria-label="Jumlah refund ${esc(l.n)}" style="width:80px"></div>`).join('')}</div>
+      <label class="fld"><span>Dikembalikan lewat</span><select name="method">${methods.map((m) => `<option value="${m}">${esc(D.PAY[m]?.label || m)}</option>`).join('')}</select></label>
+      <label class="fld" data-wrap="deposit" hidden><span>Kartu deposit</span><select name="card">${cards.map((p) => `<option value="${esc(p.card)}">${esc(p.card)}</option>`).join('')}</select></label>
+      <label class="fld" data-wrap="cash"><span>Uang tunai diambil dari</span><select name="shift">
+          ${open.map((s, i) => `<option value="${s.id}" ${i === 0 ? 'selected' : ''}>Laci ${esc(s.term)} · ${esc(D.shiftName(db, s))}</option>`).join('')}
+          <option value="">Kas outlet, di luar laci kasir</option></select></label>
+      <label class="fld"><span>Alasan refund</span><textarea name="reason" rows="2" maxlength="300" placeholder="Contoh: porsi kurang, salah pesan, barang rusak" required></textarea></label>`,
+    footer: `<button class="btn" data-close>Batal</button><button class="btn btn-danger" data-ok>${ic('rotate-ccw', 16)} Refund item terpilih</button>`,
+    onMount(m, api) {
+      const sync = () => {
+        const method = m.querySelector('[name=method]').value;
+        m.querySelectorAll('[data-wrap]').forEach((w) => { w.hidden = w.dataset.wrap !== method; });
+      };
+      m.querySelector('[name=method]').addEventListener('change', sync); sync();
+      m.querySelector('[data-ok]').onclick = async (e) => {
+        const items = [];
+        for (const { l, left: n } of left) {
+          const q = Number(m.querySelector(`[data-rq="${l.id}"]`).value) || 0;
+          if (q < 0 || q > n || !Number.isInteger(q)) return toast(`Jumlah refund ${l.n} harus bilangan bulat 0 sampai ${n}`, 'warn');
+          if (q > 0) items.push({ line: l.id, qty: q });
+        }
+        if (!items.length) return toast('Pilih minimal satu item dan jumlahnya', 'warn');
+        const reason = m.querySelector('[name=reason]').value.trim();
+        if (!reason) return toast('Tulis alasan refund', 'warn');
+        const method = m.querySelector('[name=method]').value;
+        const card = method === 'deposit' ? m.querySelector('[name=card]').value : null;
+        const shift = method === 'cash' ? (m.querySelector('[name=shift]').value || null) : null;
+        e.currentTarget.disabled = true;
+        try {
+          const res = await API.orderRefundItems(o.id, items, reason, method, card, shift);
+          api.close();
+          toast(`Refund ${rp(res.amount)} dicatat untuk ${res.no}${res.cash ? (res.shift ? ' · tunai dari laci ' + (res.terminal || 'kasir') : ' · tunai dari kas outlet') : ''}`, 'ok', 6000);
+          C.refreshOrder(o.id).catch(() => {});
+          C.refresh('shifts').catch(() => {});
+          H.key = ''; reloadTrx(ctx);
+          openTrx(ctx, o.id);
+        } catch (err) { toast(err.message, 'err', 6000); e.currentTarget.disabled = false; }
+      };
+    },
+  });
+}

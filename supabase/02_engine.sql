@@ -625,6 +625,8 @@ begin
   select count(*), coalesce(sum(total), 0),
          coalesce(sum((select coalesce(sum((x->>'a')::numeric), 0) from jsonb_array_elements(coalesce(refund_pays, '[]'::jsonb)) x where x->>'m' = 'cash')), 0)
     into v_rn, v_rtot, v_rcash from orders where refund_shift = p_shift and status = 'refund';
+  -- 2.21: refund sebagian per item yang tunainya diambil dari laci shift ini
+  select v_rcash + coalesce(sum(amount), 0) into v_rcash from order_refunds where shift_id = p_shift and method = 'cash';
   select count(*), coalesce(sum(total), 0) into v_rlater, v_rlater_tot from orders where shift_id = p_shift and status = 'refund';
   return jsonb_build_object('count', v_count, 'total', v_total, 'disc', v_disc, 'by', v_by, 'top_cash', v_top, 'refund_cash', v_ref,
                             'refunds', v_rn, 'refund_total', v_rtot, 'refund_bill_cash', v_rcash, 'refunded_later', v_rlater, 'refunded_later_total', v_rlater_tot,

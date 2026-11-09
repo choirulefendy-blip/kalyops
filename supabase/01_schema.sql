@@ -673,6 +673,26 @@ create table if not exists public.order_payments (
 );
 create index if not exists order_payments_order_idx on public.order_payments (order_id);
 
+-- 2.21 · Refund per item: satu baris per item yang di-refund (satu batch = satu kali refund)
+create table if not exists public.order_refunds (
+  id          bigint generated always as identity primary key,
+  batch       text not null,
+  order_id    text not null references public.orders(id) on delete cascade,
+  location_id text not null references public.locations(id),
+  line_id     text references public.order_lines(id) on delete set null,
+  item_name   text not null default '',
+  qty         numeric(10,2) not null check (qty > 0),
+  amount      numeric(14,0) not null check (amount > 0),
+  method      text not null check (method in ('cash', 'qris', 'card', 'transfer', 'deposit')),
+  card_id     text references public.deposit_cards(id),
+  shift_id    text references public.shifts(id),
+  reason      text not null default '',
+  created_at  timestamptz not null default now(),
+  created_by  text references public.staff(id)
+);
+create index if not exists order_refunds_order_idx on public.order_refunds (order_id);
+create index if not exists order_refunds_shift_idx on public.order_refunds (shift_id);
+
 create table if not exists public.order_notices (
   id       bigint generated always as identity primary key,
   at       timestamptz not null default now(),

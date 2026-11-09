@@ -271,7 +271,7 @@ begin
     'menu_categories', 'menus', 'menu_outlets', 'menu_bom', 'menu_package_items', 'stock', 'stock_moves', 'productions', 'tiers', 'missions', 'members',
     'member_missions', 'point_tx', 'promos', 'campaigns', 'vouchers', 'discounts', 'deposit_cards', 'deposit_tx', 'suppliers', 'supplier_prices', 'item_suppliers',
     'purchase_orders', 'purchase_order_lines', 'transfers', 'transfer_lines', 'opnames', 'opname_lines', 'b2b_invoices', 'b2b_lines', 'shifts', 'counters',
-    'reservations', 'orders', 'order_lines', 'order_payments', 'order_notices', 'journals', 'journal_lines', 'fraud_flags'] loop
+    'reservations', 'orders', 'order_lines', 'order_payments', 'order_refunds', 'order_notices', 'journals', 'journal_lines', 'fraud_flags'] loop
     execute format('alter table public.%I enable row level security', t);
   end loop;
 end $$;
@@ -354,6 +354,7 @@ begin
   perform engine.policy('orders', 'baca', 'select', staff_all || ' and public.can_loc(location_id)');
   perform engine.policy('orders', 'buat', 'insert', null, front || ' and public.can_loc(location_id)');
   perform engine.policy('orders', 'ubah', 'update', front || ' and public.can_loc(location_id)');
+  perform engine.policy('order_refunds', 'staf baca', 'select', staff_all || ' and public.can_loc(location_id)');
   perform engine.policy('order_lines', 'baca', 'select', staff_all || ' and public.can_order(order_id)');
   perform engine.policy('order_lines', 'tambah', 'insert', null, front || ' and public.can_order(order_id)');
   perform engine.policy('order_lines', 'ubah draft', 'update', front || ' and public.can_order(order_id)');
@@ -439,7 +440,7 @@ begin
     'menu_categories', 'menus', 'menu_outlets', 'menu_bom', 'menu_package_items', 'stock', 'stock_moves', 'productions', 'tiers', 'missions', 'members',
     'member_missions', 'point_tx', 'promos', 'campaigns', 'vouchers', 'discounts', 'deposit_cards', 'deposit_tx', 'suppliers', 'supplier_prices', 'item_suppliers',
     'purchase_orders', 'purchase_order_lines', 'transfers', 'transfer_lines', 'opnames', 'opname_lines', 'b2b_invoices', 'b2b_lines', 'shifts',
-    'reservations', 'orders', 'order_lines', 'order_payments', 'order_notices', 'journals', 'journal_lines', 'fraud_flags'] loop
+    'reservations', 'orders', 'order_lines', 'order_payments', 'order_refunds', 'order_notices', 'journals', 'journal_lines', 'fraud_flags'] loop
     execute format('drop trigger if exists sync_log on public.%I', t);
     execute format('create trigger sync_log after insert or update or delete on public.%I for each statement execute function engine.tg_sync_log()', t);
   end loop;
@@ -954,7 +955,7 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['orders', 'order_lines', 'order_payments', 'shifts', 'deposit_cards', 'deposit_tx', 'reservations', 'members',
+  foreach t in array array['orders', 'order_lines', 'order_payments', 'order_refunds', 'shifts', 'deposit_cards', 'deposit_tx', 'reservations', 'members',
     'menus', 'menu_categories', 'menu_outlets', 'menu_bom', 'menu_package_items', 'items', 'item_bom', 'promos', 'vouchers', 'discounts', 'campaigns', 'tiers', 'missions',
     'settings', 'staff', 'crew', 'print_stations', 'dining_tables', 'areas', 'locations', 'purchase_orders', 'purchase_order_lines', 'transfers', 'transfer_lines',
     'opnames', 'opname_lines', 'productions', 'b2b_invoices', 'suppliers', 'supplier_prices', 'fraud_flags'] loop
@@ -982,8 +983,8 @@ grant execute on function public.push_api(text, text, jsonb) to anon, authentica
 -- ---------------------------------------------------------------------
 -- 2.13 · Aktivitas transaksi & refund
 -- ---------------------------------------------------------------------
-revoke execute on function public.trx_list(text, date, date, text, text, text, text, int, timestamptz), public.order_refund(text, text, text) from public, anon;
-grant execute on function public.trx_list(text, date, date, text, text, text, text, int, timestamptz), public.order_refund(text, text, text) to authenticated;
+revoke execute on function public.trx_list(text, date, date, text, text, text, text, int, timestamptz), public.order_refund(text, text, text), public.order_refund_items(text, jsonb, text, text, text, text) from public, anon;
+grant execute on function public.trx_list(text, date, date, text, text, text, text, int, timestamptz), public.order_refund(text, text, text), public.order_refund_items(text, jsonb, text, text, text, text) to authenticated;
 
 -- 2.15 · Pengaturan printer dari akun kasir
 revoke execute on function public.print_route_save(text, jsonb), public.print_copies_save(text, jsonb), public.receipt_save(jsonb) from public, anon;

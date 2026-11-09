@@ -137,6 +137,7 @@ export function mapOrder(r) {
     mem: r.member_id, res: r.reservation_id, status: r.status, created: T(r.created_at), sched: T(r.scheduled_at), released: r.released,
     delivFee: N(r.delivery_fee), dlv: r.delivery_status, disc: r.discount || {}, bill: r.bill || null, total: NN(r.total),
     paidAt: T(r.paid_at), paidBy: r.paid_by, shift: r.shift_id, change: N(r.change_amount), tendered: N(r.tendered), earned: N(r.earned_points),
+    refunds: (r.order_refunds || []).map((x) => ({ line: x.line_id, name: x.item_name, qty: N(x.qty), amt: N(x.amount), m: x.method, card: x.card_id || null, shift: x.shift_id || null, at: T(x.created_at), by: x.created_by, batch: x.batch, reason: x.reason || '' })),
     readyAt: T(r.ready_at), pickedAt: T(r.picked_at), voidReason: r.void_reason, voidBy: r.void_by, voidAt: T(r.void_at),
     splitFrom: r.split_from, mergedInto: r.merged_into, token: r.public_token, payPending: !!r.payment_pending, prints: N(r.prints),
     ks: r.kitchen_state, updated: T(r.updated_at), bizDay: r.biz_day, note: r.note || '',
@@ -189,7 +190,7 @@ const DAY = 86400000;
 const WINDOW = { owner: 35, kasir: 8, service: 8, dapur: 8, gudang: 3 };
 let orderDays = 2, ordersSince = null, membersSince = null;
 const orderMap = new Map();
-const ORDER_SEL = '*, order_lines(*), order_payments(method, amount, card_id)';
+const ORDER_SEL = '*, order_lines(*), order_payments(method, amount, card_id), order_refunds(*)';
 
 function putOrders(rows, replaceAll = false) {
   if (replaceAll) orderMap.clear();

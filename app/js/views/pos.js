@@ -899,6 +899,7 @@ export function receiptHtml(db, o, cfg) {
     <div class="rl"><span>Subtotal</span><span>${rp(b.sub)}</span></div>${b.discs.map((d) => `<div class="rl"><span>${esc(d.label)}</span><span>-${rp(d.amt)}</span></div>`).join('')}
     <div class="rl"><span>PB1</span><span>${rp(b.tax)}</span></div>${b.deliv ? `<div class="rl"><span>Ongkir</span><span>${rp(b.deliv)}</span></div>` : ''}<div class="rl big"><span>Total</span><span>${rp(b.total)}</span></div>
     ${settled ? o.pays.map((p) => `<div class="rl"><span>${D.PAY[p.m].label}${p.card ? ' ' + p.card : ''}</span><span>${rp(p.a + (p.m === 'cash' ? o.change || 0 : 0))}</span></div>`).join('') + (o.change ? `<div class="rl"><span>Kembalian</span><span>${rp(o.change)}</span></div>` : '') : o.status === 'void' ? '' : '<p><b>TAGIHAN SEMENTARA</b></p>' + (qr ? `<img class="rc-qris" src="${qr}" alt="QRIS"><p>Scan QRIS untuk membayar</p>` : '')}
+    ${(o.refunds || []).length ? `<hr><p><b>REFUND SEBAGIAN</b></p>${[...new Map(o.refunds.map((x) => [x.batch, x])).values()].map((x) => `<div class="rl"><span>${esc(o.refunds.filter((y) => y.batch === x.batch).map((y) => y.qty + '× ' + y.name).join(', '))}</span><span>-${rp(o.refunds.filter((y) => y.batch === x.batch).reduce((a, y) => a + y.amt, 0))}</span></div>`).join('')}` : ''}
     ${R.member && m ? `<hr><p>Member ${esc(m.name)}${o.earned ? `<br>+${o.earned} poin, total ${num(m.points)} poin` : ''}</p>` : ''}
     ${R.footer ? `<hr><p>${rcLines(R.footer)}</p>` : ''}</div>`;
 }
