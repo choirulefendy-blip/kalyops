@@ -28,7 +28,7 @@ export async function createOrder(o) {
 export const insertLine = (orderId, ln) => run(sb().from('order_lines').insert({ id: ln.id, order_id: orderId, menu_id: ln.m, qty: ln.q, note: ln.note || '' }));
 export const setLineQty = (lineId, q) => (q > 0 ? run(sb().from('order_lines').update({ qty: q }).eq('id', lineId)) : run(sb().from('order_lines').delete().eq('id', lineId)));
 export const setLineNote = (lineId, note) => run(sb().from('order_lines').update({ note }).eq('id', lineId));
-const ORDER_COLS = { type: 'type', table: 'table_id', merged: 'merged_tables', custName: 'customer_name', custPhone: 'customer_phone', dlv: 'delivery_status' };
+const ORDER_COLS = { type: 'type', table: 'table_id', merged: 'merged_tables', custName: 'customer_name', custPhone: 'customer_phone', dlv: 'delivery_status', note: 'note' };
 export function updateOrder(id, patch) {
   const row = {};
   for (const [k, v] of Object.entries(patch)) if (ORDER_COLS[k]) row[ORDER_COLS[k]] = v;

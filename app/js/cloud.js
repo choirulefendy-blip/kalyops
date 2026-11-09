@@ -81,10 +81,14 @@ export function mapSettings(r) {
   return s;
 }
 // Tampilan nota (Pengaturan › Cetak nota › Atur tampilan nota)
-export const RECEIPT_DEFAULT = { logo: true, name: '', header: '', outlet: true, cashier: true, member: true, footer: 'Terima kasih sudah mampir.\nSampai jumpa di tengah sawah.', paper: 58, font: 'normal', qris: false };
+export const RECEIPT_DEFAULT = { logo: true, name: '', header: '', contacts: [], outlet: true, cashier: true, member: true, footer: 'Terima kasih sudah mampir.\nSampai jumpa di tengah sawah.', paper: 58, font: 'normal', qris: false };
+// Ikon kontak yang didukung nota (file assets/ic-ct-<kode>.svg)
+export const CONTACT_ICONS = { ig: 'Instagram', wa: 'WhatsApp', web: 'Website', tiktok: 'TikTok', fb: 'Facebook', phone: 'Telepon', mail: 'Email', map: 'Lokasi' };
 export function receiptCfg(v) {
   const o = v && typeof v === 'object' ? v : {}, d = { ...RECEIPT_DEFAULT };
-  for (const k of Object.keys(d)) if (o[k] !== undefined && o[k] !== null && typeof o[k] === typeof d[k]) d[k] = typeof d[k] === 'string' ? String(o[k]).slice(0, 400) : o[k];
+  for (const k of Object.keys(d)) if (k !== 'contacts' && o[k] !== undefined && o[k] !== null && typeof o[k] === typeof d[k]) d[k] = typeof d[k] === 'string' ? String(o[k]).slice(0, 400) : o[k];
+  d.contacts = (Array.isArray(o.contacts) ? o.contacts : []).filter((c) => c && CONTACT_ICONS[c.k] && String(c.v || '').trim())
+    .slice(0, 6).map((c) => ({ k: c.k, v: String(c.v).trim().slice(0, 60) }));
   if (![58, 80].includes(d.paper)) d.paper = 58;
   if (!['kecil', 'normal', 'besar'].includes(d.font)) d.font = 'normal';
   return d;
@@ -135,7 +139,7 @@ export function mapOrder(r) {
     paidAt: T(r.paid_at), paidBy: r.paid_by, shift: r.shift_id, change: N(r.change_amount), tendered: N(r.tendered), earned: N(r.earned_points),
     readyAt: T(r.ready_at), pickedAt: T(r.picked_at), voidReason: r.void_reason, voidBy: r.void_by, voidAt: T(r.void_at),
     splitFrom: r.split_from, mergedInto: r.merged_into, token: r.public_token, payPending: !!r.payment_pending, prints: N(r.prints),
-    ks: r.kitchen_state, updated: T(r.updated_at), bizDay: r.biz_day,
+    ks: r.kitchen_state, updated: T(r.updated_at), bizDay: r.biz_day, note: r.note || '',
     ...(r.refund_at ? { refundAt: T(r.refund_at), refundBy: r.refund_by, refundReason: r.refund_reason || '', refundShift: r.refund_shift || null, refundPays: (r.refund_pays || []).map((p) => ({ m: p.m, a: N(p.a), ...(p.card ? { card: p.card } : {}) })) } : {}),
     lines: (r.order_lines || []).map(mapLine).sort(by('sort')),
     pays: (r.order_payments || []).map((p) => ({ m: p.method, a: N(p.amount), ...(p.card_id ? { card: p.card_id } : {}) })),

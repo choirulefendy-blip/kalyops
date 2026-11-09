@@ -25,17 +25,22 @@ function sample(db, L, paid) {
   return paid ? o : { ...o, status: 'open', paidAt: null, pays: [], change: 0 };
 }
 
+const CT_PLACEHOLDER = { ig: '@namaakun', wa: '0812-0000-0000', web: 'www.kaly.id', tiktok: '@namaakun', fb: 'nama halaman', phone: '0812-0000-0000', mail: 'halo@kaly.id', map: 'Jl. Raya Kalibrantas' };
+
 export function openReceiptEditor(ctx) {
   const db0 = getDb();
   let R = { ...(db0.settings.receipt || C.receiptCfg({})) }, view = 'paid';
+  R.contacts = (R.contacts || []).map((c) => ({ ...c }));
   const hasQris = !!qrisUrl(db0.settings);
   const sw = (k, label) => `<label class="switch"><input type="checkbox" data-rk="${k}" ${R[k] ? 'checked' : ''}><span>${label}</span></label>`;
+  const ctRows = () => R.contacts.map((c, i) => `<div class="rce-ct-row"><select class="inp" data-ct-k="${i}" aria-label="Jenis kontak">${Object.entries(C.CONTACT_ICONS).map(([k, l]) => `<option value="${k}" ${c.k === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select><input class="inp" data-ct-v="${i}" value="${esc(c.v)}" maxlength="60" placeholder="${esc(CT_PLACEHOLDER[c.k] || '')}" aria-label="Isi kontak"><button type="button" class="btn-icon sm" data-ct-del="${i}" aria-label="Hapus kontak">${ic('x', 15)}</button></div>`).join('');
   const body = `<div class="rce">
     <div class="rce-form">
       ${sw('logo', 'Tampilkan logo kaly')}
       <label class="fld"><span>Nama usaha</span><input class="inp" data-rk="name" value="${esc(R.name)}" placeholder="${esc(db0.settings.brand.name)}" maxlength="60"></label>
       ${sw('outlet', 'Tampilkan nama outlet')}
-      <label class="fld"><span>Baris di bawah nama (alamat, WhatsApp, Instagram, NPWP)</span><textarea class="inp" data-rk="header" rows="3" maxlength="300" placeholder="Jl. Raya Kalibrantas, Malang&#10;WA 0812-0000-0000 · IG @kaly.eatery">${esc(R.header)}</textarea></label>
+      <label class="fld"><span>Baris di bawah nama (alamat, NPWP, dll.)</span><textarea class="inp" data-rk="header" rows="3" maxlength="300" placeholder="Jl. Raya Kalibrantas, Malang&#10;NPWP 00.000.000.0-000.000">${esc(R.header)}</textarea></label>
+      <div class="fld"><span>Kontak & ikon (tampil di bawah nama usaha, maks. 6)</span><div id="rce-ct" class="rce-ct">${ctRows()}</div><button type="button" class="btn btn-sm" data-ct-add>${ic('plus', 14)} Tambah kontak</button></div>
       ${sw('cashier', 'Tampilkan nama kasir')}
       ${sw('member', 'Tampilkan nama member & poin')}
       ${sw('qris', `Tagihan sementara memuat gambar QRIS toko${hasQris ? '' : ' (unggah QRIS dulu di Kaly Order › Pengaturan)'}`)}
@@ -56,19 +61,21 @@ export function openReceiptEditor(ctx) {
         return receiptHtml(db, sample(db, ctx.outlet, view === 'paid'), R);
       };
       const draw = () => { out.innerHTML = html(); };
-      const fill = () => { m.querySelectorAll('[data-rk]').forEach((el) => { const k = el.dataset.rk; if (el.type === 'checkbox') el.checked = !!R[k]; else el.value = String(R[k]); }); m.querySelectorAll('[data-font]').forEach((b) => b.classList.toggle('on', b.dataset.font === R.font)); };
+      const fill = () => { m.querySelectorAll('[data-rk]').forEach((el) => { const k = el.dataset.rk; if (el.type === 'checkbox') el.checked = !!R[k]; else el.value = String(R[k]); }); m.querySelectorAll('[data-font]').forEach((b) => b.classList.toggle('on', b.dataset.font === R.font)); m.querySelector('#rce-ct').innerHTML = ctRows(); };
       draw();
-      m.addEventListener('input', (e) => { const k = e.target.dataset.rk; if (!k) return; R[k] = e.target.type === 'checkbox' ? e.target.checked : k === 'paper' ? Number(e.target.value) : e.target.value; draw(); });
-      m.addEventListener('change', (e) => { const k = e.target.dataset.rk; if (!k) return; R[k] = e.target.type === 'checkbox' ? e.target.checked : k === 'paper' ? Number(e.target.value) : e.target.value; draw(); });
+      m.addEventListener('input', (e) => { if (e.target.dataset.ctV !== undefined) { const c = R.contacts[+e.target.dataset.ctV]; if (c) { c.v = e.target.value; draw(); } return; } const k = e.target.dataset.rk; if (!k) return; R[k] = e.target.type === 'checkbox' ? e.target.checked : k === 'paper' ? Number(e.target.value) : e.target.value; draw(); });
+      m.addEventListener('change', (e) => { if (e.target.dataset.ctK !== undefined) { const c = R.contacts[+e.target.dataset.ctK]; if (c) { c.k = e.target.value; m.querySelector('#rce-ct').innerHTML = ctRows(); draw(); } return; } const k = e.target.dataset.rk; if (!k) return; R[k] = e.target.type === 'checkbox' ? e.target.checked : k === 'paper' ? Number(e.target.value) : e.target.value; draw(); });
       m.addEventListener('click', async (e) => {
         const f = e.target.closest('[data-font]'); if (f) { R.font = f.dataset.font; m.querySelectorAll('[data-font]').forEach((b) => b.classList.toggle('on', b === f)); draw(); return; }
+        if (e.target.closest('[data-ct-add]')) { if (R.contacts.length < 6) { R.contacts.push({ k: 'ig', v: '' }); fill(); draw(); } else toast('Maksimal 6 kontak', 'warn'); return; }
+        const cd = e.target.closest('[data-ct-del]'); if (cd) { R.contacts.splice(+cd.dataset.ctDel, 1); fill(); draw(); return; }
         const v = e.target.closest('[data-view]'); if (v) { view = v.dataset.view; m.querySelectorAll('[data-view]').forEach((b) => b.classList.toggle('on', b === v)); draw(); return; }
         if (e.target.closest('[data-test]')) { doPrint(`<div class="slip">${html()}</div>`); return; }
-        if (e.target.closest('[data-reset]')) { if (await confirmBox('Kembalikan tampilan bawaan?', 'Isian di jendela ini diganti tampilan bawaan. Tekan Simpan tampilan untuk memakainya.', 'Kembalikan')) { R = { ...C.RECEIPT_DEFAULT }; fill(); draw(); } }
+        if (e.target.closest('[data-reset]')) { if (await confirmBox('Kembalikan tampilan bawaan?', 'Isian di jendela ini diganti tampilan bawaan. Tekan Simpan tampilan untuk memakainya.', 'Kembalikan')) { R = { ...C.RECEIPT_DEFAULT, contacts: [] }; fill(); draw(); } }
       });
       m.querySelector('[data-ok]').onclick = async () => {
         const btn = m.querySelector('[data-ok]'); btn.disabled = true;
-        try { await API.receiptSave(C.receiptCfg({ ...R, name: R.name.trim(), header: R.header.trim(), footer: R.footer.trim() })); await C.refresh('settings'); }
+        try { await API.receiptSave(C.receiptCfg({ ...R, name: R.name.trim(), header: R.header.trim(), footer: R.footer.trim(), contacts: R.contacts.filter((c) => c.v.trim()) })); await C.refresh('settings'); }
         catch (err) { btn.disabled = false; return toast(err.message, 'err', 6000); }
         api.close(); toast('Tampilan nota disimpan. Berlaku untuk cetakan berikutnya di semua kasir.'); rerender();
       };

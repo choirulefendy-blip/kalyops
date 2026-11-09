@@ -587,6 +587,7 @@ create table if not exists public.orders (
   location_id    text not null references public.locations(id),
   channel        text not null default 'pos' check (channel in ('pos', 'qr', 'web')),
   type           text not null default 'dine' check (type in ('dine', 'take', 'deliv')),
+  note           text not null default '' check (length(note) <= 300),
   table_id       text references public.dining_tables(id) on update cascade,
   merged_tables  text[] not null default '{}',
   status         text not null default 'open' check (status in ('open', 'paid', 'void', 'refund')),

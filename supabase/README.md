@@ -163,6 +163,10 @@ Tabel baru `table_events` mencatat **pindah meja, kosongkan meja** (manual oleh 
 
 Warna grafik memakai turunan warna brand KALY dan sudah diuji dengan validator buta warna (pasangan bersebelahan aman untuk protanopia/deuteranopia). Hijau olive dan oranye brand tidak pernah dipakai berdampingan; naik/turun memakai pasangan teal ↔ oranye.
 
+## Baru di 2.20: kontak & ikon di nota, catatan umum pesanan
+- Jalankan `kaly-ops-update-2.20.sql` setelah SQL 2.19 (atau fresh install memakai SQL 2.20 terbaru).
+- Isi: kolom `orders.note` (catatan umum pesanan, tampil di slip Bar & Dapur) dan `receipt_save` yang menyimpan `contacts` (ikon IG, WA, web, dst.).
+
 ## Baru di 2.19: template diskon, laporan transaksi, pemberitahuan APK
 
 - **Template diskon** (tabel `discounts`): Owner/Manajer menyiapkan di Kaly Backoffice › Member & promo › Diskon kasir. Kasir hanya memilih dari daftar (`discount_apply`), tanpa kolom angka bebas. `apply_manual_discount` kini khusus Owner. Template bisa dibatasi per outlet, berlaku sampai tanggal tertentu, dan bisa mewajibkan alasan atau PIN manajer.

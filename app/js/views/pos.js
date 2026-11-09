@@ -280,6 +280,7 @@ function billPanel(ctx) {
       <input class="inp inp-sm" id="pos-cust" data-a-change="cust" placeholder="Nama pelanggan" value="${esc(o.cust?.name || '')}">
       ${m ? `<button class="mem-chip" data-a="member">${ic('award', 15)} ${esc(m.name)} <span class="badge b-gold">${esc(t.name)}</span> ${num(m.points)} poin</button><button class="btn-icon sm" data-a="unlinkMember" aria-label="Lepas member">${ic('x', 15)}</button>` : `<button class="btn btn-sm" data-a="member">${ic('award', 15)} Member</button>`}
     </div>
+    ${o.status === 'open' ? `<input class="inp inp-sm bill-note" data-a-change="orderNote" maxlength="300" placeholder="Catatan pesanan (umum), mis. tanpa es, dibungkus" value="${esc(o.note || '')}" aria-label="Catatan pesanan umum">` : (o.note ? `<p class="res-note">Catatan: ${esc(o.note)}</p>` : '')}
     ${res ? `<p class="res-note">${ic('calendar-check', 15)} Reservasi ${esc(res.code)}: ${esc(res.name)}, ${res.pax} orang${res.note ? '. ' + esc(res.note) : ''}</p>` : ''}
     <div class="bill-lines" data-keep-scroll="bill">${top.map((l) => {
       const comps = o.lines.filter((c) => c.par === l.id);
@@ -569,6 +570,7 @@ export default {
       toast(l.s === 'draft' ? 'Item dihapus' : 'Item dibatalkan dan dicatat di laporan fraud', 'warn'); rerender();
     },
     cust(el) { const oid = ui.orderId, v = el.value.trim(); local((d) => { const o = D.order(d, oid); o.cust = { ...(o.cust || {}), name: v }; }); op(oid, () => API.updateOrder(oid, { custName: v })).catch(failToast); },
+    orderNote(el) { const oid = ui.orderId, v = el.value.trim(); local((d) => { const o = D.order(d, oid); if (o) o.note = v; }); op(oid, () => API.updateOrder(oid, { note: v })).catch(failToast); },
     async send(el, e, ctx) {
       el.disabled = true;
       try { await sendOrder(ctx, ui.orderId); } finally { el.disabled = false; rerender(); }
@@ -890,7 +892,7 @@ export function receiptHtml(db, o, cfg) {
   const qr = R.qris && o.status === 'open' ? qrisUrl(db.settings) : null;
   const settled = o.status === 'paid' || o.status === 'refund';
   return `<div ${rcAttr(R)}>
-    ${R.logo ? '<img class="logo" src="assets/kaly-logo-dark.svg" alt="kaly">' : ''}<p class="rc-name">${esc(R.name || db.settings.brand.name)}</p>${R.outlet ? `<p>${esc(D.loc(db, o.loc)?.name || '')}</p>` : ''}${R.header ? `<p class="rc-head">${rcLines(R.header)}</p>` : ''}
+    ${R.logo ? '<img class="logo" src="assets/kaly-logo-dark.svg" alt="kaly">' : ''}<p class="rc-name">${esc(R.name || db.settings.brand.name)}</p>${R.outlet ? `<p>${esc(D.loc(db, o.loc)?.name || '')}</p>` : ''}${R.header ? `<p class="rc-head">${rcLines(R.header)}</p>` : ''}${(R.contacts || []).length ? `<p class="rc-ct">${R.contacts.map((c) => `<span><img src="assets/ic-ct-${c.k}.svg" alt="">${esc(c.v)}</span>`).join('')}</p>` : ''}
     <p>${fmtDate(t)} ${fmtTime(t)}</p>
     <p>No. ${esc(o.no)} ${o.table ? 'Meja ' + esc([o.table, ...(o.merged || [])].join('+')) : esc(D.TYPE_LABEL[o.type])}${R.cashier ? `<br>Kasir: ${esc(D.cashierName(db, o))}` : ''}</p><hr>
     ${o.lines.filter((l) => !l.par && (l.s !== 'void' || (o.status === 'refund' && /^Refund:/.test(l.vr || '')))).map((l) => `<div class="rl"><span>${l.q}× ${esc(l.n)}</span><span>${rp(l.q * l.p)}</span></div>`).join('')}<hr>
@@ -927,7 +929,7 @@ export function kitchenSlipHtml(db, o, st, lines, { reprint = false, cfg } = {})
   return `<div class="receipt kslip rc-${R.font}" style="--paper:${R.paper}mm">
     <h3>${SLIP[st]}</h3><p class="ks-cat">${esc(catsOf(db, st))}</p>
     <p class="ks-where">${o.table ? 'Meja ' + esc([o.table, ...(o.merged || [])].join('+')) : esc(o.cust?.name || D.TYPE_LABEL[o.type])}</p>
-    <p>No. ${esc(o.no)} · ${fmtTime(t)}<br>Kasir: ${esc(D.cashierName(db, o, false))}${o.ch !== 'pos' ? ' · ' + D.CH_LABEL[o.ch] : ''}</p><hr>
+    <p>No. ${esc(o.no)} · ${fmtTime(t)}<br>Kasir: ${esc(D.cashierName(db, o, false))}${o.ch !== 'pos' ? ' · ' + D.CH_LABEL[o.ch] : ''}</p>${o.note ? `<p class="ks-gnote">CATATAN: ${esc(o.note)}</p>` : ''}<hr>
     ${lines.map((l) => `<div class="ks-l"><b>${num(l.q)}×</b><span>${esc(l.n)}${par(l) ? `<small>paket ${esc(par(l))}</small>` : ''}${l.note ? `<small class="ks-note">${esc(l.note)}</small>` : ''}</span></div>`).join('')}
     <hr><p>${lines.length} item${reprint ? '<br><b>CETAK ULANG</b>' : ''}</p></div>`;
 }

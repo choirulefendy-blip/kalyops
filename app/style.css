@@ -1555,3 +1555,13 @@ td.tx-pm { display: table-cell; }
 .ps-pick.on .ps-ic { background: var(--olive); color: #fff; }
 .ps-pick.on.error .ps-ic { background: var(--cabai); }
 .ps-pick.on.printing .ps-ic { background: #C9A23A; }
+
+/* 2.20 · kontak & ikon di nota, catatan umum pesanan */
+.receipt .rc-ct { display: flex; flex-wrap: wrap; justify-content: center; gap: 1px 8px; font-size: .9em; margin: 2px 0; }
+.receipt .rc-ct span { display: inline-flex; align-items: center; gap: 2px; }
+.receipt .rc-ct img { width: 3mm; height: 3mm; }
+.rce-ct { display: grid; gap: 4px; margin-bottom: 4px; }
+.rce-ct-row { display: grid; grid-template-columns: 120px 1fr auto; gap: 4px; align-items: center; }
+.rce-ct-row .inp, .rce-ct-row select { min-width: 0; }
+.bill-note { width: 100%; margin-top: 4px; }
+.kslip .ks-gnote { font-size: 1.15em; font-weight: 800; border: 1.5px solid #000; padding: 3px 4px; margin: 4px 0; text-align: left; }
