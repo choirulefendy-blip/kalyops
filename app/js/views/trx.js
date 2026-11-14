@@ -8,12 +8,13 @@ import * as C from '../cloud.js';
 import * as D from '../domain.js';
 import { esc, ic, rp, num, toast, openModal, fmtTime, fmtDate, fmtDT, dayKey, startOfDay, DAY, downloadCSV } from '../lib.js';
 import { rerender } from '../app.js';
-import { sendPrints } from '../printing.js';
+import { sendPrints, doPrint } from '../printing.js';
 
 const ST = { paid: ['Lunas', 'b-ok'], refund: ['Refund', 'b-err'], void: ['Batal', 'b-mute'] };
 const PAGE = 60;
 const S = { range: 'today', from: '', to: '', shift: null, shiftLabel: '', q: '', status: '', method: '', rows: [], sum: null, more: false, loading: false, key: '', err: '', min: null };
-const H = { days: 7, list: null, err: '', key: '', open: null, loading: false };
+const H = { days: 7, list: null, err: '', key: '', open: null, loading: false, items: {} };
+// H.items[shiftId] = { data: null|array, loading: bool, err: string }
 const V = { tab: 'trx' };
 
 const isOwner = (ctx) => ctx.user.role === 'owner';
@@ -73,6 +74,84 @@ function rowHtml(r) {
     <td class="r"><b class="${r.status === 'refund' ? 'strike' : ''}">${rp(r.total)}</b><br><small class="muted">${num(r.items)} item</small></td>
     <td><span class="badge ${sc}">${sl}</span>${r.prints > 1 ? `<br><small class="muted">dicetak ${r.prints}×</small>` : ''}</td></tr>`;
 }
+// ---------- Cetak laporan transaksi (kasir & owner) ----------
+function txRangeLabel(f) {
+  if (f.shift) return S.shiftLabel ? `Shift ${S.shiftLabel}` : 'Shift ini';
+  if (f.from === f.to) return fmtDate(Date.parse(f.from));
+  return `${fmtDate(Date.parse(f.from))} s/d ${fmtDate(Date.parse(f.to))}`;
+}
+function printTrxBillsHtml(bills, f, locName) {
+  const rangeLabel = txRangeLabel(f);
+  const paid = bills.filter((b) => b.status === 'paid');
+  const refunds = bills.filter((b) => b.status === 'refund');
+  const voids = bills.filter((b) => b.status === 'void');
+  const paidTotal = paid.reduce((s, b) => s + Number(b.total || 0), 0);
+  const refundTotal = refunds.reduce((s, b) => s + Number(b.total || 0), 0);
+  const byMethod = {};
+  for (const b of paid) for (const p of b.pays || []) byMethod[p.m] = (byMethod[p.m] || 0) + Number(p.a || 0);
+  const rows = bills.map((b) => {
+    const payLabel = (b.pays || []).map((p) => D.PAY[p.m]?.label || p.m).join(', ');
+    const loc2 = b.table ? `Meja ${b.table}` : D.TYPE_LABEL?.[b.type] || '';
+    return `<tr><td>${esc(b.no || '')}</td><td>${b.paid_at ? fmtTime(Date.parse(b.paid_at)) : ''}</td><td>${esc(loc2)}</td><td>${esc(b.cashier || '')}</td><td>${esc(payLabel)}</td><td class="r">${b.status === 'void' ? '—' : rp(b.total)}</td><td>${({ paid: 'OK', refund: 'REF', void: 'BTL' })[b.status] || b.status}</td></tr>`;
+  }).join('');
+  const methodRows = Object.entries(byMethod).map(([m, a]) => `<tr><td>${esc(D.PAY[m]?.label || m)}</td><td class="r">${rp(a)}</td></tr>`).join('');
+  const now = new Date();
+  const css = `*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Courier New',monospace;font-size:11px;width:72mm;padding:4mm;color:#000}h1{font-size:13px;text-align:center;font-weight:700;margin-bottom:2px}.sub{text-align:center;font-size:10px;margin-bottom:3px;color:#333}hr{border:none;border-top:1px dashed #000;margin:4px 0}table{width:100%;border-collapse:collapse}th{font-size:9.5px;text-align:left;padding:1px 2px;border-bottom:1px solid #000}td{padding:1px 2px;font-size:10px;vertical-align:top;word-break:break-word}.r{text-align:right;white-space:nowrap}.tot td{font-weight:700;border-top:1px solid #000;padding-top:3px}.foot{text-align:center;font-size:9px;margin-top:6px;color:#555}@media print{body{padding:0}}`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Transaksi ${rangeLabel}</title><style>${css}</style></head><body>
+<h1>${esc(locName || 'Kaly')}</h1>
+<div class="sub">Daftar Transaksi</div>
+<div class="sub">${esc(rangeLabel)}</div>
+<div class="sub">Dicetak: ${fmtDate(now)} ${fmtTime(now)}</div>
+<hr>
+<table><thead><tr><th>Nota</th><th>Jam</th><th>Meja</th><th>Kasir</th><th>Bayar</th><th class="r">Total</th><th>Sts</th></tr></thead>
+<tbody>${rows}</tbody></table>
+<hr>
+<table><tbody>
+<tr class="tot"><td colspan="5">Lunas ${num(paid.length)} nota</td><td class="r">${rp(paidTotal)}</td><td></td></tr>
+${refunds.length ? `<tr><td colspan="5">Refund (${num(refunds.length)})</td><td class="r">-${rp(refundTotal)}</td><td></td></tr>` : ''}
+${voids.length ? `<tr><td colspan="6">Dibatalkan: ${num(voids.length)} nota</td><td></td></tr>` : ''}
+</tbody></table>
+${Object.keys(byMethod).length ? `<hr><div class="sub" style="text-align:left;font-weight:600">Metode pembayaran</div><table><tbody>${methodRows}</tbody></table>` : ''}
+<div class="foot">— Kaly POS —</div>
+<script>window.onload=()=>setTimeout(()=>window.print(),200);</script>
+</body></html>`;
+}
+function printTrxItemsHtml(items, f, locName) {
+  const rangeLabel = txRangeLabel(f);
+  const valid = items.filter((x) => x.status !== 'void' && x.line_status !== 'void');
+  const catMap = new Map();
+  for (const x of valid) {
+    const cat = x.category || '(Tanpa kategori)';
+    if (!catMap.has(cat)) catMap.set(cat, new Map());
+    const key = `${x.menu}|||${x.price}`;
+    const m = catMap.get(cat);
+    if (!m.has(key)) m.set(key, { name: x.menu, price: x.price, qty: 0, amount: 0 });
+    const e2 = m.get(key); e2.qty += Number(x.qty) || 0; e2.amount += Number(x.amount) || 0;
+  }
+  let grandQty = 0, grandAmt = 0, rows = '';
+  for (const [cat, menuMap] of catMap.entries()) {
+    rows += `<tr class="cat"><td colspan="3">${esc(cat)}</td></tr>`;
+    for (const item of menuMap.values()) {
+      grandQty += item.qty; grandAmt += item.amount;
+      rows += `<tr><td>${esc(item.name)}</td><td class="r">${num(item.qty)}</td><td class="r">${rp(item.amount)}</td></tr>`;
+    }
+  }
+  const now = new Date();
+  const css = `*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Courier New',monospace;font-size:11px;width:72mm;padding:4mm;color:#000}h1{font-size:13px;text-align:center;font-weight:700;margin-bottom:2px}.sub{text-align:center;font-size:10px;margin-bottom:3px;color:#333}hr{border:none;border-top:1px dashed #000;margin:4px 0}table{width:100%;border-collapse:collapse}th{font-size:9.5px;text-align:left;padding:1px 2px;border-bottom:1px solid #000}td{padding:1px 2px;font-size:10px;vertical-align:top}.r{text-align:right;white-space:nowrap}.cat td{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding-top:6px;padding-bottom:1px;color:#555}tfoot td{font-weight:700;border-top:1px solid #000;padding-top:3px}.foot{text-align:center;font-size:9px;margin-top:6px;color:#555}@media print{body{padding:0}}`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Rekap Item ${rangeLabel}</title><style>${css}</style></head><body>
+<h1>${esc(locName || 'Kaly')}</h1>
+<div class="sub">Rekap Penjualan per Item</div>
+<div class="sub">${esc(rangeLabel)}</div>
+<div class="sub">Dicetak: ${fmtDate(now)} ${fmtTime(now)}</div>
+<hr>
+<table><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Total</th></tr></thead>
+<tbody>${rows}</tbody>
+<tfoot><tr><td>TOTAL</td><td class="r">${num(grandQty)}</td><td class="r">${rp(grandAmt)}</td></tr></tfoot>
+</table>
+<div class="foot">— Kaly POS —</div>
+<script>window.onload=()=>setTimeout(()=>window.print(),200);</script>
+</body></html>`;
+}
 export function trxPanel(ctx) {
   const f = filterOf(ctx);
   if (S.key !== JSON.stringify(f) && !S.loading) setTimeout(() => load(ctxFresh(ctx)));
@@ -86,9 +165,11 @@ export function trxPanel(ctx) {
         <select class="inp inp-sm" data-a-change="txStatus" aria-label="Status">${[['', 'Semua status'], ['paid', 'Lunas'], ['refund', 'Refund'], ['void', 'Batal']].map(([k, l]) => `<option value="${k}" ${S.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
         <select class="inp inp-sm" data-a-change="txMethod" aria-label="Metode bayar"><option value="">Semua metode</option>${Object.entries(D.PAY).map(([k, p]) => `<option value="${k}" ${S.method === k ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select>
         <button class="btn btn-sm btn-ghost" data-a="txReload" title="Muat ulang">${ic('refresh-cw', 15)}</button>
+        <button class="btn btn-sm btn-ghost" data-a="txPrintBills" title="Cetak ringkasan semua transaksi">${ic('printer', 15)} Struk</button>
+        <button class="btn btn-sm btn-ghost" data-a="txPrintItems" title="Cetak rekap penjualan per item">${ic('printer', 15)} Rekap item</button>
         ${owner ? `<button class="btn btn-sm" data-a="txCsv" title="Unduh laporan per transaksi (CSV)">${ic('download', 15)} Unduh laporan</button>` : ''}
       </div></div>
-    ${!owner ? `<p class="muted sm tx-help">Ketuk transaksi untuk melihat rincian & struk, atau mencetak ulang nota. Refund hanya bisa dilakukan Owner/Manajer di Kaly Backoffice.</p>`
+    ${!owner ? `<p class="muted sm tx-help">Ketuk transaksi untuk melihat rincian & struk, atau mencetak ulang nota. Gunakan ${ic('printer', 13)} <b>Struk</b> untuk mencetak daftar transaksi, atau <b>Rekap item</b> untuk rekap penjualan per menu. Refund hanya bisa dilakukan Owner/Manajer di Kaly Backoffice.</p>`
       : `<p class="muted sm tx-help">${ic('download', 14)} <b>Unduh laporan</b> mengambil <i>semua</i> transaksi sesuai filter di atas (bukan hanya yang tampil), dalam dua file CSV: ringkasan per nota dan rincian item per nota. Keduanya bisa langsung dibuka di Excel.</p>`}
     ${S.err ? `<p class="banner warn sm">${esc(S.err)}</p>` : ''}
     ${sumStrip(ctx)}
@@ -206,6 +287,84 @@ async function refundDialog(ctx, o) {
 }
 
 // ---------- Riwayat shift ----------
+function loadShiftItems(shiftId) {
+  const s = H.items[shiftId] ||= { data: null, loading: false, err: '' };
+  if (s.loading || s.data) return;
+  s.loading = true;
+  API.shiftItemReport(shiftId).then((rows) => {
+    s.data = rows || []; s.err = '';
+  }).catch((e) => { s.err = e.message; s.data = s.data || []; }).finally(() => { s.loading = false; rerender(); });
+}
+
+// ---------- 2.22 · Cetak rekap closing ----------
+function printShiftHtml(r, items, db, locId) {
+  const loc = D.loc(db, locId || r.loc || r.location_id)?.name || '';
+  const cfg = db.settings?.receipt || {};
+  const name = cfg.name || loc || 'Kaly';
+  const by = Object.entries(r.by || {});
+  const v = r.variance == null ? null : Number(r.variance);
+  const tol = db.settings?.cashVarTol ?? 0;
+  const bad = v != null && Math.abs(v) > tol;
+  // Group items by category
+  const cats = new Map();
+  for (const x of items) { const k = x.category || ''; if (!cats.has(k)) cats.set(k, []); cats.get(k).push(x); }
+  const itemRows = [...cats.entries()].map(([cat, xs]) => {
+    const catHead = cat ? `<tr class="cat"><td colspan="4">${esc(cat)}</td></tr>` : '';
+    const rows = xs.map((x, i) => `<tr><td>${i + 1}</td><td>${esc(x.item_name)}</td><td class="r">${num(x.qty)}</td><td class="r">${rp(x.amount)}</td></tr>`).join('');
+    return catHead + rows;
+  }).join('');
+  const grandTotal = items.reduce((a, x) => a + Number(x.amount || 0), 0);
+  return `<!doctype html><html lang="id"><head><meta charset="utf-8">
+<title>Closing Shift · ${esc(r.terminal || '')}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:monospace;font-size:12px;width:72mm;padding:4mm 3mm;color:#000}
+  h1{font-size:14px;font-weight:bold;text-align:center;margin-bottom:2px}
+  .sub{text-align:center;font-size:11px;margin-bottom:6px}
+  hr{border:none;border-top:1px dashed #000;margin:5px 0}
+  table{width:100%;border-collapse:collapse}
+  td{padding:1px 2px;vertical-align:top}
+  td.r{text-align:right;white-space:nowrap}
+  .cat td{font-weight:bold;padding-top:5px;font-size:11px;text-transform:uppercase}
+  .kv td:first-child{width:50%;color:#444}
+  .kv td:last-child{text-align:right;font-weight:bold}
+  .total td{font-weight:bold;border-top:1px solid #000;padding-top:3px}
+  .warn{color:#c00;font-weight:bold}
+  .footer{text-align:center;font-size:10px;margin-top:6px}
+  @media print{@page{margin:0}}
+</style></head><body>
+<h1>${esc(name)}</h1>
+<div class="sub">Closing Shift · ${esc(r.terminal || '')}</div>
+<div class="sub">${esc(r.crew || '—')}</div>
+<hr>
+<table class="kv"><tbody>
+  <tr><td>Dibuka</td><td>${fmtDate(r.openAt)} ${fmtTime(r.openAt)}</td></tr>
+  ${r.closeAt ? `<tr><td>Ditutup</td><td>${fmtDate(r.closeAt)} ${fmtTime(r.closeAt)}</td></tr>` : '<tr><td>Status</td><td>Shift aktif</td></tr>'}
+  <tr><td>Modal awal</td><td>${rp(r.open_cash)}</td></tr>
+  <tr><td>Transaksi</td><td>${num(r.count)}</td></tr>
+  ${Number(r.disc) ? `<tr><td>Diskon</td><td>${rp(r.disc)}</td></tr>` : ''}
+</tbody></table>
+<hr>
+<table class="kv"><caption style="text-align:left;font-weight:bold;padding-bottom:2px">Pembayaran Masuk</caption><tbody>
+  ${by.map(([m, a]) => `<tr><td>${esc(D.PAY[m]?.label || m)}</td><td>${rp(a)}</td></tr>`).join('') || '<tr><td colspan="2">—</td></tr>'}
+  ${Number(r.refund_bill_cash) ? `<tr><td>Refund tunai keluar</td><td>-${rp(r.refund_bill_cash)}</td></tr>` : ''}
+</tbody></table>
+<hr>
+${items.length ? `<table><caption style="text-align:left;font-weight:bold;padding-bottom:2px">Rekap Item Terjual</caption>
+  <thead><tr><th style="width:16px">#</th><th>Menu</th><th class="r">Qty</th><th class="r">Total</th></tr></thead>
+  <tbody>${itemRows}</tbody>
+  <tfoot><tr class="total"><td></td><td>TOTAL</td><td class="r">${items.reduce((a, x) => a + Number(x.qty || 0), 0)}</td><td class="r">${rp(grandTotal)}</td></tr></tfoot>
+</table><hr>` : ''}
+<table class="kv"><tbody>
+  <tr><td>Kas seharusnya</td><td>${rp(r.expected)}</td></tr>
+  ${r.closeAt ? `<tr><td>Kas dihitung</td><td>${rp(r.counted)}</td></tr>
+  <tr class="${bad ? 'warn' : ''}"><td>Selisih</td><td>${rp(v || 0)}</td></tr>` : ''}
+</tbody></table>
+<div class="footer">${fmtDT(Date.now())}</div>
+<script>window.onload=()=>setTimeout(()=>{window.print();setTimeout(()=>window.close(),500)},200)</script>
+</body></html>`;
+}
+
 function loadShifts(ctx, force) {
   const key = ctx.outlet + '|' + H.days;
   if (!force && (H.key === key || H.loading)) return;
@@ -239,7 +398,13 @@ export function shiftHistoryPanel(ctx) {
         ${r.voids ? `<dt>Bill batal</dt><dd>${r.voids}</dd>` : ''}${r.no_sale ? `<dt>Buka laci tanpa transaksi</dt><dd>${r.no_sale}×</dd>` : ''}
         <dt>Kas seharusnya</dt><dd><b>${rp(r.expected)}</b></dd>
         ${r.closeAt ? `<dt>Kas dihitung</dt><dd>${rp(r.counted)}</dd><dt>Selisih</dt><dd class="${bad ? 'neg' : ''}"><b>${rp(v || 0)}</b></dd>` : ''}</dl>
-        <button class="btn btn-sm" data-a="shTrx" data-id="${r.id}" data-label="${esc(`${r.terminal} · ${r.crew || ''} · ${fmtDate(r.openAt)}`)}">${ic('list', 15)} Lihat transaksi shift ini</button></div>` : ''}</div>`;
+        <div class="row sb" style="margin-top:8px;flex-wrap:wrap;gap:6px">
+          <button class="btn btn-sm" data-a="shTrx" data-id="${r.id}" data-label="${esc(`${r.terminal} · ${r.crew || ''} · ${fmtDate(r.openAt)}`)}">${ic('list', 15)} Lihat transaksi</button>
+          <button class="btn btn-sm" data-a="shItem" data-id="${r.id}">${ic('package', 15)} ${H.items[r.id]?.data ? 'Tutup rekap item' : 'Rekap item'}</button>
+          <button class="btn btn-sm btn-ghost" data-a="shPrint" data-id="${r.id}">${ic('printer', 15)} Cetak closing</button>
+        </div>
+        ${(() => { const si = H.items[r.id]; if (!si) return ''; if (si.loading) return '<p class="muted sm" style="margin-top:8px">Memuat rekap item…</p>'; if (si.err) return `<p class="banner warn sm" style="margin-top:8px">${esc(si.err)}</p>`; if (!si.data) return ''; if (!si.data.length) return '<p class="muted sm" style="margin-top:8px">Belum ada item terjual.</p>'; const cats = new Map(); for (const x of si.data) { const k = x.category || ''; if (!cats.has(k)) cats.set(k, []); cats.get(k).push(x); } return `<div class="sh-items" style="margin-top:8px"><table class="sh-item-tbl"><thead><tr><th>Menu</th><th class="r">Qty</th><th class="r">Total</th></tr></thead><tbody>${[...cats.entries()].map(([cat, xs]) => (cat ? `<tr class="sh-cat"><td colspan="3">${esc(cat)}</td></tr>` : '') + xs.map((x) => `<tr><td>${esc(x.item_name)}</td><td class="r">${num(x.qty)}</td><td class="r">${rp(x.amount)}</td></tr>`).join('')).join('')}</tbody><tfoot><tr><td><b>Total</b></td><td class="r"><b>${si.data.reduce((a, x) => a + Number(x.qty || 0), 0)}</b></td><td class="r"><b>${rp(si.data.reduce((a, x) => a + Number(x.amount || 0), 0))}</b></td></tr></tfoot></table></div>`; })()}
+        </div>` : ''}</div>`;
   };
   return `<div class="sh-hist">
     <div class="row sb"><div class="chips">${[7, 14, 30, 45].map((d) => `<button class="chip ${H.days === d ? 'on' : ''}" data-a="shDays" data-v="${d}">${d} hari</button>`).join('')}</div>
@@ -307,14 +472,75 @@ export const actions = {
         };
       } });
   },
+  async txPrintBills(el, e, ctx) {
+    const t0 = el.innerHTML; el.disabled = true; el.innerHTML = 'Menyiapkan…';
+    try {
+      const f = filterOf(ctx);
+      const r = await API.trxExport(f);
+      const bills = r.bills || [];
+      if (!bills.length) return toast('Tidak ada transaksi untuk filter ini', 'warn');
+      const locName = D.loc(ctx.db, ctx.outlet)?.name || '';
+      const html = printTrxBillsHtml(bills, f, locName);
+      const w = window.open('', '_blank', 'width=420,height=700');
+      if (w) { w.document.write(html); w.document.close(); }
+      else toast('Pop-up diblokir browser. Izinkan pop-up untuk halaman ini.', 'warn', 6000);
+    } catch (err) { toast(err.message, 'err', 5000); }
+    finally { el.disabled = false; el.innerHTML = t0; }
+  },
+  async txPrintItems(el, e, ctx) {
+    const t0 = el.innerHTML; el.disabled = true; el.innerHTML = 'Menyiapkan…';
+    try {
+      const f = filterOf(ctx);
+      const r = await API.trxExport(f);
+      const items = r.items || [];
+      if (!items.length) return toast('Tidak ada item untuk filter ini', 'warn');
+      const locName = D.loc(ctx.db, ctx.outlet)?.name || '';
+      const html = printTrxItemsHtml(items, f, locName);
+      const w = window.open('', '_blank', 'width=420,height=700');
+      if (w) { w.document.write(html); w.document.close(); }
+      else toast('Pop-up diblokir browser. Izinkan pop-up untuk halaman ini.', 'warn', 6000);
+    } catch (err) { toast(err.message, 'err', 5000); }
+    finally { el.disabled = false; el.innerHTML = t0; }
+  },
   txReload(el, e, ctx) { load(ctx); },
   txMore(el, e, ctx) { load(ctx, true); },
   txShiftX(el, e, ctx) { S.shift = null; S.shiftLabel = ''; load(ctx); },
   txOpen(el, e, ctx) { openTrx(ctx, el.dataset.id); },
-  shTg(el) { H.open = H.open === el.dataset.id ? null : el.dataset.id; rerender(); },
+  shTg(el) {
+    const id = el.dataset.id;
+    H.open = H.open === id ? null : id;
+    // Auto-load items when expanding a closed shift
+    if (H.open === id) loadShiftItems(id);
+    rerender();
+  },
   shDays(el) { H.days = Number(el.dataset.v); H.open = null; rerender(); },
   shReload(el, e, ctx) { loadShifts(ctx, true); },
   shTrx(el) { showShift(el.dataset.id, el.dataset.label); rerender(); },
+  shItem(el) {
+    const id = el.dataset.id;
+    const si = H.items[id];
+    if (si?.data) { delete H.items[id]; rerender(); } else { loadShiftItems(id); rerender(); }
+  },
+  shPrint(el, e, ctx) {
+    const id = el.dataset.id;
+    const r = (H.list || []).find((x) => x.id === id);
+    if (!r) return toast('Data shift tidak ditemukan', 'warn');
+    const db = ctx.db;
+    const si = H.items[id];
+    const doOpen = (items) => {
+      const html = printShiftHtml(r, items, db, ctx.outlet);
+      const w = window.open('', '_blank', 'width=400,height=600');
+      if (w) { w.document.write(html); w.document.close(); }
+      else { toast('Pop-up diblokir browser. Izinkan pop-up untuk halaman ini.', 'warn', 6000); }
+    };
+    if (si?.data) { doOpen(si.data); return; }
+    // Load items then print
+    el.disabled = true;
+    API.shiftItemReport(id).then((rows) => {
+      H.items[id] = { data: rows || [], loading: false, err: '' };
+      doOpen(rows || []);
+    }).catch((e) => toast(e.message, 'err', 5000)).finally(() => { el.disabled = false; });
+  },
 };
 export function input(k, el, ctx) {
   if (k !== 'txQ') return false;
