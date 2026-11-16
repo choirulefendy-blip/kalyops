@@ -107,27 +107,40 @@ export function askPin(reason) {
     let done = false;
     openModal({
       title: 'Persetujuan manajer', size: 'sm',
-      body: `<p class="muted">${esc(reason)}</p><label class="fld"><span>PIN manajer</span><input name="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off" autofocus></label>`,
-      footer: `<button class="btn" data-close>Batal</button><button class="btn btn-pri" data-ok>Setujui</button>`,
+      body: `<p class="muted">${esc(reason)}</p>
+        <div class="pin-display" id="pin-dots"></div>
+        <div class="pin-pad">
+          ${[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map((k) => k === '' ? '<span></span>' : `<button class="pin-key${k === '⌫' ? ' pin-del' : ''}" data-pk="${k}">${k}</button>`).join('')}
+        </div>`,
+      footer: `<button class="btn" data-close>Batal</button><button class="btn btn-pri" data-ok disabled>Setujui</button>`,
       onClose: () => { if (!done) res(null); },
       onMount(el, api) {
+        let pin = '';
+        const dots = el.querySelector('#pin-dots');
+        const okBtn = el.querySelector('[data-ok]');
+        const render = () => {
+          dots.innerHTML = [0,1,2,3,4,5].map((i) => `<span class="pin-dot ${i < pin.length ? 'on' : ''}"></span>`).join('');
+          okBtn.disabled = pin.length < 4;
+        };
+        render();
+        el.querySelector('.pin-pad').addEventListener('click', (e) => {
+          const k = e.target.closest('[data-pk]')?.dataset?.pk;
+          if (!k) return;
+          if (k === '⌫') { pin = pin.slice(0, -1); render(); }
+          else if (pin.length < 6) { pin += k; render(); if (pin.length === 6) go(); }
+        });
         const go = async () => {
-          const v = el.querySelector('input').value.trim();
-          if (!v) return toast('Isi PIN manajer', 'warn');
-          const btn = el.querySelector('[data-ok]'); btn.disabled = true;
+          if (pin.length < 4) return toast('Isi PIN manajer (min. 4 angka)', 'warn');
+          if (okBtn.disabled) return;
+          okBtn.disabled = true;
           try {
             const { verifyPin } = await import('./api.js');
-            if (await verifyPin(v)) { done = true; api.close(); res(v); }
-            else toast('PIN salah', 'err');
+            if (await verifyPin(pin)) { done = true; api.close(); res(pin); }
+            else { toast('PIN salah', 'err'); pin = ''; render(); }
           } catch (e) { toast(e.message || 'PIN tidak bisa dicek', 'err'); }
-          finally { btn.disabled = false; }
+          finally { if (!done) okBtn.disabled = pin.length < 4; }
         };
-        el.querySelector('[data-ok]').onclick = go;
-        const inp = el.querySelector('input');
-        // Android virtual keyboard kadang kirim keydown dengan key='Unidentified';
-        // pakai keyup + keyCode sebagai fallback, dan auto-submit saat maxlength tercapai
-        inp.addEventListener('keyup', (e) => { if (e.key === 'Enter' || e.keyCode === 13) go(); });
-        inp.addEventListener('input', () => { if (inp.value.length >= 4 && inp.value.length === inp.maxLength) go(); });
+        okBtn.onclick = go;
       },
     });
   });
