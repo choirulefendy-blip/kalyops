@@ -858,7 +858,10 @@ function payModal(ctx) {
         if (e.target.dataset.rc !== undefined) rows[Number(e.target.dataset.rc)].card = e.target.value.trim().toUpperCase();
         if (e.target.id === 'tendered') { tendered = e.target.value; m.querySelector('.pay-sum').outerHTML = draw().match(/<div class="pay-sum[\s\S]*<\/div>$/)[0]; }
       });
+      let paying = false;
       m.querySelector('[data-ok]').onclick = async (ev) => {
+        if (paying) return;
+        paying = true;
         const btn = ev.currentTarget;
         const single = rows.length === 1 && rows[0].m === 'cash';
         const pays = rows.map((r) => ({ m: r.m, a: Number(r.a) || 0, ...(r.m === 'deposit' ? { card: r.card } : {}) }));
@@ -867,8 +870,8 @@ function payModal(ctx) {
         const before = stockSnap(getDb(), ctx.outlet);
         btn.disabled = true;
         let res;
-        try { res = await op(o.id, () => API.pay(o.id, pays, sh.id, tend)); } catch (e) { btn.disabled = false; return failToast(e); }
-        if (!res?.ok) { btn.disabled = false; return toast(res?.msg || 'Pembayaran gagal', 'err'); }
+        try { res = await op(o.id, () => API.pay(o.id, pays, sh.id, tend)); } catch (e) { paying = false; btn.disabled = false; return failToast(e); }
+        if (!res?.ok) { paying = false; btn.disabled = false; return toast(res?.msg || 'Pembayaran gagal', 'err'); }
         res.change = Number(res.change) || 0; res.earned = Number(res.earned) || 0;
         await Promise.all([C.refreshOrder(o.id), C.refresh('members', 'stock', 'loyalty', 'deposits', 'notices')]).catch(() => {});
         stockAlert(before, ctx.outlet);
