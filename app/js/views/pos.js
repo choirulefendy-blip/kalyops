@@ -870,7 +870,15 @@ function payModal(ctx) {
         const before = stockSnap(getDb(), ctx.outlet);
         btn.disabled = true;
         let res;
-        try { res = await op(o.id, () => API.pay(o.id, pays, sh.id, tend)); } catch (e) { paying = false; btn.disabled = false; return failToast(e); }
+        try { res = await op(o.id, () => API.pay(o.id, pays, sh.id, tend)); } catch (e) {
+          // Duplicate key: pembayaran mungkin sudah masuk tapi respons hilang — cek status order
+          if (/kode yang sama|duplicate/i.test(e.message)) {
+            await C.refreshOrder(o.id).catch(() => {});
+            const latest = D.order(getDb(), o.id);
+            if (latest?.status === 'paid') { res = { ok: true, change: 0, earned: 0 }; }
+            else { paying = false; btn.disabled = false; return failToast(e); }
+          } else { paying = false; btn.disabled = false; return failToast(e); }
+        }
         if (!res?.ok) { paying = false; btn.disabled = false; return toast(res?.msg || 'Pembayaran gagal', 'err'); }
         res.change = Number(res.change) || 0; res.earned = Number(res.earned) || 0;
         await Promise.all([C.refreshOrder(o.id), C.refresh('members', 'stock', 'loyalty', 'deposits', 'notices')]).catch(() => {});
