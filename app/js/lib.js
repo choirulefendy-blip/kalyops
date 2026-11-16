@@ -123,7 +123,11 @@ export function askPin(reason) {
           finally { btn.disabled = false; }
         };
         el.querySelector('[data-ok]').onclick = go;
-        el.querySelector('input').onkeydown = (e) => e.key === 'Enter' && go();
+        const inp = el.querySelector('input');
+        // Android virtual keyboard kadang kirim keydown dengan key='Unidentified';
+        // pakai keyup + keyCode sebagai fallback, dan auto-submit saat maxlength tercapai
+        inp.addEventListener('keyup', (e) => { if (e.key === 'Enter' || e.keyCode === 13) go(); });
+        inp.addEventListener('input', () => { if (inp.value.length >= 4 && inp.value.length === inp.maxLength) go(); });
       },
     });
   });
