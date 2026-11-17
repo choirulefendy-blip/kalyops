@@ -281,7 +281,7 @@ function billPanel(ctx) {
       ${m ? `<button class="mem-chip" data-a="member">${ic('award', 15)} ${esc(m.name)} <span class="badge b-gold">${esc(t.name)}</span> ${num(m.points)} poin</button><button class="btn-icon sm" data-a="unlinkMember" aria-label="Lepas member">${ic('x', 15)}</button>` : `<button class="btn btn-sm" data-a="member">${ic('award', 15)} Member</button>`}
     </div>
     ${o.status === 'open' ? `<input class="inp inp-sm bill-note" data-a-change="orderNote" maxlength="300" placeholder="Catatan pesanan (umum), mis. tanpa es, dibungkus" value="${esc(o.note || '')}" aria-label="Catatan pesanan umum">` : (o.note ? `<p class="res-note">Catatan: ${esc(o.note)}</p>` : '')}
-    ${res ? `<p class="res-note">${ic('calendar-check', 15)} Reservasi ${esc(res.code)}: ${esc(res.name)}, ${res.pax} orang${res.note ? '. ' + esc(res.note) : ''}</p>` : ''}
+    ${res ? `<p class="res-note">${ic('calendar-check', 15)} Reservasi ${esc(res.code)}: ${esc(res.name)}, ${res.pax} orang${res.note ? '. ' + esc(res.note) : ''}${res.dp > 0 ? `<br><span class="dp-badge">${ic('check-circle', 13)} DP sudah dibayar ${rp(res.dp)}</span>` : ''}</p>` : ''}
     <div class="bill-lines" data-keep-scroll="bill">${top.map((l) => {
       const comps = o.lines.filter((c) => c.par === l.id);
       const [sl, sc] = ST[l.s];
@@ -823,20 +823,29 @@ function payModal(ctx) {
   if (!sh) { ui.tab = 'shift'; rerender(); return toast('Buka shift dulu sebelum menerima pembayaran', 'warn'); }
   if (sh.user !== ctx.user.id && ctx.user.role !== 'owner') return toast(`Shift di ${ctx.terminal} milik ${D.userName(db, sh.user)}`, 'err');
   const b = D.bill(db, o);
-  let rows = [{ m: 'cash', a: b.total, card: '' }];
+  const resDP = (() => { const res = o.res ? db.reservations.find((x) => x.id === o.res) : null; return res?.dp > 0 ? res.dp : 0; })();
+  let rows = resDP > 0
+    ? [{ m: 'dp', a: resDP, card: '', fixed: true }, { m: 'cash', a: Math.max(0, b.total - resDP), card: '' }]
+    : [{ m: 'cash', a: b.total, card: '' }];
   let tendered = '';
   const draw = () => {
-    const paid = sum(rows, (r) => Number(r.a) || 0);
-    const single = rows.length === 1 && rows[0].m === 'cash';
-    const cashGiven = single && tendered ? Number(tendered) : paid;
-    const change = single ? Math.max(0, cashGiven - b.total) : Math.max(0, paid - b.total);
-    const short = Math.max(0, b.total - (single ? cashGiven : paid));
-    return `<div class="pay-total"><small>Total tagihan ${esc(o.no)}</small><b>${rp(b.total)}</b></div>
-      <div class="pay-methods">${Object.entries(D.PAY).map(([k, v]) => `<button class="pm ${rows.length === 1 && rows[0].m === k ? 'on' : ''}" data-pm="${k}">${ic(v.icon, 20)}<span>${v.label}</span></button>`).join('')}</div>
-      <div class="pay-rows">${rows.map((r, i) => `<div class="pay-row"><span class="badge b-mute">${D.PAY[r.m].label}</span><input class="inp" type="number" data-ra="${i}" value="${r.a}" aria-label="Jumlah ${D.PAY[r.m].label}">${r.m === 'deposit' ? `<input class="inp" data-rc="${i}" placeholder="No. kartu KD-0001" value="${esc(r.card)}">` : ''}${rows.length > 1 ? `<button class="btn-icon sm" data-rx="${i}" aria-label="Hapus">${ic('x', 15)}</button>` : ''}</div>`).join('')}</div>
-      <div class="row wrap"><button class="btn btn-sm" data-add-row>${ic('plus', 14)} Tambah metode</button><span class="split-eq"><button class="btn btn-sm" data-equal>${ic('split', 14)} Bagi rata untuk</button><input class="inp inp-xs" type="number" id="split-n" min="2" max="20" value="${rows.length > 1 ? rows.length : 2}" aria-label="Jumlah orang"><span class="muted sm">orang</span></span></div>
+    const paidTotal = sum(rows, (r) => Number(r.a) || 0);
+    const freePays = rows.filter((r) => !r.fixed);
+    const single = freePays.length === 1 && freePays[0].m === 'cash';
+    const cashGiven = single && tendered ? Number(tendered) : sum(rows.filter((r) => r.m === 'cash'), (r) => Number(r.a) || 0);
+    const change = single ? Math.max(0, cashGiven - (b.total - resDP)) : Math.max(0, paidTotal - b.total);
+    const short = Math.max(0, b.total - paidTotal);
+    const PAY_SEL = Object.entries(D.PAY).filter(([k]) => k !== 'dp');
+    return `${resDP > 0 ? `<div class="dp-notice">${ic('calendar-check', 15)} DP sudah dibayar <b>${rp(resDP)}</b> · Sisa tagihan <b>${rp(Math.max(0, b.total - resDP))}</b></div>` : ''}
+      <div class="pay-total"><small>Total tagihan ${esc(o.no)}</small><b>${rp(b.total)}</b></div>
+      <div class="pay-methods">${PAY_SEL.map(([k, v]) => `<button class="pm ${freePays.length === 1 && freePays[0].m === k ? 'on' : ''}" data-pm="${k}">${ic(v.icon, 20)}<span>${v.label}</span></button>`).join('')}</div>
+      <div class="pay-rows">${rows.map((r, i) => r.fixed
+        ? `<div class="pay-row pay-row-dp"><span class="badge b-ok">${D.PAY[r.m]?.label || 'DP'}</span><span class="dp-fixed">${rp(r.a)}</span></div>`
+        : `<div class="pay-row"><span class="badge b-mute">${D.PAY[r.m]?.label || r.m}</span><input class="inp" type="number" data-ra="${i}" value="${r.a}" aria-label="Jumlah ${D.PAY[r.m]?.label || r.m}">${r.m === 'deposit' ? `<input class="inp" data-rc="${i}" placeholder="No. kartu KD-0001" value="${esc(r.card)}">` : ''}${freePays.length > 1 ? `<button class="btn-icon sm" data-rx="${i}" aria-label="Hapus">${ic('x', 15)}</button>` : ''}</div>`
+      ).join('')}</div>
+      <div class="row wrap"><button class="btn btn-sm" data-add-row>${ic('plus', 14)} Tambah metode</button><span class="split-eq"><button class="btn btn-sm" data-equal>${ic('split', 14)} Bagi rata untuk</button><input class="inp inp-xs" type="number" id="split-n" min="2" max="20" value="${freePays.length > 1 ? freePays.length : 2}" aria-label="Jumlah orang"><span class="muted sm">orang</span></span></div>
       ${rows.some((r) => r.m === 'qris') ? `<div class="qris-box">${qrisUrl(db.settings) ? `<img class="qris-img" src="${qrisUrl(db.settings)}" alt="QRIS toko">` : ''}<p>${qrisUrl(db.settings) ? 'Minta pelanggan scan QRIS ini (juga tampil di layar pelanggan) dan membayar' : 'Minta pelanggan scan QRIS di meja kasir dan membayar'} <b>${rp(rows.find((r) => r.m === 'qris').a)}</b>. Tekan Bayar setelah notifikasi dana masuk terlihat.${qrisUrl(db.settings) ? '' : ' Gambar QRIS bisa diunggah di Kaly Order, tab Pengaturan.'}</p></div>` : ''}
-      ${single ? `<label class="fld"><span>Uang diterima</span><input class="inp" type="number" id="tendered" value="${esc(tendered)}" placeholder="${b.total}"></label><div class="chips">${[b.total, ...[50000, 100000, 150000, 200000, 500000].filter((v) => v > b.total)].slice(0, 5).map((v, i) => `<button class="chip" data-tend="${v}">${i === 0 ? 'Uang pas' : rp(v)}</button>`).join('')}</div>` : ''}
+      ${single ? `<label class="fld"><span>Uang diterima</span><input class="inp" type="number" id="tendered" value="${esc(tendered)}" placeholder="${Math.max(0, b.total - resDP)}"></label><div class="chips">${[Math.max(0, b.total - resDP), ...[50000, 100000, 150000, 200000, 500000].filter((v) => v > Math.max(0, b.total - resDP))].slice(0, 5).map((v, i) => `<button class="chip" data-tend="${v}">${i === 0 ? 'Uang pas' : rp(v)}</button>`).join('')}</div>` : ''}
       <div class="pay-sum ${short ? 'short' : ''}">${short ? `Kurang <b>${rp(short)}</b>` : `Kembalian <b>${rp(change)}</b>`}</div>`;
   };
   ui.paying = o.id;
@@ -847,9 +856,14 @@ function payModal(ctx) {
       const redraw = () => { const f = document.activeElement; const key = f?.dataset?.ra ?? f?.id; api.set(draw()); if (key !== undefined) { const el = key === 'tendered' ? m.querySelector('#tendered') : m.querySelector(`[data-ra="${key}"]`); if (el) { el.focus(); const v = el.value; el.value = ''; el.value = v; } } };
       m.addEventListener('click', (e) => {
         const pm = e.target.closest('[data-pm]');
-        if (pm) { if (rows.length === 1) rows = [{ m: pm.dataset.pm, a: b.total, card: '' }]; else rows[rows.length - 1].m = pm.dataset.pm; tendered = ''; return redraw(); }
+        if (pm) {
+          const freeIdx = rows.findIndex((r) => !r.fixed);
+          if (rows.filter((r) => !r.fixed).length === 1) rows[freeIdx].m = pm.dataset.pm;
+          else { const last = rows.filter((r) => !r.fixed); last[last.length - 1].m = pm.dataset.pm; }
+          tendered = ''; return redraw();
+        }
         if (e.target.closest('[data-add-row]')) { const rest = Math.max(0, b.total - sum(rows, (r) => Number(r.a) || 0)); rows.push({ m: 'qris', a: rest, card: '' }); return redraw(); }
-        if (e.target.closest('[data-equal]')) { const n = Math.min(20, Math.max(2, Number(m.querySelector('#split-n').value) || 2)); const each = Math.floor(b.total / n / 100) * 100; rows = Array.from({ length: n }, (_, i) => ({ m: 'cash', a: i === n - 1 ? b.total - each * (n - 1) : each, card: '' })); return redraw(); }
+        if (e.target.closest('[data-equal]')) { const n = Math.min(20, Math.max(2, Number(m.querySelector('#split-n').value) || 2)); const rem = Math.max(0, b.total - resDP); const each = Math.floor(rem / n / 100) * 100; const freeRows = Array.from({ length: n }, (_, i) => ({ m: 'cash', a: i === n - 1 ? rem - each * (n - 1) : each, card: '' })); rows = [...rows.filter((r) => r.fixed), ...freeRows]; return redraw(); }
         const rx = e.target.closest('[data-rx]'); if (rx) { rows.splice(Number(rx.dataset.rx), 1); return redraw(); }
         const td = e.target.closest('[data-tend]'); if (td) { tendered = td.dataset.tend; return redraw(); }
       });
@@ -863,9 +877,10 @@ function payModal(ctx) {
         if (paying) return;
         paying = true;
         const btn = ev.currentTarget;
-        const single = rows.length === 1 && rows[0].m === 'cash';
+        const freePaysNow = rows.filter((r) => !r.fixed);
+        const single = freePaysNow.length === 1 && freePaysNow[0].m === 'cash';
         const pays = rows.map((r) => ({ m: r.m, a: Number(r.a) || 0, ...(r.m === 'deposit' ? { card: r.card } : {}) }));
-        if (single && tendered) pays[0].a = Number(tendered);
+        if (single && tendered) { const cashRow = pays.find((p) => p.m === 'cash'); if (cashRow) cashRow.a = Number(tendered); }
         const tend = pays.filter((p) => p.m === 'cash').reduce((s, p) => s + p.a, 0);
         const before = stockSnap(getDb(), ctx.outlet);
         btn.disabled = true;

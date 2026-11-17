@@ -101,6 +101,7 @@ export const updateMemberRow = (id, row) => run(sb().from('members').update(row)
 // ---------- Reservasi ----------
 export const reservationCreate = (p) => rpc('reservation_create', { p });
 export const reservationStatus = (id, status) => run(sb().from('reservations').update({ status }).eq('id', id));
+export const reservationSetDp = (id, amount, method, note) => rpc('reservation_set_dp', { p_id: id, p_amount: amount, p_method: method, p_note: note });
 
 // ---------- Meja ----------
 export const tableSave = (row) => run(sb().from('dining_tables').upsert(row, { onConflict: 'id' }));

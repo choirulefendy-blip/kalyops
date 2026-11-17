@@ -153,7 +153,8 @@ const mapShift = (r) => ({ id: r.id, user: r.staff_id, term: r.terminal, loc: r.
 export const mapMember = (r) => ({ id: r.id, name: r.name, phone: r.phone, email: r.email || '', bday: r.birthday || '', points: N(r.points), spend: N(r.spend), visits: N(r.visits),
   joined: T(r.joined_at), last: T(r.last_visit_at) || 0, src: r.source, missions: {}, updated: T(r.updated_at) });
 const mapRes = (r) => ({ id: r.id, code: r.code, name: r.name, phone: r.phone, date: r.date, time: hm(r.time), pax: N(r.pax), area: r.area || '', table: r.table_id,
-  join: r.join_tables || [], status: r.status, src: r.source, note: r.note || '', created: T(r.created_at), mem: r.member_id, order: r.order_id });
+  join: r.join_tables || [], status: r.status, src: r.source, note: r.note || '', created: T(r.created_at), mem: r.member_id, order: r.order_id,
+  dp: N(r.dp_amount), dpMethod: r.dp_method || '', dpNote: r.dp_note || '', dpAt: T(r.dp_paid_at), dpBy: r.dp_by || '' });
 const mapFlag = (r) => ({ id: r.id, at: T(r.at), type: r.type, sev: r.severity, msg: r.message, user: r.staff_id, ref: r.ref || '', loc: r.location_id || '', status: r.status,
   checkedBy: r.checked_by, checkedAt: T(r.checked_at) });
 

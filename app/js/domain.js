@@ -14,6 +14,7 @@ export const PAY = {
   card: { label: 'Kartu debit/kredit', acc: '1102', icon: 'credit-card' },
   transfer: { label: 'Transfer bank', acc: '1102', icon: 'building-2' },
   deposit: { label: 'Kartu deposit', acc: '2103', icon: 'wallet' },
+  dp: { label: 'DP Reservasi', acc: '2101', icon: 'calendar-check' },
 };
 export const TYPE_LABEL = { dine: 'Dine-in', take: 'Langsung', deliv: 'Delivery' };
 // Nama kategori yang masuk ke stasiun tertentu (untuk slip Bar / Dapur)

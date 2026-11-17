@@ -30,8 +30,8 @@ function jadwal(ctx) {
     <div class="card"><div class="card-h"><h3>Daftar ${fmtDate(fromKey(date), true)}</h3></div>${resTable(db, rs)}</div>`;
 }
 function resTable(db, rs, showDate) {
-  return `<div class="tbl-wrap"><table class="tbl hover"><thead><tr>${showDate ? '<th>Tanggal</th>' : ''}<th>Jam</th><th>Nama</th><th class="r">Tamu</th><th>Meja</th><th>Sumber</th><th>Catatan</th><th>Status</th></tr></thead><tbody>
-    ${rs.map((r) => `<tr data-a="resView" data-id="${r.id}">${showDate ? `<td>${fmtShort(fromKey(r.date))}</td>` : ''}<td><b>${esc(r.time)}</b></td><td>${esc(r.name)}<br><small class="muted">${esc(r.code)}</small></td><td class="r">${r.pax}</td><td>${esc(r.table || '—')}</td><td>${SRC[r.src] || esc(r.src)}</td><td class="muted">${esc(r.note || '')}${r.order ? ' <span class="badge b-info">pre-order</span>' : ''}</td><td><span class="badge ${RES_ST[r.status]}">${esc(r.status)}</span></td></tr>`).join('') || `<tr><td colspan="${showDate ? 8 : 7}" class="empty">Belum ada reservasi.</td></tr>`}</tbody></table></div>`;
+  return `<div class="tbl-wrap"><table class="tbl hover"><thead><tr>${showDate ? '<th>Tanggal</th>' : ''}<th>Jam</th><th>Nama</th><th class="r">Tamu</th><th>Meja</th><th>Sumber</th><th>DP</th><th>Status</th></tr></thead><tbody>
+    ${rs.map((r) => `<tr data-a="resView" data-id="${r.id}">${showDate ? `<td>${fmtShort(fromKey(r.date))}</td>` : ''}<td><b>${esc(r.time)}</b></td><td>${esc(r.name)}<br><small class="muted">${esc(r.code)}</small></td><td class="r">${r.pax}</td><td>${esc(r.table || '—')}</td><td>${SRC[r.src] || esc(r.src)}</td><td>${r.dp > 0 ? `<span class="badge b-ok">${rp(r.dp)}</span>` : '<span class="muted">—</span>'}</td><td><span class="badge ${RES_ST[r.status]}">${esc(r.status)}</span></td></tr>`).join('') || `<tr><td colspan="${showDate ? 8 : 7}" class="empty">Belum ada reservasi.</td></tr>`}</tbody></table></div>`;
 }
 function daftar(ctx) {
   const db = ctx.db, today = dayKey();
@@ -101,11 +101,41 @@ export default {
       const db = getDb(), r = db.reservations.find((x) => x.id === el.dataset.id);
       const msg = `Halo ${r.name.split(' ')[0]}, reservasi kamu di ${db.settings.brand.name} sudah kami konfirmasi: ${fmtDate(fromKey(r.date), true)} pukul ${r.time}, ${r.pax} orang, meja ${D.resTableLabel(r)} (${db.tables.find((t) => t.id === r.table)?.area || ''}). Kode ${r.code}. Mau pesan menu duluan? ${location.href.split('#')[0]}#/order?res=${r.code}`;
       const btn = (s, l, cls = '') => `<button class="btn ${cls}" data-st="${s}">${l}</button>`;
+      const canEditDp = ['owner', 'manajer', 'kasir'].includes(ctx.user.role) && ['menunggu', 'dikonfirmasi', 'datang'].includes(r.status);
+      const DP_METHODS = { cash: 'Tunai', transfer: 'Transfer bank', qris: 'QRIS' };
       openModal({ title: `${r.name} (${r.code})`, size: 'md', body: `<dl class="kv"><dt>Tanggal</dt><dd>${fmtDate(fromKey(r.date), true)}, ${esc(r.time)}</dd><dt>Tamu</dt><dd>${r.pax} orang</dd><dt>Meja</dt><dd>${esc(D.resTableLabel(r))} ${r.area ? `(minta ${esc(r.area)})` : ''}</dd><dt>Sumber</dt><dd>${SRC[r.src] || esc(r.src)}</dd><dt>No. HP</dt><dd>${esc(r.phone)}</dd><dt>Catatan</dt><dd>${esc(r.note || '—')}</dd><dt>Status</dt><dd><span class="badge ${RES_ST[r.status]}">${esc(r.status)}</span></dd>${r.order ? `<dt>Pre-order</dt><dd>${esc(D.order(db, r.order)?.no || '')}</dd>` : ''}</dl>
+        <div class="dp-box"><div class="dp-info${r.dp > 0 ? '' : ' hidden'}" id="dp-info">${r.dp > 0 ? `<div class="row sb"><div><b class="dp-amt">${rp(r.dp)}</b> <span class="badge b-ok">DP lunas</span><br><small class="muted">${esc(DP_METHODS[r.dpMethod] || r.dpMethod)}${r.dpNote ? ' · ' + esc(r.dpNote) : ''}</small></div>${canEditDp ? `<button class="btn btn-sm" id="dp-toggle">${ic('edit-2', 14)} Ubah DP</button>` : ''}</div>` : ''}</div>
+        ${canEditDp && r.dp === 0 ? `<button class="btn btn-sm" id="dp-toggle">${ic('plus', 14)} Catat DP</button>` : ''}
+        <div class="dp-form" id="dp-form" style="display:none">
+          <label class="fld"><span>Jumlah DP (Rp)</span><input id="dp-amt" type="number" min="0" step="1000" value="${r.dp || ''}" placeholder="0"></label>
+          <div class="grid2"><label class="fld"><span>Metode</span><select id="dp-meth">${Object.entries(DP_METHODS).map(([k, l]) => `<option value="${k}" ${r.dpMethod === k || (!r.dpMethod && k === 'transfer') ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <label class="fld"><span>Catatan / No. ref</span><input id="dp-note" value="${esc(r.dpNote || '')}" placeholder="mis. ref transfer"></label></div>
+          <div class="row"><button class="btn btn-pri btn-sm" id="dp-save">${ic('check', 14)} Simpan DP</button><button class="btn btn-sm" id="dp-cancel">Batal</button></div>
+        </div></div>
         <div class="row wrap">${r.status === 'menunggu' ? btn('dikonfirmasi', 'Konfirmasi', 'btn-pri') : ''}${['menunggu', 'dikonfirmasi'].includes(r.status) ? btn('datang', 'Tamu datang') + btn('no-show', 'No-show') + btn('batal', 'Batalkan', 'btn-danger-ghost') : ''}${r.status === 'datang' ? btn('selesai', 'Selesai') : ''}
         <a class="btn" href="https://wa.me/${D.waPhone(r.phone)}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">${ic('send', 15)} Kirim konfirmasi WA</a></div>
         ${r.status === 'datang' ? `<p class="hint">${ctx.user.role === 'kasir' ? 'Buka Kaly POS, ketuk meja ini untuk mulai mencatat pesanan.' : 'Pesanan tamu dicatat kasir di Kaly POS.'}</p>` : ''}`,
-        onMount(m, api) { m.addEventListener('click', async (ev) => { const b = ev.target.closest('[data-st]'); if (!b) return; const stt = b.dataset.st; b.disabled = true; try { await API.reservationStatus(r.id, stt); await C.refresh('reservations'); } catch (err) { b.disabled = false; return toast(err.message, 'err'); } api.close(); toast(`Status reservasi: ${stt}`); if (stt === 'datang') { go(ctx.user.role === 'kasir' ? 'pos' : 'denah'); } else rerender(); }); } });
+        onMount(m, api) {
+          // Tombol ubah/tambah DP
+          m.querySelector('#dp-toggle')?.addEventListener('click', () => {
+            const form = m.querySelector('#dp-form');
+            const showing = form.style.display !== 'none';
+            form.style.display = showing ? 'none' : '';
+            if (!showing) m.querySelector('#dp-amt')?.focus();
+          });
+          m.querySelector('#dp-cancel')?.addEventListener('click', () => { m.querySelector('#dp-form').style.display = 'none'; });
+          m.querySelector('#dp-save')?.addEventListener('click', async (ev) => {
+            ev.currentTarget.disabled = true;
+            const amount = Number(m.querySelector('#dp-amt').value) || 0;
+            const method = m.querySelector('#dp-meth').value;
+            const note = m.querySelector('#dp-note').value.trim();
+            try { await API.reservationSetDp(r.id, amount, method, note); await C.refresh('reservations'); }
+            catch (err) { ev.currentTarget.disabled = false; return toast(err.message, 'err'); }
+            api.close(); toast(amount > 0 ? `DP ${rp(amount)} disimpan` : 'DP dihapus'); rerender();
+          });
+          // Tombol ubah status
+          m.addEventListener('click', async (ev) => { const b = ev.target.closest('[data-st]'); if (!b) return; const stt = b.dataset.st; b.disabled = true; try { await API.reservationStatus(r.id, stt); await C.refresh('reservations'); } catch (err) { b.disabled = false; return toast(err.message, 'err'); } api.close(); toast(`Status reservasi: ${stt}`); if (stt === 'datang') { go(ctx.user.role === 'kasir' ? 'pos' : 'denah'); } else rerender(); });
+        } });
     },
   },
 };
