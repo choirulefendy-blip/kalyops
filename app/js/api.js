@@ -195,3 +195,4 @@ export const trxExport = (f) => rpc('trx_export', { p_location: f.loc, p_from: f
 export const orderRefund = (orderId, reason, shiftId) => rpc('order_refund', { p_order: orderId, p_reason: reason, p_shift: shiftId || null });
 // 2.21 · refund sebagian per item dalam satu nota (items: [{ line, qty }])
 export const orderRefundItems = (orderId, items, reason, method, cardId, shiftId) => rpc('order_refund_items', { p_order: orderId, p_items: items, p_reason: reason, p_method: method, p_card: cardId || null, p_shift: shiftId || null });
+export const refundAck = (batch) => rpc('refund_ack', { p_batch: batch });

@@ -401,6 +401,29 @@ function shiftBanner(ctx) {
   return '';
 }
 
+function refundAlerts(ctx) {
+  const db = ctx.db, sh = D.activeShift(db, ctx.terminal);
+  if (!sh || ctx.user.role === 'service') return '';
+  const pending = [];
+  const seen = new Set();
+  for (const o of db.orders) {
+    for (const r of (o.refunds || [])) {
+      if (r.shift !== sh.id || r.m !== 'cash' || r.ack || seen.has(r.batch)) continue;
+      seen.add(r.batch);
+      const group = o.refunds.filter((x) => x.batch === r.batch);
+      pending.push({ no: o.no, batch: r.batch, items: group, total: group.reduce((s, x) => s + x.amt, 0), reason: r.reason });
+    }
+  }
+  if (!pending.length) return '';
+  return pending.map((p) => `<div class="banner err refund-alert">
+    ${ic('rotate-ccw', 18)}
+    <span><b>Kembalikan ke tamu · Nota ${esc(p.no)}</b><br>
+    ${p.items.map((x) => `${x.qty}× ${esc(x.name)}`).join(', ')} · <b>${rp(p.total)}</b><br>
+    <small class="muted">${esc(p.reason)}</small></span>
+    <button class="btn btn-sm" data-a="ackRefund" data-batch="${esc(p.batch)}">${ic('check', 15)} Sudah dikembalikan</button>
+  </div>`).join('');
+}
+
 export default {
   title: (ctx) => 'Kaly POS',
   render(ctx) {
@@ -428,11 +451,11 @@ export default {
     if (ui.orderId && !curOrder(db)) ui.orderId = null;
     const nav = posNav(ctx);
     if (!workMode(ctx)) {
-      return `<div class="pos-page pos2 home">${shiftBanner(ctx)}${nav}${ui.tab === 'meja' ? loungeStrip(ctx) : ''}
+      return `<div class="pos-page pos2 home">${shiftBanner(ctx)}${refundAlerts(ctx)}${nav}${ui.tab === 'meja' ? loungeStrip(ctx) : ''}
         <section class="pos-home card tab-${ui.tab}" data-keep-scroll="home">${homePanel(ctx)}</section></div>`;
     }
     const where = curOrder(db)?.table || ui.pending?.table;
-    return `<div class="pos-page pos2 work">${shiftBanner(ctx)}${nav}<div class="pos-work">
+    return `<div class="pos-page pos2 work">${shiftBanner(ctx)}${refundAlerts(ctx)}${nav}<div class="pos-work">
       <section class="pos-menu card">
         <div class="pos-menu-h">${hasT(ctx) ? `<button class="btn pm-back" data-a="backTables" title="Kembali ke pilihan meja">${ic('chevron-left', 18)} Meja</button>` : ''}<div class="search">${ic('search', 17)}<input id="pos-q" data-in="q" placeholder="Cari menu" value="${esc(ui.q)}" autocomplete="off"></div>
           ${where ? `<span class="pm-where">Meja <b>${esc(where)}</b></span>` : ''}</div>
@@ -688,6 +711,16 @@ export default {
       if (!sh) return toast('Buka shift dulu', 'warn');
       await API.noSale(sh.id, r); await C.refresh('shifts');
       toast('Laci dibuka dan tercatat', 'info');
+    },
+    async ackRefund(el, e, ctx) {
+      const batch = el.dataset.batch;
+      el.disabled = true;
+      try {
+        await API.refundAck(batch);
+        await C.refresh('orders');
+        toast('Refund dikonfirmasi — uang sudah dikembalikan ke tamu', 'ok');
+        rerender();
+      } catch (err) { failToast(err); el.disabled = false; }
     },
     depNew(el, e, ctx) {
       openModal({ title: 'Kartu deposit baru', size: 'sm', body: `<label class="fld"><span>Nama pemegang</span><input name="h" autofocus></label><label class="fld"><span>No. HP</span><input name="p" inputmode="tel"></label><label class="fld"><span>Top-up awal</span><input name="a" type="number" step="10000" value="100000"></label><label class="fld"><span>Metode</span><select name="m"><option value="cash">Tunai</option><option value="qris">QRIS</option><option value="card">Kartu</option></select></label>`,

@@ -326,6 +326,8 @@ body.bare { background: var(--bg); }
 .bill-cust { display: flex; gap: 6px; align-items: center; }
 .mem-chip { display: inline-flex; gap: 6px; align-items: center; height: 32px; padding: 0 10px; border-radius: var(--r-sm); border: 1px solid var(--orange); background: var(--orange-100); font-weight: 600; font-size: 12.5px; cursor: pointer; white-space: nowrap; overflow: hidden; }
 .res-note { display: flex; gap: 6px; font-size: 12.5px; color: var(--kolam); background: var(--kolam-100); padding: 6px 9px; border-radius: 7px; margin: 0; }
+.refund-alert { align-items: flex-start; }
+.refund-alert .btn { flex-shrink: 0; margin-top: 2px; }
 .dp-badge { display: inline-flex; align-items: center; gap: 4px; color: var(--olive-700); font-weight: 600; }
 .dp-notice { display: flex; align-items: center; gap: 8px; background: var(--olive-50); border: 1px solid var(--olive); border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; font-size: 13px; color: var(--olive-700); }
 .dp-box { margin: 10px 0 6px; }
