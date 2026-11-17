@@ -197,6 +197,7 @@ function renderShell() {
         ${CR.chipHtml()}
         <button class="sync" id="sync" data-a="syncNow" title="Status koneksi ke database · ketuk untuk memuat ulang data"></button>
         ${N.buttonHtml()}
+        ${window.KalyAndroid ? '' : `<button class="btn-icon" id="fs-btn" data-a="fullscreen" aria-label="${document.fullscreenElement ? 'Keluar layar penuh' : 'Layar penuh'}" title="${document.fullscreenElement ? 'Keluar layar penuh' : 'Layar penuh'}">${ic(document.fullscreenElement ? 'minimize-2' : 'maximize-2', 18)}</button>`}
         <button class="bell" data-a="notices" aria-label="${u.role === 'dapur' ? 'Notifikasi dari kasir' : 'Pesanan siap dari dapur'}" title="${u.role === 'dapur' ? 'Notifikasi dari kasir' : 'Pesanan siap dari dapur'}" id="bell">${ic('bell', 18)}<b id="bell-n"></b></button>
         <span class="clock" id="clock"></span>
       </div>
@@ -355,6 +356,13 @@ const GLOBAL = {
   soundPrefs() { N.openPrefs(); },
   crewPick() { CR.pickDialog({ onDone: () => rerender() }); },
   async syncNow() { try { await C.refreshNow(); toast('Data dimuat ulang'); rerender(); } catch (e) { toast(e.message, 'err'); } },
+  fullscreen() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => toast('Browser ini tidak mendukung layar penuh', 'warn'));
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  },
   // 2.19 · Pemberitahuan pembaruan aplikasi Android
   apkLater(el) { APK.hideBanner(); el.closest('[data-apk-banner]')?.remove(); },
   async apkRecheck() {
@@ -385,6 +393,14 @@ subscribe((src) => {
   rerender(src);
 });
 window.addEventListener('hashchange', route);
+document.addEventListener('fullscreenchange', () => {
+  const btn = document.getElementById('fs-btn');
+  if (!btn) return;
+  const full = !!document.fullscreenElement;
+  btn.setAttribute('aria-label', full ? 'Keluar layar penuh' : 'Layar penuh');
+  btn.setAttribute('title', full ? 'Keluar layar penuh' : 'Layar penuh');
+  btn.innerHTML = ic(full ? 'minimize-2' : 'maximize-2', 18);
+});
 setInterval(tickSince, 1000);
 // Pesanan terjadwal: layar staf yang terbuka mengirimnya ke dapur saat waktunya tiba
 async function releaseTick() {
