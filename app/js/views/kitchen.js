@@ -36,8 +36,9 @@ function row(o, l) {
   const pn = parentName(o, l), wait = l.s === 'new' || l.s === 'cook';
   const body = `<span class="tkl-q">${num(l.q)}×</span><span class="tkl-n">${esc(l.n)}${l.note ? `<small>${esc(l.note)}</small>` : ''}${pn ? `<small class="muted">paket ${esc(pn)}</small>` : ''}<em class="tkr-st">${ST[l.s] || ''}</em></span>`;
   return `<li class="tkr s-${l.s}">
-    ${wait ? `<button class="tkr-m" data-a="cookTg" data-o="${o.id}" data-l="${l.id}" title="${l.s === 'new' ? 'Ketuk: mulai dimasak' : 'Ketuk: kembali ke antre'}">${body}</button>` : `<div class="tkr-m">${body}</div>`}
-    <span class="tkr-a">${wait ? `<button class="btn btn-sm btn-pri" data-a="ready" data-o="${o.id}" data-l="${l.id}">${ic('check', 15)} Siap</button>`
+    ${l.s === 'cook' ? `<button class="tkr-m" data-a="cookTg" data-o="${o.id}" data-l="${l.id}" title="Ketuk: kembali ke antre">${body}</button>` : `<div class="tkr-m">${body}</div>`}
+    <span class="tkr-a">${l.s === 'new' ? `<button class="btn btn-sm" data-a="cookTg" data-o="${o.id}" data-l="${l.id}">${ic('flame', 15)} Masak</button>`
+      : l.s === 'cook' ? `<button class="btn btn-sm btn-pri" data-a="ready" data-o="${o.id}" data-l="${l.id}">${ic('check', 15)} Siap</button>`
       : l.s === 'ready' ? `<button class="btn-icon sm" data-a="back" data-o="${o.id}" data-l="${l.id}" title="Batal siap, kembalikan ke antrean" aria-label="Batal siap ${esc(l.n)}">${ic('rotate-ccw', 15)}</button>`
       : ic('check', 17)}</span></li>`;
 }
@@ -51,7 +52,7 @@ function ticket(o) {
     <header class="tk-h"><b class="tk-no">${esc(o.no)}</b><span class="tk-w">${where(o)}${o.ch !== 'pos' ? ` <span class="badge b-info">${D.CH_LABEL[o.ch]}</span>` : ''}</span><span class="tk-time" data-since="${firstTs(o)}" data-sla></span></header>
     ${o.cust?.name && o.table ? `<p class="tk-c">${esc(o.cust.name)}</p>` : ''}
     <ul class="tk-l">${ls.map((l) => row(o, l)).join('')}${voidLines(o).map(voidRow).join('')}</ul>
-    <footer class="tk-f"><span class="tk-prog">${done}/${ls.length} item siap</span><button class="btn btn-sm" data-a="bump" data-o="${o.id}">${ic('check-check', 15)} Siap semua</button></footer>
+    <footer class="tk-f"><span class="tk-prog">${done}/${ls.length} item siap</span>${ls.some((l) => l.s === 'new') ? `<button class="btn btn-sm" data-a="bumpMasak" data-o="${o.id}">${ic('flame', 15)} Masak semua</button>` : `<button class="btn btn-sm btn-pri" data-a="bump" data-o="${o.id}">${ic('check-check', 15)} Siap semua</button>`}</footer>
   </article>`;
 }
 
@@ -99,7 +100,7 @@ function live(ctx) {
       <div class="seg-tabs" role="tablist">${[['tiket', 'Per nota', 'receipt'], ['gabung', 'Produksi gabungan', 'layers']].map(([k, l, i]) => `<button class="${ui.view === k ? 'on' : ''}" role="tab" aria-selected="${ui.view === k}" data-a="view" data-v="${k}">${ic(i, 15)} ${l}</button>`).join('')}</div>
     </div>
     ${stockBanner(db, L)}
-    <p class="kds-info">${ts.length} nota aktif, ${waitN} item belum siap, ${readyN} item menunggu diantar. Ketuk nama item untuk menandai <b>Dimasak</b>. Tekan <b>Siap</b> per item: pramusaji & kasir langsung diberi tahu untuk mengantar item itu, tanpa menunggu item lain di nota yang sama.${sched.length ? ` ${sched.length} pre-order reservasi masuk otomatis ${db.settings.scheduleLead} menit sebelum jamnya.` : ''}</p>
+    <p class="kds-info">${ts.length} nota aktif, ${waitN} item belum siap, ${readyN} item menunggu diantar. Tekan <b>Masak</b> saat mulai memasak, lalu <b>Siap</b> saat item siap diantar — pramusaji & kasir langsung diberi tahu tanpa menunggu item lain di nota yang sama.${sched.length ? ` ${sched.length} pre-order reservasi masuk otomatis ${db.settings.scheduleLead} menit sebelum jamnya.` : ''}</p>
     ${ui.view === 'gabung' ? (() => { const bs = batches(db, L); return `<p class="kds-info">${ic('layers', 15)} <b>Produksi gabungan</b>: porsi menu yang sama dari semua nota dijumlahkan, supaya bisa dimasak sekaligus. <b>Siap semua</b> menandai setiap porsi siap, dan pramusaji diberi tahu per meja.</p>
       <div class="bt-grid">${bs.map(batchCard).join('') || `<div class="kds-empty">${ic('chef-hat', 40)}<p>Tidak ada pesanan yang menunggu.</p></div>`}</div>`; })()
     : `${batchStrip(batches(db, L))}<div class="kds">${ts.map(ticket).join('') || `<div class="kds-empty">${ic('chef-hat', 40)}<p>Tidak ada pesanan yang menunggu. Pesanan baru dari kasir dan QR meja muncul di sini otomatis.</p></div>`}</div>`}
@@ -180,6 +181,13 @@ export default {
       if (l) toast(`${num(l.q)}× ${l.n} siap. Pramusaji & kasir diberi tahu untuk mengantar${o.table ? ' ke meja ' + o.table : ''}.`);
     },
     back(el) { step(el.dataset.o, el.dataset.l, 'back'); },
+    bumpMasak(el) {
+      const o = D.order(getDb(), el.dataset.o); if (!o) return;
+      const ls = kLines(o).filter((l) => l.s === 'new'); if (!ls.length) return;
+      local((d) => { const oo = D.order(d, o.id); for (const l of kLines(oo)) if (l.s === 'new') { l.s = 'cook'; l.tc = Date.now(); } });
+      API.kitchenBatch(ls.map((l) => l.id), 'cook').catch(fail);
+      toast(`${ls.length} item ${o.no} mulai dimasak`); rerender();
+    },
     bump(el) {
       const o = D.order(getDb(), el.dataset.o); if (!o) return;
       const n = kLines(o).filter((l) => l.s === 'new' || l.s === 'cook').length;
