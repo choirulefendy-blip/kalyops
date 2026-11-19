@@ -40,7 +40,7 @@ end $$;
 
 create or replace function engine.entity_of(p_loc text) returns text language sql stable set search_path = public as $$ select entity_id from locations where id = p_loc; $$;
 create or replace function engine.pay_account(p_method text) returns text language sql immutable set search_path = public as $$
-  select case p_method when 'cash' then '1101' when 'deposit' then '2103' when 'dp' then '2101' when 'other' then '6104' else '1102' end;
+  select case p_method when 'cash' then '1101' when 'deposit' then '2103' when 'dp' then '2101' else '1102' end;
 $$;
 
 -- ---------------------------------------------------------------------
