@@ -722,6 +722,31 @@ create table if not exists public.deposit_tx (
   shift_id   text references public.shifts(id)
 );
 
+-- Bill pending (piutang tamu): satu baris per bill yang ditutup dengan metode "Tagih nanti"
+create table if not exists public.receivables (
+  id          text primary key default ('rcv' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 12)),
+  order_id    text        not null references public.orders(id) on delete cascade,
+  location_id text        not null references public.locations(id),
+  amount      numeric     not null check (amount > 0),
+  debtor      text        not null default '',
+  due_date    date,
+  note        text        not null default '',
+  status      text        not null default 'open' check (status in ('open', 'paid')),
+  paid_on     date,
+  paid_method text,
+  paid_ref    text        not null default '',
+  paid_by     text,
+  paid_at     timestamptz,
+  created_at  timestamptz not null default now(),
+  created_by  text,
+  constraint receivables_paid_chk check (
+    (status = 'open' and paid_on is null and paid_method is null)
+    or (status = 'paid' and paid_on is not null and paid_method is not null)
+  )
+);
+create index if not exists receivables_open_idx on public.receivables (location_id, status, due_date);
+create index if not exists receivables_order_idx on public.receivables (order_id);
+
 -- ---------------------------------------------------------------------
 -- Pembukuan & kontrol
 -- ---------------------------------------------------------------------
@@ -1056,7 +1081,7 @@ end $$;
 
 create or replace function engine.entity_of(p_loc text) returns text language sql stable set search_path = public as $$ select entity_id from locations where id = p_loc; $$;
 create or replace function engine.pay_account(p_method text) returns text language sql immutable set search_path = public as $$
-  select case p_method when 'cash' then '1101' when 'deposit' then '2103' when 'dp' then '2101' else '1102' end;
+  select case p_method when 'cash' then '1101' when 'deposit' then '2103' when 'dp' then '2101' when 'bill' then '1103' else '1102' end;
 $$;
 
 -- ---------------------------------------------------------------------
@@ -1549,7 +1574,7 @@ begin
   select coalesce(sum((x->>'a')::numeric), 0) into v_cashgiven from jsonb_array_elements(coalesce(p_pays, '[]')) x where x->>'m' = 'cash';
   if v_noncash + v_cashgiven < v_total then return jsonb_build_object('ok', false, 'msg', 'Pembayaran kurang ' || engine.rp(v_total - v_noncash - v_cashgiven)); end if;
   for p in select * from jsonb_array_elements(coalesce(p_pays, '[]')) loop
-    if p->>'m' not in ('cash', 'qris', 'card', 'transfer', 'deposit', 'dp', 'other') then return jsonb_build_object('ok', false, 'msg', 'Metode bayar tidak dikenal: ' || coalesce(p->>'m', '')); end if;
+    if p->>'m' not in ('cash', 'qris', 'card', 'transfer', 'deposit', 'dp', 'other', 'bill') then return jsonb_build_object('ok', false, 'msg', 'Metode bayar tidak dikenal: ' || coalesce(p->>'m', '')); end if;
     if p->>'m' = 'deposit' then
       select * into c from deposit_cards where id = p->>'card' for update;
       if c.id is null or not c.active then return jsonb_build_object('ok', false, 'msg', 'Kartu deposit tidak ditemukan atau nonaktif'); end if;
@@ -1578,6 +1603,11 @@ begin
   end if;
   insert into order_payments (order_id, method, amount, card_id, ref)
     select p_order, x->>'m', (x->>'a')::numeric, x->>'card', x->>'ref' from jsonb_array_elements(v_norm) x;
+  insert into receivables (order_id, location_id, amount, debtor, due_date, note, created_by)
+    select p_order, o.location_id, (x->>'a')::numeric,
+           coalesce(nullif(x->>'debtor', ''), nullif(o.customer_name, ''), ''),
+           nullif(x->>'due', '')::date, coalesce(x->>'ref', ''), p_by
+    from jsonb_array_elements(v_norm) x where x->>'m' = 'bill' and (x->>'a')::numeric > 0;
   if p_send then perform engine.send_lines(p_order, p_by); end if;
   -- Jurnal penjualan
   for r in select engine.pay_account(x->>'m') as acc, sum((x->>'a')::numeric) as amt from jsonb_array_elements(v_norm) x group by 1 order by 1 loop
@@ -1966,15 +1996,22 @@ begin
 end $$;
 
 -- Bayar. p_pays = [{"m":"cash","a":100000}, {"m":"qris","a":46000}, {"m":"deposit","a":20000,"card":"KD-0001"}]
-create or replace function public.pay_order(p_order text, p_pays jsonb, p_shift text, p_tendered numeric default 0) returns jsonb
-language plpgsql security definer set search_path = public as $$
-declare me public.staff; sh public.shifts;
+create or replace function public.pay_order(p_order text, p_pays jsonb, p_shift text, p_tendered numeric default 0, p_pin text default null) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare me public.staff; sh public.shifts; v_bill numeric;
 begin
   me := engine.require_role(array['owner', 'kasir']);
   perform engine.on_();
   select * into sh from shifts where id = p_shift;
   if sh.id is null or sh.close_at is not null then return jsonb_build_object('ok', false, 'msg', 'Buka shift dulu sebelum menerima pembayaran'); end if;
   if sh.staff_id <> me.id and me.role <> 'owner' then return jsonb_build_object('ok', false, 'msg', 'Shift di ' || sh.terminal || ' milik staf lain'); end if;
+  -- Bill pending (piutang) perlu persetujuan manajer: uang tidak masuk laci
+  select coalesce(sum((x->>'a')::numeric), 0) into v_bill from jsonb_array_elements(coalesce(p_pays, '[]')) x where x->>'m' = 'bill';
+  if v_bill > 0 and me.role <> 'owner' then
+    if not exists (select 1 from app_secrets where id = 1 and manager_pin_hash = extensions.crypt(coalesce(p_pin, ''), manager_pin_hash)) then
+      return jsonb_build_object('ok', false, 'msg', 'PIN manajer salah. Bill pending perlu persetujuan manajer.');
+    end if;
+  end if;
   return engine.settle(p_order, p_pays, me.id, sh.id, true, p_tendered);
 end $$;
 
@@ -3891,6 +3928,36 @@ end $$;
 --   kartu deposit → saldo kartu dikembalikan
 -- Jurnal penjualan dibalik, voucher & poin member dikembalikan, item yang belum selesai di dapur dihentikan.
 -- Stok bahan tidak dikembalikan (makanan sudah dibuat).
+-- Tandai piutang lunas: catat tanggal uang diterima + jurnal Dr kas/bank, Cr 1103
+create or replace function public.receivable_settle(p_id text, p_paid_on date, p_method text, p_ref text default '')
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare me public.staff; rc public.receivables; o public.orders; v_acc text;
+begin
+  me := engine.require_role(array['owner']);
+  perform engine.on_();
+  select * into rc from receivables where id = p_id for update;
+  if rc.id is null then raise exception 'Piutang tidak ditemukan'; end if;
+  if not public.can_loc(rc.location_id) then raise exception 'Tidak punya akses ke outlet ini' using errcode = '42501'; end if;
+  if rc.status = 'paid' then raise exception 'Piutang ini sudah ditandai lunas pada %', to_char(rc.paid_on, 'DD Mon YYYY'); end if;
+  if p_method is null or p_method not in ('cash', 'qris', 'card', 'transfer') then
+    raise exception 'Metode pelunasan harus tunai, QRIS, kartu, atau transfer';
+  end if;
+  if p_paid_on is null then raise exception 'Tanggal pelunasan wajib diisi'; end if;
+  if p_paid_on > public.biz_date() then raise exception 'Tanggal pelunasan tidak boleh di masa depan'; end if;
+  if p_paid_on < rc.created_at::date then
+    raise exception 'Tanggal pelunasan tidak boleh sebelum bill dibuat (%)', to_char(rc.created_at, 'DD Mon YYYY');
+  end if;
+  select * into o from orders where id = rc.order_id;
+  v_acc := engine.pay_account(p_method);
+  update receivables set status = 'paid', paid_on = p_paid_on, paid_method = p_method,
+         paid_ref = coalesce(p_ref, ''), paid_by = me.id, paid_at = now() where id = rc.id;
+  perform engine.post(engine.entity_of(rc.location_id), 'Pelunasan piutang ' || coalesce(o.no, rc.order_id),
+    rc.order_id, 'Penerimaan dari pelanggan',
+    jsonb_build_array(jsonb_build_array(v_acc, rc.amount, 0), jsonb_build_array('1103', 0, rc.amount)),
+    p_paid_on::timestamptz, null, me.id);
+  return jsonb_build_object('ok', true, 'id', rc.id, 'amount', rc.amount, 'paid_on', p_paid_on, 'method', p_method, 'no', o.no);
+end $$;
+
 create or replace function public.order_refund(p_order text, p_reason text, p_shift text default null) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare me public.staff; o public.orders; b jsonb; sh public.shifts; v_pays jsonb; v_cash numeric; v_lines jsonb := '[]'::jsonb; r record; p jsonb;
@@ -4463,6 +4530,7 @@ begin
   perform engine.policy('deposit_cards', 'buat', 'insert', null, cashier);
   perform engine.policy('deposit_cards', 'ubah data', 'update', cashier);
   perform engine.policy('deposit_tx', 'baca', 'select', cashier);
+  perform engine.policy('receivables', 'baca', 'select', cashier);
 
   -- Shift & pembayaran
   perform engine.policy('shifts', 'baca', 'select', cashier);
@@ -5478,6 +5546,7 @@ insert into public.accounts (code, name, type, is_cash) values
   ('4101', 'Penjualan', 'revenue', false),
   ('4102', 'Penjualan antar perusahaan', 'revenue', false),
   ('4103', 'Pendapatan lain (service & ongkir)', 'revenue', false),
+  ('1103', 'Piutang tamu (bill pending)', 'asset', false),
   ('4201', 'Diskon penjualan', 'contra', false),
   ('4202', 'Pembulatan penjualan', 'contra', false),
   ('5101', 'Harga pokok penjualan', 'cogs', false),

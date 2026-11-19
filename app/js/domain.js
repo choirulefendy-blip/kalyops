@@ -15,8 +15,11 @@ export const PAY = {
   transfer: { label: 'Transfer bank', acc: '1102', icon: 'building-2' },
   deposit: { label: 'Kartu deposit', acc: '2103', icon: 'wallet' },
   dp: { label: 'DP Reservasi', acc: '2101', icon: 'calendar-check' },
+  bill: { label: 'Tagih nanti (piutang)', acc: '1103', icon: 'clock' },
   other: { label: 'Lainnya', acc: '1102', icon: 'more-horizontal' },
 };
+// Metode yang perlu persetujuan manajer saat menutup bill
+export const PAY_NEEDS_PIN = new Set(['bill']);
 export const TYPE_LABEL = { dine: 'Dine-in', take: 'Langsung', deliv: 'Delivery' };
 // Nama kategori yang masuk ke stasiun tertentu (untuk slip Bar / Dapur)
 export const stationCats = (db, st) => db.cats.filter((c) => c.station === st).map((c) => c.name).join(', ');

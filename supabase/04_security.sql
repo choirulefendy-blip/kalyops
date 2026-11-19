@@ -339,6 +339,7 @@ begin
   perform engine.policy('deposit_cards', 'buat', 'insert', null, cashier);
   perform engine.policy('deposit_cards', 'ubah data', 'update', cashier);
   perform engine.policy('deposit_tx', 'baca', 'select', cashier);
+  perform engine.policy('receivables', 'baca', 'select', cashier);
 
   -- Shift & pembayaran
   perform engine.policy('shifts', 'baca', 'select', cashier);

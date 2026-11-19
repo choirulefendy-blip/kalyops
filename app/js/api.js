@@ -50,7 +50,9 @@ export const voidLine = (lineId, reason) => rpc('void_line', { p_line: lineId, p
 export const voidOrder = (orderId, reason, pin) => rpc('void_order', { p_order: orderId, p_reason: reason, p_pin: pin || null });
 export const mergeOrders = (target, source) => rpc('merge_orders', { p_target: target, p_source: source });
 export const splitOrder = (orderId, sel) => rpc('split_order', { p_order: orderId, p_sel: sel });
-export const pay = (orderId, pays, shiftId, tendered) => rpc('pay_order', { p_order: orderId, p_pays: pays, p_shift: shiftId, p_tendered: tendered || 0 });
+export const pay = (orderId, pays, shiftId, tendered, pin) => rpc('pay_order', { p_order: orderId, p_pays: pays, p_shift: shiftId, p_tendered: tendered || 0, p_pin: pin || null });
+// Piutang (bill pending)
+export const receivableSettle = (id, paidOn, method, ref) => rpc('receivable_settle', { p_id: id, p_paid_on: paidOn, p_method: method, p_ref: ref || '' });
 export const printCount = (orderId) => rpc('order_print', { p_order: orderId });
 export const printSlips = (orderId, reprint = false) => rpc('print_slips', { p_order: orderId, p_reprint: reprint });
 export const releaseOrder = (orderId) => rpc('order_release', { p_order: orderId });

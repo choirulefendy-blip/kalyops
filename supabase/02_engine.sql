@@ -40,7 +40,7 @@ end $$;
 
 create or replace function engine.entity_of(p_loc text) returns text language sql stable set search_path = public as $$ select entity_id from locations where id = p_loc; $$;
 create or replace function engine.pay_account(p_method text) returns text language sql immutable set search_path = public as $$
-  select case p_method when 'cash' then '1101' when 'deposit' then '2103' when 'dp' then '2101' else '1102' end;
+  select case p_method when 'cash' then '1101' when 'deposit' then '2103' when 'dp' then '2101' when 'bill' then '1103' else '1102' end;
 $$;
 
 -- ---------------------------------------------------------------------
@@ -533,7 +533,7 @@ begin
   select coalesce(sum((x->>'a')::numeric), 0) into v_cashgiven from jsonb_array_elements(coalesce(p_pays, '[]')) x where x->>'m' = 'cash';
   if v_noncash + v_cashgiven < v_total then return jsonb_build_object('ok', false, 'msg', 'Pembayaran kurang ' || engine.rp(v_total - v_noncash - v_cashgiven)); end if;
   for p in select * from jsonb_array_elements(coalesce(p_pays, '[]')) loop
-    if p->>'m' not in ('cash', 'qris', 'card', 'transfer', 'deposit', 'dp', 'other') then return jsonb_build_object('ok', false, 'msg', 'Metode bayar tidak dikenal: ' || coalesce(p->>'m', '')); end if;
+    if p->>'m' not in ('cash', 'qris', 'card', 'transfer', 'deposit', 'dp', 'other', 'bill') then return jsonb_build_object('ok', false, 'msg', 'Metode bayar tidak dikenal: ' || coalesce(p->>'m', '')); end if;
     if p->>'m' = 'deposit' then
       select * into c from deposit_cards where id = p->>'card' for update;
       if c.id is null or not c.active then return jsonb_build_object('ok', false, 'msg', 'Kartu deposit tidak ditemukan atau nonaktif'); end if;
@@ -562,6 +562,11 @@ begin
   end if;
   insert into order_payments (order_id, method, amount, card_id, ref)
     select p_order, x->>'m', (x->>'a')::numeric, x->>'card', x->>'ref' from jsonb_array_elements(v_norm) x;
+  insert into receivables (order_id, location_id, amount, debtor, due_date, note, created_by)
+    select p_order, o.location_id, (x->>'a')::numeric,
+           coalesce(nullif(x->>'debtor', ''), nullif(o.customer_name, ''), ''),
+           nullif(x->>'due', '')::date, coalesce(x->>'ref', ''), p_by
+    from jsonb_array_elements(v_norm) x where x->>'m' = 'bill' and (x->>'a')::numeric > 0;
   if p_send then perform engine.send_lines(p_order, p_by); end if;
   -- Jurnal penjualan
   for r in select engine.pay_account(x->>'m') as acc, sum((x->>'a')::numeric) as amt from jsonb_array_elements(v_norm) x group by 1 order by 1 loop

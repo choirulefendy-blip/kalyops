@@ -165,7 +165,7 @@ function emptyDb() {
   return {
     version: 3, rev: 1, settings: { ...DEFAULT_SETTINGS, brand: { ...DEFAULT_SETTINGS.brand } },
     entities: [], locations: [], users: [], accounts: [], items: [], stock: {}, moves: [], menus: [], cats: [], promos: [], vouchers: [], discounts: [], areas: [], tables: [],
-    orders: [], shifts: [], crew: [], flags: [], notices: [], members: [], tiers: [], missions: [], campaigns: [], deposits: [], depositTx: [], reservations: [],
+    orders: [], shifts: [], crew: [], flags: [], notices: [], members: [], tiers: [], missions: [], campaigns: [], deposits: [], depositTx: [], receivables: [], reservations: [],
     suppliers: [], supplierPrices: [], itemSup: {}, pos: [], transfers: [], productions: [], opnames: [], b2b: [], journals: [], journalDetail: null, counters: {}, alerts: [],
     printers: [], printJobs: [],
   };
@@ -367,6 +367,16 @@ const LOADERS = {
     db.deposits = c.map((r) => ({ id: r.id, holder: r.holder, phone: r.phone || '', mem: r.member_id, balance: N(r.balance), active: r.active, created: T(r.created_at) }));
     db.depositTx = t.map((r) => ({ id: String(r.id), t: T(r.at), card: r.card_id, a: N(r.amount), type: r.type, ...(r.method ? { m: r.method } : {}), ref: r.ref || '', by: r.created_by, shift: r.shift_id }));
   } },
+  receivables: { roles: ['owner', 'kasir'], fn: async () => {
+    // Semua piutang yang belum lunas + yang sudah lunas dalam 90 hari terakhir
+    const rows = await all(() => sb.from('receivables').select('*')
+      .or(`status.eq.open,created_at.gte.${new Date(Date.now() - 90 * DAY).toISOString()}`)
+      .order('created_at', { ascending: false }));
+    db.receivables = rows.map((r) => ({ id: r.id, order: r.order_id, loc: r.location_id, a: N(r.amount),
+      debtor: r.debtor || '', due: r.due_date || '', note: r.note || '', status: r.status,
+      paidOn: r.paid_on || '', paidMethod: r.paid_method || '', paidRef: r.paid_ref || '',
+      paidBy: r.paid_by || '', created: T(r.created_at), by: r.created_by || '' }));
+  } },
   reservations: { roles: ALL, fn: async () => {
     const rows = await all(() => sb.from('reservations').select('*').gte('date', isoDay(Date.now() - 30 * DAY)).order('date').order('time'));
     db.reservations = rows.map(mapRes);
@@ -430,7 +440,7 @@ const TABLES = {
   menu_categories: 'menus', menus: 'menus', menu_outlets: 'menus', menu_bom: 'menus', menu_package_items: 'menus', items: 'items', item_bom: 'items',
   stock: 'stock', tiers: 'loyalty', missions: 'loyalty', promos: 'loyalty', vouchers: 'loyalty', campaigns: 'loyalty',
   orders: 'orders', order_lines: 'orders', order_payments: 'orders', order_refunds: 'orders', order_notices: 'notices', shifts: 'shifts', members: 'members', member_missions: 'memberMissions',
-  deposit_cards: 'deposits', deposit_tx: 'deposits', reservations: 'reservations', suppliers: 'suppliers', supplier_prices: 'suppliers', item_suppliers: 'suppliers',
+  deposit_cards: 'deposits', deposit_tx: 'deposits', receivables: 'receivables', reservations: 'reservations', suppliers: 'suppliers', supplier_prices: 'suppliers', item_suppliers: 'suppliers',
   purchase_orders: 'pos', purchase_order_lines: 'pos', transfers: 'transfers', transfer_lines: 'transfers', opnames: 'opnames', opname_lines: 'opnames',
   b2b_invoices: 'b2b', b2b_lines: 'b2b', productions: 'productions', stock_moves: 'moves', fraud_flags: 'flags', journals: 'journals', journal_lines: 'journals',
   staff_alerts: 'alerts', print_stations: 'printers', print_jobs: 'printJobs',
@@ -545,7 +555,7 @@ async function loadAll() {
   // Data back office & riwayat dimuat di belakang layar
   setTimeout(async () => {
     try {
-      await Promise.all(['suppliers', 'pos', 'transfers', 'opnames', 'b2b', 'productions', 'moves', 'flags', 'journals'].map(runLoader));
+      await Promise.all(['suppliers', 'pos', 'transfers', 'opnames', 'b2b', 'productions', 'moves', 'flags', 'journals', 'receivables'].map(runLoader));
       touch(); emit('remote');
       const days = WINDOW[me?.role] || 2;
       if (days > orderDays) { await loadOrders({ full: true, days }); touch(); emit('remote'); }

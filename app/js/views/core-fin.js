@@ -12,7 +12,7 @@ import * as R from './core-reports.js';
 const ui = { ent: 'e1', per: 'month', from: '', to: '', sub: 'pl', loc: 'all', tloc: null };
 const ents = () => (ui.ent === 'all' ? ['e1', 'e2'] : [ui.ent]);
 const accName = (db, c) => db.accounts.find((a) => a.code === c)?.name || c;
-const SUBS = [['pl', 'Laba rugi'], ['bs', 'Neraca'], ['cf', 'Arus kas'], ['sales', 'Penjualan'], ['nota', 'Nota & jam'], ['kat', 'Kategori & jam'], ['meja', 'Aktivitas meja'], ['jr', 'Jurnal']];
+const SUBS = [['pl', 'Laba rugi'], ['bs', 'Neraca'], ['cf', 'Arus kas'], ['sales', 'Penjualan'], ['piutang', 'Piutang'], ['nota', 'Nota & jam'], ['kat', 'Kategori & jam'], ['meja', 'Aktivitas meja'], ['jr', 'Jurnal']];
 const OUTLET_SUBS = ['sales', 'nota', 'kat'];
 const salesLocs = (db) => db.locations.filter((l) => ents().includes(l.entity) && l.type !== 'gudang').map((l) => l.id);
 const tableLocs = (db) => db.locations.filter((l) => ents().includes(l.entity) && db.tables.some((t) => t.loc === l.id)).map((l) => l.id);
@@ -198,6 +198,44 @@ function journal(db, from, to) {
     ${js.map((j) => j.l.map((x, i) => `<tr class="${i === 0 ? 'jr-first' : ''}">${i === 0 ? `<td rowspan="${j.l.length}" class="nowrap">${fmtDT(j.d)}</td><td rowspan="${j.l.length}">${esc(D.entity(db, j.e).short)}</td><td rowspan="${j.l.length}">${esc(j.memo)}</td>` : ''}<td class="${x[2] ? 'ind' : ''}">${x[0]} ${esc(accName(db, x[0]))}</td><td class="r">${x[1] ? rp(x[1]) : ''}</td><td class="r">${x[2] ? rp(x[2]) : ''}</td></tr>`).join('')).join('') || '<tr><td colspan="6" class="empty">Belum ada jurnal di periode ini.</td></tr>'}
   </tbody></table></div><p class="hint">Menampilkan maksimal 150 jurnal terbaru. Unduh CSV untuk semua jurnal periode ini.</p></div>`;
 }
+// ---------- Piutang (bill pending) ----------
+// Tidak terikat periode laporan: piutang yang belum lunas selalu tampil sampai dilunasi.
+function piutang(db) {
+  const locs = salesLocs(db);
+  const rows = (db.receivables || []).filter((r) => locs.includes(r.loc));
+  const open = rows.filter((r) => r.status === 'open').sort((a, b) => (a.due || '9999') .localeCompare(b.due || '9999') || a.created - b.created);
+  const paid = rows.filter((r) => r.status === 'paid').sort((a, b) => (b.paidOn || '').localeCompare(a.paidOn || ''));
+  const outstanding = sum(open, (r) => r.a);
+  const today = dayKey();
+  const overdue = open.filter((r) => r.due && r.due < today);
+  const age = (r) => Math.max(0, Math.round((startOfDay() - startOfDay(r.created)) / DAY));
+  const ordNo = (r) => D.order(db, r.order)?.no || r.order;
+
+  const kpis = `<div class="kpis">
+    <div class="kpi"><small>Belum tertagih</small><b>${rp(outstanding)}</b><small>${num(open.length)} bill</small></div>
+    <div class="kpi"><small>Lewat jatuh tempo</small><b class="${overdue.length ? 'neg' : ''}">${rp(sum(overdue, (r) => r.a))}</b><small>${num(overdue.length)} bill</small></div>
+    <div class="kpi"><small>Piutang tertua</small><b>${open.length ? num(Math.max(...open.map(age))) + ' hari' : '–'}</b><small>sejak bill ditutup</small></div></div>`;
+
+  const openTbl = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>No. bill</th><th>Ditagih ke</th><th>Outlet</th><th>Ditutup</th><th>Umur</th><th>Jatuh tempo</th><th class="num">Jumlah</th><th></th></tr></thead><tbody>
+    ${open.map((r) => `<tr class="${r.due && r.due < today ? 'row-neg' : ''}">
+      <td><b>${esc(ordNo(r))}</b></td><td>${esc(r.debtor || '–')}${r.note ? `<small>${esc(r.note)}</small>` : ''}</td>
+      <td>${esc(D.loc(db, r.loc)?.name || r.loc)}</td><td class="nowrap">${fmtDate(r.created)}</td><td>${num(age(r))} hari</td>
+      <td class="nowrap">${r.due ? fmtDate(fromKey(r.due)) + (r.due < today ? ' <span class="badge b-neg">lewat</span>' : '') : '<span class="muted">–</span>'}</td>
+      <td class="num"><b>${rp(r.a)}</b></td>
+      <td><button class="btn btn-sm btn-pri" data-a="rcvPay" data-id="${esc(r.id)}">${ic('check', 15)} Tandai lunas</button></td></tr>`).join('')
+      || '<tr><td colspan="8" class="empty">Tidak ada piutang yang belum tertagih.</td></tr>'}
+  </tbody></table></div>`;
+
+  const paidTbl = paid.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>No. bill</th><th>Ditagih ke</th><th>Dilunasi</th><th>Metode</th><th>Catatan</th><th class="num">Jumlah</th></tr></thead><tbody>
+    ${paid.slice(0, 100).map((r) => `<tr><td>${esc(ordNo(r))}</td><td>${esc(r.debtor || '–')}</td><td class="nowrap">${r.paidOn ? fmtDate(fromKey(r.paidOn)) : '–'}</td>
+      <td>${esc(D.PAY[r.paidMethod]?.label || r.paidMethod || '–')}</td><td class="muted sm">${esc(r.paidRef || '')}</td><td class="num">${rp(r.a)}</td></tr>`).join('')}
+  </tbody></table></div>` : '';
+
+  return `${kpis}
+    ${card('Belum tertagih', openTbl, { sub: 'Bill yang ditutup dengan metode <b>Tagih nanti</b>. Nilainya sudah masuk penjualan dan tercatat sebagai aset di akun 1103 Piutang tamu sampai uangnya diterima.' })}
+    ${paid.length ? card('Sudah dilunasi', paidTbl, { sub: '100 pelunasan terakhir dalam 90 hari.' }) : ''}`;
+}
+
 function stmtCard(db, from, to, body) {
   const sub = SUBS.find((s) => s[0] === ui.sub)[1];
   return `<div class="card fin-body"><div class="card-h"><h3>${esc(sub)} ${ui.ent === 'all' ? 'konsolidasi grup' : esc(D.entity(db, ui.ent).name)}</h3><span class="muted sm">${ui.sub === 'bs' ? 'per ' + fmtDate(Math.min(to, Date.now())) : fmtDate(from) + ' sampai ' + fmtDate(Math.min(to, Date.now()))}</span></div>${body}</div>`;
@@ -214,6 +252,7 @@ function keuangan(ctx) {
   const f = filt(db, from, to);
   const S = ui.sub;
   const body = S === 'pl' ? pl(db, from, to) : S === 'bs' ? bs(db, to) : S === 'cf' ? cf(db, from, to) : S === 'sales' ? salesRep(db, from, to)
+    : S === 'piutang' ? piutang(db)
     : S === 'nota' ? R.nota(db, f) : S === 'kat' ? R.kategori(db, f) : S === 'meja' ? (tableLocs(db).length ? R.meja(db, f) : '<div class="card"><p class="empty">Entitas ini tidak punya meja.</p></div>') : journal(db, from, to);
   const range = S === 'bs' ? 'per ' + fmtDate(Math.min(to, Date.now())) : fmtDate(from) + ' – ' + fmtDate(Math.min(to, Date.now()));
   return `${controls(db)}
@@ -249,6 +288,36 @@ export const actions = {
   finLoc(el) { ui.loc = el.dataset.v; R.rui.notaHour = null; rerender(); },
   finTLoc(el) { ui.tloc = el.dataset.v; rerender(); },
   finReload() { R.invalidate(); rerender(); },
+  // Tandai piutang lunas: tanggal uang diterima + metode, lalu jurnal Dr kas/bank Cr 1103
+  rcvPay(el) {
+    const db = getDb(), r = (db.receivables || []).find((x) => x.id === el.dataset.id);
+    if (!r) return toast('Piutang tidak ditemukan', 'warn');
+    const no = D.order(db, r.order)?.no || r.order;
+    const today = dayKey(), minDay = dayKey(r.created);
+    const M = [['cash', 'Tunai'], ['transfer', 'Transfer bank'], ['qris', 'QRIS / e-wallet'], ['card', 'Kartu debit/kredit']];
+    openModal({
+      title: `Tandai lunas · ${no}`, size: 'sm',
+      body: `<p class="muted sm">Ditagih ke <b>${esc(r.debtor || '–')}</b> · Jumlah <b>${rp(r.a)}</b></p>
+        <label class="fld"><span>Tanggal uang diterima</span><input name="paidOn" type="date" value="${today}" min="${minDay}" max="${today}"></label>
+        <label class="fld"><span>Masuk ke mana</span><select name="method">${M.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
+        <label class="fld"><span>Catatan (opsional)</span><input name="ref" placeholder="No. referensi transfer, nama penyetor"></label>
+        <p class="hint">Pelunasan dijurnal pada tanggal yang dipilih, bukan hari ini, supaya arus kas sesuai kenyataan.</p>`,
+      footer: `<button class="btn" data-close>Batal</button><button class="btn btn-pri" data-ok>${ic('check', 16)} Simpan pelunasan</button>`,
+      onMount(m, api) {
+        m.querySelector('[data-ok]').onclick = async (ev) => {
+          const f = formData(m);
+          if (!f.paidOn) return toast('Tanggal pelunasan wajib diisi', 'warn');
+          ev.currentTarget.disabled = true;
+          try {
+            await API.receivableSettle(r.id, f.paidOn, f.method, f.ref || '');
+            await C.refresh('receivables');
+            await C.refresh('journals').catch(() => {});
+          } catch (err) { ev.currentTarget.disabled = false; return toast(err.message, 'err'); }
+          api.close(); toast(`Piutang ${rp(r.a)} ditandai lunas`); rerender();
+        };
+      },
+    });
+  },
   mejaLogCsv(el, e, ctx) { const [from, to] = D.periodRange(ui.per, { from: ui.from, to: ui.to }); R.mejaCsv(ctx.db, filt(ctx.db, from, to), 'log'); },
   async finCsv(el, e, ctx) {
     const db = ctx.db; const [from, to] = D.periodRange(ui.per, { from: ui.from, to: ui.to });
@@ -256,6 +325,15 @@ export const actions = {
     if (ui.sub === 'nota') return R.notaCsv(db, f);
     if (ui.sub === 'kat') return R.katCsv(db, f);
     if (ui.sub === 'meja') return R.mejaCsv(db, f);
+    if (ui.sub === 'piutang') {
+      const locs = salesLocs(db);
+      const rows = (db.receivables || []).filter((r) => locs.includes(r.loc));
+      return downloadCSV(`piutang-${ui.ent}-${dayKey()}.csv`,
+        [['No. bill', 'Ditagih ke', 'Outlet', 'Bill ditutup', 'Jatuh tempo', 'Jumlah', 'Status', 'Tanggal lunas', 'Metode lunas', 'Catatan'],
+          ...rows.map((r) => [D.order(db, r.order)?.no || r.order, r.debtor, D.loc(db, r.loc)?.name || r.loc,
+            dayKey(r.created), r.due || '', r.a, r.status === 'paid' ? 'Lunas' : 'Belum tertagih',
+            r.paidOn || '', D.PAY[r.paidMethod]?.label || r.paidMethod || '', r.paidRef || ''])]);
+    }
     if (ui.sub === 'sales') {
       const os = salesOrders(db, from, to);
       downloadCSV(`penjualan-${ui.ent}-${dayKey(from)}-${dayKey(to)}.csv`, [['No', 'Tanggal', 'Outlet', 'Channel', 'Tipe', 'Meja', 'Subtotal', 'Diskon', 'PB1', 'Total', 'Metode', 'Kasir'], ...os.map((o) => [o.no, new Date(o.created).toLocaleString('id-ID'), D.loc(db, o.loc).name, D.CH_LABEL[o.ch], D.TYPE_LABEL[o.type], o.table || '', o.bill.sub, o.bill.disc, o.bill.tax, o.bill.total, o.pays.map((p) => D.PAY[p.m].label).join('+'), o.paidBy === 'online' ? 'Online' : D.userName(db, o.paidBy)])]);

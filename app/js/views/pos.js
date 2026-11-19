@@ -875,7 +875,7 @@ function payModal(ctx) {
       <div class="pay-methods">${PAY_SEL.map(([k, v]) => `<button class="pm ${freePays.length === 1 && freePays[0].m === k ? 'on' : ''}" data-pm="${k}">${ic(v.icon, 20)}<span>${v.label}</span></button>`).join('')}</div>
       <div class="pay-rows">${rows.map((r, i) => r.fixed
         ? `<div class="pay-row pay-row-dp"><span class="badge b-ok">${D.PAY[r.m]?.label || 'DP'}</span><span class="dp-fixed">${rp(r.a)}</span></div>`
-        : `<div class="pay-row"><span class="badge b-mute">${D.PAY[r.m]?.label || r.m}</span><input class="inp" type="number" data-ra="${i}" value="${r.a}" aria-label="Jumlah ${D.PAY[r.m]?.label || r.m}">${r.m === 'deposit' ? `<input class="inp" data-rc="${i}" placeholder="No. kartu KD-0001" value="${esc(r.card)}">` : ''}${r.m === 'other' ? `<input class="inp" data-rr="${i}" placeholder="e. Foto produk, e. Acara" value="${esc(r.ref || '')}">` : ''}${freePays.length > 1 ? `<button class="btn-icon sm" data-rx="${i}" aria-label="Hapus">${ic('x', 15)}</button>` : ''}</div>`
+        : `<div class="pay-row"><span class="badge b-mute">${D.PAY[r.m]?.label || r.m}</span><input class="inp" type="number" data-ra="${i}" value="${r.a}" aria-label="Jumlah ${D.PAY[r.m]?.label || r.m}">${r.m === 'deposit' ? `<input class="inp" data-rc="${i}" placeholder="No. kartu KD-0001" value="${esc(r.card)}">` : ''}${r.m === 'other' ? `<input class="inp" data-rr="${i}" placeholder="e. Foto produk, e. Acara" value="${esc(r.ref || '')}">` : ''}${r.m === 'bill' ? `<input class="inp" data-rd="${i}" placeholder="Ditagih ke (nama / instansi)" value="${esc(r.debtor || '')}"><input class="inp" type="date" data-ru="${i}" title="Jatuh tempo (opsional)" value="${esc(r.due || '')}">` : ''}${freePays.length > 1 ? `<button class="btn-icon sm" data-rx="${i}" aria-label="Hapus">${ic('x', 15)}</button>` : ''}</div>`
       ).join('')}</div>
       <div class="row wrap"><button class="btn btn-sm" data-add-row>${ic('plus', 14)} Tambah metode</button><span class="split-eq"><button class="btn btn-sm" data-equal>${ic('split', 14)} Bagi rata untuk</button><input class="inp inp-xs" type="number" id="split-n" min="2" max="20" value="${freePays.length > 1 ? freePays.length : 2}" aria-label="Jumlah orang"><span class="muted sm">orang</span></span></div>
       ${rows.some((r) => r.m === 'qris') ? `<div class="qris-box">${qrisUrl(db.settings) ? `<img class="qris-img" src="${qrisUrl(db.settings)}" alt="QRIS toko">` : ''}<p>${qrisUrl(db.settings) ? 'Minta pelanggan scan QRIS ini (juga tampil di layar pelanggan) dan membayar' : 'Minta pelanggan scan QRIS di meja kasir dan membayar'} <b>${rp(rows.find((r) => r.m === 'qris').a)}</b>. Tekan Bayar setelah notifikasi dana masuk terlihat.${qrisUrl(db.settings) ? '' : ' Gambar QRIS bisa diunggah di Kaly Order, tab Pengaturan.'}</p></div>` : ''}
@@ -905,6 +905,8 @@ function payModal(ctx) {
         if (e.target.dataset.ra !== undefined) { rows[Number(e.target.dataset.ra)].a = e.target.value; m.querySelector('.pay-sum').outerHTML = draw().match(/<div class="pay-sum[\s\S]*<\/div>$/)[0]; }
         if (e.target.dataset.rc !== undefined) rows[Number(e.target.dataset.rc)].card = e.target.value.trim().toUpperCase();
         if (e.target.dataset.rr !== undefined) rows[Number(e.target.dataset.rr)].ref = e.target.value.trim();
+        if (e.target.dataset.rd !== undefined) rows[Number(e.target.dataset.rd)].debtor = e.target.value.trim();
+        if (e.target.dataset.ru !== undefined) rows[Number(e.target.dataset.ru)].due = e.target.value;
         if (e.target.id === 'tendered') { tendered = e.target.value; m.querySelector('.pay-sum').outerHTML = draw().match(/<div class="pay-sum[\s\S]*<\/div>$/)[0]; }
       });
       let paying = false;
@@ -914,13 +916,24 @@ function payModal(ctx) {
         const btn = ev.currentTarget;
         const freePaysNow = rows.filter((r) => !r.fixed);
         const single = freePaysNow.length === 1 && freePaysNow[0].m === 'cash';
-        const pays = rows.map((r) => ({ m: r.m, a: Number(r.a) || 0, ...(r.m === 'deposit' ? { card: r.card } : {}), ...(r.m === 'other' && r.ref ? { ref: r.ref } : {}) }));
+        const pays = rows.map((r) => ({ m: r.m, a: Number(r.a) || 0, ...(r.m === 'deposit' ? { card: r.card } : {}), ...(r.m === 'other' && r.ref ? { ref: r.ref } : {}),
+          ...(r.m === 'bill' ? { debtor: r.debtor || '', ...(r.due ? { due: r.due } : {}) } : {}) }));
         if (single && tendered) { const cashRow = pays.find((p) => p.m === 'cash'); if (cashRow) cashRow.a = Number(tendered); }
         const tend = pays.filter((p) => p.m === 'cash').reduce((s, p) => s + p.a, 0);
+        // Bill pending: wajib penanggung jawab, dan perlu PIN manajer bila yang menutup bukan owner
+        const billRows = pays.filter((p) => p.m === 'bill' && p.a > 0);
+        let pin = null;
+        if (billRows.length) {
+          if (billRows.some((p) => !p.debtor)) { paying = false; return toast('Isi dulu nama penanggung jawab tagihan', 'warn'); }
+          if (ctx.user.role !== 'owner') {
+            pin = await askPin(`Bill ${rp(billRows.reduce((s, p) => s + p.a, 0))} ditutup sebagai piutang. Uang belum masuk laci.`);
+            if (!pin) { paying = false; return toast('Pembayaran dibatalkan', 'warn'); }
+          }
+        }
         const before = stockSnap(getDb(), ctx.outlet);
         btn.disabled = true;
         let res;
-        try { res = await op(o.id, () => API.pay(o.id, pays, sh.id, tend)); } catch (e) {
+        try { res = await op(o.id, () => API.pay(o.id, pays, sh.id, tend, pin)); } catch (e) {
           // Duplicate key: pembayaran mungkin sudah masuk tapi respons hilang — cek status order
           if (/kode yang sama|duplicate/i.test(e.message)) {
             await C.refreshOrder(o.id).catch(() => {});

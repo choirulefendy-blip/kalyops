@@ -715,6 +715,31 @@ create table if not exists public.deposit_tx (
   shift_id   text references public.shifts(id)
 );
 
+-- Bill pending (piutang tamu): satu baris per bill yang ditutup dengan metode "Tagih nanti"
+create table if not exists public.receivables (
+  id          text primary key default ('rcv' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 12)),
+  order_id    text        not null references public.orders(id) on delete cascade,
+  location_id text        not null references public.locations(id),
+  amount      numeric     not null check (amount > 0),
+  debtor      text        not null default '',
+  due_date    date,
+  note        text        not null default '',
+  status      text        not null default 'open' check (status in ('open', 'paid')),
+  paid_on     date,
+  paid_method text,
+  paid_ref    text        not null default '',
+  paid_by     text,
+  paid_at     timestamptz,
+  created_at  timestamptz not null default now(),
+  created_by  text,
+  constraint receivables_paid_chk check (
+    (status = 'open' and paid_on is null and paid_method is null)
+    or (status = 'paid' and paid_on is not null and paid_method is not null)
+  )
+);
+create index if not exists receivables_open_idx on public.receivables (location_id, status, due_date);
+create index if not exists receivables_order_idx on public.receivables (order_id);
+
 -- ---------------------------------------------------------------------
 -- Pembukuan & kontrol
 -- ---------------------------------------------------------------------

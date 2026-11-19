@@ -283,15 +283,22 @@ begin
 end $$;
 
 -- Bayar. p_pays = [{"m":"cash","a":100000}, {"m":"qris","a":46000}, {"m":"deposit","a":20000,"card":"KD-0001"}]
-create or replace function public.pay_order(p_order text, p_pays jsonb, p_shift text, p_tendered numeric default 0) returns jsonb
-language plpgsql security definer set search_path = public as $$
-declare me public.staff; sh public.shifts;
+create or replace function public.pay_order(p_order text, p_pays jsonb, p_shift text, p_tendered numeric default 0, p_pin text default null) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare me public.staff; sh public.shifts; v_bill numeric;
 begin
   me := engine.require_role(array['owner', 'kasir']);
   perform engine.on_();
   select * into sh from shifts where id = p_shift;
   if sh.id is null or sh.close_at is not null then return jsonb_build_object('ok', false, 'msg', 'Buka shift dulu sebelum menerima pembayaran'); end if;
   if sh.staff_id <> me.id and me.role <> 'owner' then return jsonb_build_object('ok', false, 'msg', 'Shift di ' || sh.terminal || ' milik staf lain'); end if;
+  -- Bill pending (piutang) perlu persetujuan manajer: uang tidak masuk laci
+  select coalesce(sum((x->>'a')::numeric), 0) into v_bill from jsonb_array_elements(coalesce(p_pays, '[]')) x where x->>'m' = 'bill';
+  if v_bill > 0 and me.role <> 'owner' then
+    if not exists (select 1 from app_secrets where id = 1 and manager_pin_hash = extensions.crypt(coalesce(p_pin, ''), manager_pin_hash)) then
+      return jsonb_build_object('ok', false, 'msg', 'PIN manajer salah. Bill pending perlu persetujuan manajer.');
+    end if;
+  end if;
   return engine.settle(p_order, p_pays, me.id, sh.id, true, p_tendered);
 end $$;
 
@@ -2208,6 +2215,36 @@ end $$;
 --   kartu deposit → saldo kartu dikembalikan
 -- Jurnal penjualan dibalik, voucher & poin member dikembalikan, item yang belum selesai di dapur dihentikan.
 -- Stok bahan tidak dikembalikan (makanan sudah dibuat).
+-- Tandai piutang lunas: catat tanggal uang diterima + jurnal Dr kas/bank, Cr 1103
+create or replace function public.receivable_settle(p_id text, p_paid_on date, p_method text, p_ref text default '')
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare me public.staff; rc public.receivables; o public.orders; v_acc text;
+begin
+  me := engine.require_role(array['owner']);
+  perform engine.on_();
+  select * into rc from receivables where id = p_id for update;
+  if rc.id is null then raise exception 'Piutang tidak ditemukan'; end if;
+  if not public.can_loc(rc.location_id) then raise exception 'Tidak punya akses ke outlet ini' using errcode = '42501'; end if;
+  if rc.status = 'paid' then raise exception 'Piutang ini sudah ditandai lunas pada %', to_char(rc.paid_on, 'DD Mon YYYY'); end if;
+  if p_method is null or p_method not in ('cash', 'qris', 'card', 'transfer') then
+    raise exception 'Metode pelunasan harus tunai, QRIS, kartu, atau transfer';
+  end if;
+  if p_paid_on is null then raise exception 'Tanggal pelunasan wajib diisi'; end if;
+  if p_paid_on > public.biz_date() then raise exception 'Tanggal pelunasan tidak boleh di masa depan'; end if;
+  if p_paid_on < rc.created_at::date then
+    raise exception 'Tanggal pelunasan tidak boleh sebelum bill dibuat (%)', to_char(rc.created_at, 'DD Mon YYYY');
+  end if;
+  select * into o from orders where id = rc.order_id;
+  v_acc := engine.pay_account(p_method);
+  update receivables set status = 'paid', paid_on = p_paid_on, paid_method = p_method,
+         paid_ref = coalesce(p_ref, ''), paid_by = me.id, paid_at = now() where id = rc.id;
+  perform engine.post(engine.entity_of(rc.location_id), 'Pelunasan piutang ' || coalesce(o.no, rc.order_id),
+    rc.order_id, 'Penerimaan dari pelanggan',
+    jsonb_build_array(jsonb_build_array(v_acc, rc.amount, 0), jsonb_build_array('1103', 0, rc.amount)),
+    p_paid_on::timestamptz, null, me.id);
+  return jsonb_build_object('ok', true, 'id', rc.id, 'amount', rc.amount, 'paid_on', p_paid_on, 'method', p_method, 'no', o.no);
+end $$;
+
 create or replace function public.order_refund(p_order text, p_reason text, p_shift text default null) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare me public.staff; o public.orders; b jsonb; sh public.shifts; v_pays jsonb; v_cash numeric; v_lines jsonb := '[]'::jsonb; r record; p jsonb;

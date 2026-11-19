@@ -46,6 +46,7 @@ insert into public.accounts (code, name, type, is_cash) values
   ('4101', 'Penjualan', 'revenue', false),
   ('4102', 'Penjualan antar perusahaan', 'revenue', false),
   ('4103', 'Pendapatan lain (service & ongkir)', 'revenue', false),
+  ('1103', 'Piutang tamu (bill pending)', 'asset', false),
   ('4201', 'Diskon penjualan', 'contra', false),
   ('4202', 'Pembulatan penjualan', 'contra', false),
   ('5101', 'Harga pokok penjualan', 'cogs', false),
