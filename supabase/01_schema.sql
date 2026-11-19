@@ -70,6 +70,8 @@ create table if not exists public.settings (
   demo_online_pay  boolean not null default false,
   b2b_markup       numeric(6,4) not null default 0.15,
   birthday_pct     numeric(6,4) not null default 0.25,
+  rounding         boolean      not null default false,
+  rounding_to      numeric      not null default 100 check (rounding_to in (100, 500, 1000)),
   updated_at       timestamptz not null default now()
 );
 comment on table public.settings is 'Aturan operasional Kaly Ops: pajak, poin, anti-fraud, pengantaran, reservasi. Satu baris (id = 1).';

@@ -407,7 +407,7 @@ end $$;
 create or replace function engine.compute_bill(p_order text, p_at timestamptz default null) returns jsonb language plpgsql stable set search_path = public as $$
 declare
   o public.orders; s public.settings := engine.cfg(); p public.promos; t public.tiers; mem public.members;
-  v_at timestamptz; v_sub numeric; v_base numeric; v_q numeric; v_free numeric; v_run numeric; v_a numeric; v_disc numeric; v_svc numeric; v_tax numeric;
+  v_at timestamptz; v_sub numeric; v_base numeric; v_q numeric; v_free numeric; v_run numeric; v_a numeric; v_disc numeric; v_svc numeric; v_tax numeric; v_gross numeric; v_round numeric;
   v_discs jsonb := '[]'::jsonb; v_chk jsonb; v_md jsonb; v_pts numeric;
 begin
   select * into o from orders where id = p_order;
@@ -474,8 +474,13 @@ begin
   v_disc := v_sub - v_run;
   v_svc := engine.jsround(v_run * s.service_rate);
   v_tax := engine.jsround((v_run + v_svc) * s.tax_rate);
+  v_gross := v_run + v_svc + v_tax + o.delivery_fee;
+  v_round := 0;
+  if s.rounding and s.rounding_to > 0 and v_gross >= s.rounding_to then
+    v_round := v_gross - (floor(v_gross / s.rounding_to) * s.rounding_to);
+  end if;
   return jsonb_build_object('sub', v_sub, 'discs', v_discs, 'disc', v_disc, 'base', v_run, 'svc', v_svc, 'tax', v_tax, 'deliv', o.delivery_fee,
-                            'total', v_run + v_svc + v_tax + o.delivery_fee);
+                            'round', v_round, 'total', v_gross - v_round);
 end $$;
 
 -- Progres misi member setelah pesanan lunas; kembalikan misi yang baru selesai
@@ -528,7 +533,7 @@ begin
   select coalesce(sum((x->>'a')::numeric), 0) into v_cashgiven from jsonb_array_elements(coalesce(p_pays, '[]')) x where x->>'m' = 'cash';
   if v_noncash + v_cashgiven < v_total then return jsonb_build_object('ok', false, 'msg', 'Pembayaran kurang ' || engine.rp(v_total - v_noncash - v_cashgiven)); end if;
   for p in select * from jsonb_array_elements(coalesce(p_pays, '[]')) loop
-    if p->>'m' not in ('cash', 'qris', 'card', 'transfer', 'deposit') then return jsonb_build_object('ok', false, 'msg', 'Metode bayar tidak dikenal: ' || coalesce(p->>'m', '')); end if;
+    if p->>'m' not in ('cash', 'qris', 'card', 'transfer', 'deposit', 'dp', 'other') then return jsonb_build_object('ok', false, 'msg', 'Metode bayar tidak dikenal: ' || coalesce(p->>'m', '')); end if;
     if p->>'m' = 'deposit' then
       select * into c from deposit_cards where id = p->>'card' for update;
       if c.id is null or not c.active then return jsonb_build_object('ok', false, 'msg', 'Kartu deposit tidak ditemukan atau nonaktif'); end if;
@@ -563,6 +568,7 @@ begin
     v_lines := v_lines || jsonb_build_array(jsonb_build_array(r.acc, r.amt, 0));
   end loop;
   if (b->>'disc')::numeric > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_array('4201', (b->>'disc')::numeric, 0)); end if;
+  if coalesce((b->>'round')::numeric, 0) > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_array('4202', (b->>'round')::numeric, 0)); end if;
   v_lines := v_lines || jsonb_build_array(jsonb_build_array('4101', 0, (b->>'sub')::numeric));
   if (b->>'tax')::numeric > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_array('2104', 0, (b->>'tax')::numeric)); end if;
   if (b->>'svc')::numeric + (b->>'deliv')::numeric > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_array('4103', 0, (b->>'svc')::numeric + (b->>'deliv')::numeric)); end if;

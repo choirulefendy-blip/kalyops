@@ -47,6 +47,7 @@ insert into public.accounts (code, name, type, is_cash) values
   ('4102', 'Penjualan antar perusahaan', 'revenue', false),
   ('4103', 'Pendapatan lain (service & ongkir)', 'revenue', false),
   ('4201', 'Diskon penjualan', 'contra', false),
+  ('4202', 'Pembulatan penjualan', 'contra', false),
   ('5101', 'Harga pokok penjualan', 'cogs', false),
   ('6101', 'Beban gaji', 'expense', false),
   ('6102', 'Beban listrik & air', 'expense', false),

@@ -54,6 +54,11 @@ export default {
           ${n('pointsPer', 'Belanja per 1 poin', s.pointsPer, 1000, 'Rp')}${n('pointValue', 'Nilai 1 poin saat ditukar', s.pointValue, 10, 'Rp')}
           ${n('welcomePoints', 'Bonus poin member baru', s.welcomePoints)}${n('slaMin', 'Target serving time dapur', s.slaMin, 1, 'menit')}</div>
         <label class="switch"><input type="checkbox" name="stockGuard" ${s.stockGuard !== false ? 'checked' : ''}><span>Menu otomatis habis saat bahan resepnya tidak cukup untuk satu porsi (outlet yang terhubung Kaly Core)</span></label>
+        <label class="switch"><input type="checkbox" name="rounding" ${s.rounding ? 'checked' : ''}><span>Pembulatan total tagihan ke bawah</span></label>
+        <label class="fld"><span>Kelipatan pembulatan</span><select name="roundingTo" class="inp">
+          ${[100, 500, 1000].map((v) => `<option value="${v}" ${Number(s.roundingTo) === v ? 'selected' : ''}>Rp ${v.toLocaleString('id-ID')}</option>`).join('')}
+        </select></label>
+        <p class="hint">Total tagihan dibulatkan <b>ke bawah</b> ke kelipatan terdekat, jadi tamu selalu membayar lebih sedikit, tidak pernah lebih. Contoh kelipatan Rp 100: total Rp 47.350 menjadi <b>Rp 47.300</b>. Selisihnya dicatat di akun <b>4202 Pembulatan penjualan</b> supaya laporan keuangan tetap seimbang. Subtotal, diskon, service charge, dan PB1 tidak ikut dibulatkan.</p>
         <div class="card-h"><h3>Kontrol anti-fraud</h3></div>
         <div class="grid2"><label class="fld"><span>Ganti PIN manajer</span><input name="managerPin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" placeholder="Kosongkan bila tidak diganti"></label>
           ${n('discApproval', 'Diskon manual tanpa PIN maksimal', Math.round(s.discApproval * 100), 1, '%')}${n('cashVarTol', 'Toleransi selisih kas', s.cashVarTol, 1000, 'Rp')}
@@ -99,7 +104,8 @@ export default {
       const f = formData(form);
       if (f.managerPin && !/^\d{4,6}$/.test(f.managerPin)) return toast('PIN manajer harus 4 sampai 6 angka', 'warn');
       const patch = { taxRate: (Number(f.taxRate) || 0) / 100, serviceRate: (Number(f.serviceRate) || 0) / 100, discApproval: (Number(f.discApproval) || 0) / 100,
-        poPriceTol: (Number(f.poPriceTol) || 0) / 100, b2bMarkup: (Number(f.b2bMarkup) || 0) / 100, stockGuard: !!f.stockGuard };
+        poPriceTol: (Number(f.poPriceTol) || 0) / 100, b2bMarkup: (Number(f.b2bMarkup) || 0) / 100, stockGuard: !!f.stockGuard,
+        rounding: !!f.rounding, roundingTo: [100, 500, 1000].includes(Number(f.roundingTo)) ? Number(f.roundingTo) : 100 };
       ['pointsPer', 'pointValue', 'welcomePoints', 'slaMin', 'cashVarTol', 'poApproval', 'transferFee'].forEach((k) => (patch[k] = Number(f[k]) || 0));
       const btn = form.querySelector('#set-save'); btn.disabled = true;
       try {

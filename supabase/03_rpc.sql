@@ -2243,6 +2243,7 @@ begin
     v_lines := v_lines || jsonb_build_array(jsonb_build_array(r.acc, 0, r.amt));
   end loop;
   if (b->>'disc')::numeric > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_array('4201', 0, (b->>'disc')::numeric)); end if;
+  if coalesce((b->>'round')::numeric, 0) > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_array('4202', 0, (b->>'round')::numeric)); end if;
   v_lines := v_lines || jsonb_build_array(jsonb_build_array('4101', (b->>'sub')::numeric, 0));
   if (b->>'tax')::numeric > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_array('2104', (b->>'tax')::numeric, 0)); end if;
   if coalesce((b->>'svc')::numeric, 0) + coalesce((b->>'deliv')::numeric, 0) > 0 then

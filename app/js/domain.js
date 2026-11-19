@@ -320,7 +320,12 @@ export function bill(db, o, ts) {
   const svc = Math.round(run * db.settings.serviceRate);
   const tax = Math.round((run + svc) * db.settings.taxRate);
   const deliv = o.delivFee || 0;
-  return { sub, discs, disc, base: run, svc, tax, deliv, total: run + svc + tax + deliv };
+  const gross = run + svc + tax + deliv;
+  // Pembulatan ke bawah (Backoffice › Aturan operasional). round = rupiah yang dipotong.
+  const step = db.settings.roundingTo || 0;
+  // Jangan pernah membulatkan tagihan menjadi nol: butuh minimal satu kelipatan.
+  const round = db.settings.rounding && step > 0 && gross >= step ? gross - Math.floor(gross / step) * step : 0;
+  return { sub, discs, disc, base: run, svc, tax, deliv, round, total: gross - round };
 }
 
 // ---------- Order ----------
@@ -550,6 +555,7 @@ export function settle(db, o, pays, u, { shift = null, send = true, tendered = 0
   for (const p of norm) dr[PAY[p.m].acc] = (dr[PAY[p.m].acc] || 0) + p.a;
   const l = Object.entries(dr).map(([a, v]) => [a, v, 0]);
   if (b.disc) l.push(['4201', b.disc, 0]);
+  if (b.round) l.push(['4202', b.round, 0]);   // selisih pembulatan ke bawah
   l.push(['4101', 0, b.sub]);
   if (b.tax) l.push(['2104', 0, b.tax]);
   if (b.svc + b.deliv) l.push(['4103', 0, b.svc + b.deliv]);
