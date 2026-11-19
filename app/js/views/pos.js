@@ -858,8 +858,8 @@ function payModal(ctx) {
   const b = D.bill(db, o);
   const resDP = (() => { const res = o.res ? db.reservations.find((x) => x.id === o.res) : null; return res?.dp > 0 ? res.dp : 0; })();
   let rows = resDP > 0
-    ? [{ m: 'dp', a: resDP, card: '', fixed: true }, { m: 'cash', a: Math.max(0, b.total - resDP), card: '' }]
-    : [{ m: 'cash', a: b.total, card: '' }];
+    ? [{ m: 'dp', a: resDP, card: '', ref: '', fixed: true }, { m: 'cash', a: Math.max(0, b.total - resDP), card: '', ref: '' }]
+    : [{ m: 'cash', a: b.total, card: '', ref: '' }];
   let tendered = '';
   const draw = () => {
     const paidTotal = sum(rows, (r) => Number(r.a) || 0);
@@ -874,7 +874,7 @@ function payModal(ctx) {
       <div class="pay-methods">${PAY_SEL.map(([k, v]) => `<button class="pm ${freePays.length === 1 && freePays[0].m === k ? 'on' : ''}" data-pm="${k}">${ic(v.icon, 20)}<span>${v.label}</span></button>`).join('')}</div>
       <div class="pay-rows">${rows.map((r, i) => r.fixed
         ? `<div class="pay-row pay-row-dp"><span class="badge b-ok">${D.PAY[r.m]?.label || 'DP'}</span><span class="dp-fixed">${rp(r.a)}</span></div>`
-        : `<div class="pay-row"><span class="badge b-mute">${D.PAY[r.m]?.label || r.m}</span><input class="inp" type="number" data-ra="${i}" value="${r.a}" aria-label="Jumlah ${D.PAY[r.m]?.label || r.m}">${r.m === 'deposit' ? `<input class="inp" data-rc="${i}" placeholder="No. kartu KD-0001" value="${esc(r.card)}">` : ''}${freePays.length > 1 ? `<button class="btn-icon sm" data-rx="${i}" aria-label="Hapus">${ic('x', 15)}</button>` : ''}</div>`
+        : `<div class="pay-row"><span class="badge b-mute">${D.PAY[r.m]?.label || r.m}</span><input class="inp" type="number" data-ra="${i}" value="${r.a}" aria-label="Jumlah ${D.PAY[r.m]?.label || r.m}">${r.m === 'deposit' ? `<input class="inp" data-rc="${i}" placeholder="No. kartu KD-0001" value="${esc(r.card)}">` : ''}${r.m === 'other' ? `<input class="inp" data-rr="${i}" placeholder="e. Foto produk, e. Acara" value="${esc(r.ref || '')}">` : ''}${freePays.length > 1 ? `<button class="btn-icon sm" data-rx="${i}" aria-label="Hapus">${ic('x', 15)}</button>` : ''}</div>`
       ).join('')}</div>
       <div class="row wrap"><button class="btn btn-sm" data-add-row>${ic('plus', 14)} Tambah metode</button><span class="split-eq"><button class="btn btn-sm" data-equal>${ic('split', 14)} Bagi rata untuk</button><input class="inp inp-xs" type="number" id="split-n" min="2" max="20" value="${freePays.length > 1 ? freePays.length : 2}" aria-label="Jumlah orang"><span class="muted sm">orang</span></span></div>
       ${rows.some((r) => r.m === 'qris') ? `<div class="qris-box">${qrisUrl(db.settings) ? `<img class="qris-img" src="${qrisUrl(db.settings)}" alt="QRIS toko">` : ''}<p>${qrisUrl(db.settings) ? 'Minta pelanggan scan QRIS ini (juga tampil di layar pelanggan) dan membayar' : 'Minta pelanggan scan QRIS di meja kasir dan membayar'} <b>${rp(rows.find((r) => r.m === 'qris').a)}</b>. Tekan Bayar setelah notifikasi dana masuk terlihat.${qrisUrl(db.settings) ? '' : ' Gambar QRIS bisa diunggah di Kaly Order, tab Pengaturan.'}</p></div>` : ''}
@@ -903,6 +903,7 @@ function payModal(ctx) {
       m.addEventListener('input', (e) => {
         if (e.target.dataset.ra !== undefined) { rows[Number(e.target.dataset.ra)].a = e.target.value; m.querySelector('.pay-sum').outerHTML = draw().match(/<div class="pay-sum[\s\S]*<\/div>$/)[0]; }
         if (e.target.dataset.rc !== undefined) rows[Number(e.target.dataset.rc)].card = e.target.value.trim().toUpperCase();
+        if (e.target.dataset.rr !== undefined) rows[Number(e.target.dataset.rr)].ref = e.target.value.trim();
         if (e.target.id === 'tendered') { tendered = e.target.value; m.querySelector('.pay-sum').outerHTML = draw().match(/<div class="pay-sum[\s\S]*<\/div>$/)[0]; }
       });
       let paying = false;
@@ -912,7 +913,7 @@ function payModal(ctx) {
         const btn = ev.currentTarget;
         const freePaysNow = rows.filter((r) => !r.fixed);
         const single = freePaysNow.length === 1 && freePaysNow[0].m === 'cash';
-        const pays = rows.map((r) => ({ m: r.m, a: Number(r.a) || 0, ...(r.m === 'deposit' ? { card: r.card } : {}) }));
+        const pays = rows.map((r) => ({ m: r.m, a: Number(r.a) || 0, ...(r.m === 'deposit' ? { card: r.card } : {}), ...(r.m === 'other' && r.ref ? { ref: r.ref } : {}) }));
         if (single && tendered) { const cashRow = pays.find((p) => p.m === 'cash'); if (cashRow) cashRow.a = Number(tendered); }
         const tend = pays.filter((p) => p.m === 'cash').reduce((s, p) => s + p.a, 0);
         const before = stockSnap(getDb(), ctx.outlet);
@@ -957,7 +958,7 @@ export function receiptHtml(db, o, cfg) {
     ${o.lines.filter((l) => !l.par && (l.s !== 'void' || (o.status === 'refund' && /^Refund:/.test(l.vr || '')))).map((l) => `<div class="rl"><span>${l.q}× ${esc(l.n)}</span><span>${rp(l.q * l.p)}</span></div>`).join('')}<hr>
     <div class="rl"><span>Subtotal</span><span>${rp(b.sub)}</span></div>${b.discs.map((d) => `<div class="rl"><span>${esc(d.label)}</span><span>-${rp(d.amt)}</span></div>`).join('')}
     <div class="rl"><span>PB1</span><span>${rp(b.tax)}</span></div>${b.deliv ? `<div class="rl"><span>Ongkir</span><span>${rp(b.deliv)}</span></div>` : ''}<div class="rl big"><span>Total</span><span>${rp(b.total)}</span></div>
-    ${settled ? o.pays.map((p) => `<div class="rl"><span>${D.PAY[p.m].label}${p.card ? ' ' + p.card : ''}</span><span>${rp(p.a + (p.m === 'cash' ? o.change || 0 : 0))}</span></div>`).join('') + (o.change ? `<div class="rl"><span>Kembalian</span><span>${rp(o.change)}</span></div>` : '') : o.status === 'void' ? '' : '<p><b>TAGIHAN SEMENTARA</b></p>' + (qr ? `<img class="rc-qris" src="${qr}" alt="QRIS"><p>Scan QRIS untuk membayar</p>` : '')}
+    ${settled ? o.pays.map((p) => `<div class="rl"><span>${D.PAY[p.m]?.label || p.m}${p.card ? ' ' + p.card : ''}${p.ref ? ' — ' + esc(p.ref) : ''}</span><span>${rp(p.a + (p.m === 'cash' ? o.change || 0 : 0))}</span></div>`).join('') + (o.change ? `<div class="rl"><span>Kembalian</span><span>${rp(o.change)}</span></div>` : '') : o.status === 'void' ? '' : '<p><b>TAGIHAN SEMENTARA</b></p>' + (qr ? `<img class="rc-qris" src="${qr}" alt="QRIS"><p>Scan QRIS untuk membayar</p>` : '')}
     ${(o.refunds || []).length ? `<hr><p><b>REFUND SEBAGIAN</b></p>${[...new Map(o.refunds.map((x) => [x.batch, x])).values()].map((x) => `<div class="rl"><span>${esc(o.refunds.filter((y) => y.batch === x.batch).map((y) => y.qty + '× ' + y.name).join(', '))}</span><span>-${rp(o.refunds.filter((y) => y.batch === x.batch).reduce((a, y) => a + y.amt, 0))}</span></div>`).join('')}` : ''}
     ${R.member && m ? `<hr><p>Member ${esc(m.name)}${o.earned ? `<br>+${o.earned} poin, total ${num(m.points)} poin` : ''}</p>` : ''}
     ${R.footer ? `<hr><p>${rcLines(R.footer)}</p>` : ''}</div>`;

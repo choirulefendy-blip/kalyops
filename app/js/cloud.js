@@ -143,7 +143,7 @@ export function mapOrder(r) {
     ks: r.kitchen_state, updated: T(r.updated_at), bizDay: r.biz_day, note: r.note || '',
     ...(r.refund_at ? { refundAt: T(r.refund_at), refundBy: r.refund_by, refundReason: r.refund_reason || '', refundShift: r.refund_shift || null, refundPays: (r.refund_pays || []).map((p) => ({ m: p.m, a: N(p.a), ...(p.card ? { card: p.card } : {}) })) } : {}),
     lines: (r.order_lines || []).map(mapLine).sort(by('sort')),
-    pays: (r.order_payments || []).map((p) => ({ m: p.method, a: N(p.amount), ...(p.card_id ? { card: p.card_id } : {}) })),
+    pays: (r.order_payments || []).map((p) => ({ m: p.method, a: N(p.amount), ...(p.card_id ? { card: p.card_id } : {}), ...(p.ref ? { ref: p.ref } : {}) })),
   };
   return o;
 }
@@ -191,7 +191,7 @@ const DAY = 86400000;
 const WINDOW = { owner: 35, kasir: 8, service: 8, dapur: 8, gudang: 3 };
 let orderDays = 2, ordersSince = null, membersSince = null;
 const orderMap = new Map();
-const ORDER_SEL = '*, order_lines(*), order_payments(method, amount, card_id), order_refunds(*)';
+const ORDER_SEL = '*, order_lines(*), order_payments(method, amount, card_id, ref), order_refunds(*)';
 
 function putOrders(rows, replaceAll = false) {
   if (replaceAll) orderMap.clear();

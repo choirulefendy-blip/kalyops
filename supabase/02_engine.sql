@@ -40,7 +40,7 @@ end $$;
 
 create or replace function engine.entity_of(p_loc text) returns text language sql stable set search_path = public as $$ select entity_id from locations where id = p_loc; $$;
 create or replace function engine.pay_account(p_method text) returns text language sql immutable set search_path = public as $$
-  select case p_method when 'cash' then '1101' when 'deposit' then '2103' else '1102' end;
+  select case p_method when 'cash' then '1101' when 'deposit' then '2103' when 'dp' then '2101' when 'other' then '6104' else '1102' end;
 $$;
 
 -- ---------------------------------------------------------------------
@@ -555,8 +555,8 @@ begin
                            'Bill ' || o.no || '. Kosongkan meja di Denah setelah tamu pergi dan meja dibersihkan.', p_order, o.table_id);
     end if;
   end if;
-  insert into order_payments (order_id, method, amount, card_id)
-    select p_order, x->>'m', (x->>'a')::numeric, x->>'card' from jsonb_array_elements(v_norm) x;
+  insert into order_payments (order_id, method, amount, card_id, ref)
+    select p_order, x->>'m', (x->>'a')::numeric, x->>'card', x->>'ref' from jsonb_array_elements(v_norm) x;
   if p_send then perform engine.send_lines(p_order, p_by); end if;
   -- Jurnal penjualan
   for r in select engine.pay_account(x->>'m') as acc, sum((x->>'a')::numeric) as amt from jsonb_array_elements(v_norm) x group by 1 order by 1 loop
