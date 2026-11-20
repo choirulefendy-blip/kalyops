@@ -297,7 +297,135 @@ begin
 end $$;
 
 revoke all on function engine.report_locs(text[]), engine.report_tz() from public;
+-- Rekap penjualan per item, dipecah per tanggal dan per jam bayar
+create or replace function public.report_items(p_from timestamptz, p_to timestamptz, p_locs text[] default null, p_top int default 15)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare v_locs text[]; tz text := engine.report_tz(); r jsonb;
+begin
+  v_locs := engine.report_locs(p_locs);
+  with o as (
+    select o.id, (o.paid_at at time zone tz) lt from orders o
+     where o.status = 'paid' and o.location_id = any(v_locs) and o.paid_at >= p_from and o.paid_at <= p_to
+  ), l as (
+    select l.order_id, l.menu_id, coalesce(nullif(l.name, ''), m.name, l.menu_id) name, l.qty, l.qty * l.price v,
+           coalesce(l.cost, 0) + coalesce((select sum(c.cost) from order_lines c where c.parent_line_id = l.id and c.status <> 'void'), 0) hpp,
+           extract(hour from o.lt)::int h, o.lt::date d,
+           coalesce(m.category_id, '_') cat, coalesce(c.name, 'Tanpa kategori') catname
+      from order_lines l
+      join o on o.id = l.order_id
+      left join menus m on m.id = l.menu_id
+      left join menu_categories c on c.id = m.category_id
+     where l.parent_line_id is null and l.status <> 'void'
+  ), agg as (
+    select menu_id, max(name) name, max(cat) cat, max(catname) catname,
+           sum(qty) q, sum(v) v, sum(hpp) hpp, count(distinct order_id) n
+      from l group by menu_id
+  ), top as (
+    select menu_id from agg order by v desc, menu_id limit greatest(1, p_top)
+  )
+  select jsonb_build_object(
+    'tz', tz,
+    'from', (p_from at time zone tz)::date,
+    'to',   (p_to   at time zone tz)::date,
+    'totals', jsonb_build_object(
+       'qty',    (select coalesce(sum(q), 0) from agg),
+       'value',  (select coalesce(sum(v), 0) from agg),
+       'hpp',    (select coalesce(sum(hpp), 0) from agg),
+       'menus',  (select count(*) from agg),
+       'orders', (select count(*) from o)),
+    'items', (select coalesce(jsonb_agg(jsonb_build_object('id', menu_id, 'name', name, 'cat', cat, 'catname', catname,
+                       'qty', q, 'value', v, 'hpp', hpp, 'orders', n) order by v desc, name), '[]'::jsonb) from agg),
+    'hours', (select coalesce(jsonb_agg(jsonb_build_object('id', menu_id, 'h', h, 'qty', q, 'value', v)), '[]'::jsonb)
+                from (select l.menu_id, l.h, sum(l.qty) q, sum(l.v) v from l join top t on t.menu_id = l.menu_id group by 1, 2) y),
+    'hourTotals', (select coalesce(jsonb_agg(jsonb_build_object('h', h, 'qty', q, 'value', v, 'orders', n) order by h), '[]'::jsonb)
+                from (select h, sum(qty) q, sum(v) v, count(distinct order_id) n from l group by 1) y),
+    'days', (select coalesce(jsonb_agg(jsonb_build_object('id', menu_id, 'd', d, 'qty', q, 'value', v)), '[]'::jsonb)
+                from (select l.menu_id, l.d, sum(l.qty) q, sum(l.v) v from l join top t on t.menu_id = l.menu_id group by 1, 2) y),
+    'dayTotals', (select coalesce(jsonb_agg(jsonb_build_object('d', d, 'qty', q, 'value', v) order by d), '[]'::jsonb)
+                from (select d, sum(qty) q, sum(v) v from l group by 1) y),
+    'grid', (select coalesce(jsonb_agg(jsonb_build_object('id', menu_id, 'name', name, 'catname', catname,
+                       'd', d, 'h', h, 'qty', q, 'value', v, 'hpp', hpp, 'orders', n) order by d, h, name), '[]'::jsonb)
+                from (select menu_id, max(name) name, max(catname) catname, d, h,
+                             sum(qty) q, sum(v) v, sum(hpp) hpp, count(distinct order_id) n
+                        from l group by menu_id, d, h) y)
+  ) into r;
+  return r;
+end $$;
+
+-- Rekap diskon per jenis, kasir, hari & jam. Catatan: flag "approved" di orders.discount
+-- berarti "sempat diminta PIN manajer", bukan "disetujui/tidak" -- di sini dinamai withPin.
+create or replace function public.report_discounts(p_from timestamptz, p_to timestamptz, p_locs text[] default null)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare v_locs text[]; tz text := engine.report_tz(); v_thr numeric; r jsonb;
+begin
+  v_locs := engine.report_locs(p_locs);
+  select coalesce(disc_approval, 0) into v_thr from settings where id = 1;
+  with o as (
+    select o.id, o.no, o.location_id, o.paid_by, o.bill, o.discount, o.channel, o.type, o.table_id,
+           (o.paid_at at time zone tz) lt,
+           coalesce((o.bill->>'sub')::numeric, 0) sub,
+           coalesce(o.total, (o.bill->>'total')::numeric, 0) total
+      from orders o
+     where o.status = 'paid' and o.location_id = any(v_locs)
+       and o.paid_at >= p_from and o.paid_at <= p_to
+  ), d as (
+    select o.id, o.no, o.location_id, o.lt, o.sub, o.total, o.channel, o.type, o.table_id,
+           coalesce(nullif(x->>'kind', ''), 'lain') kind,
+           coalesce(nullif(x->>'label', ''), 'Tanpa nama') label,
+           (x->>'amt')::numeric amt,
+           coalesce(o.discount->'manual'->>'by', o.paid_by) staff,
+           coalesce((o.discount->'manual'->>'approved')::boolean, false) with_pin,
+           o.discount->'manual'->>'disc' disc_id,
+           nullif(o.discount->'manual'->>'reason', '') reason,
+           false legacy
+      from o, jsonb_array_elements(coalesce(o.bill->'discs', '[]'::jsonb)) x
+     where coalesce((x->>'amt')::numeric, 0) > 0
+    union all
+    select o.id, o.no, o.location_id, o.lt, o.sub, o.total, o.channel, o.type, o.table_id,
+           'impor', coalesce(nullif(o.discount->>'note', ''), 'Diskon impor'),
+           (o.discount->>'amount')::numeric, o.paid_by, false, null, null, true
+      from o
+     where jsonb_array_length(coalesce(o.bill->'discs', '[]'::jsonb)) = 0
+       and o.discount ? 'amount' and coalesce((o.discount->>'amount')::numeric, 0) > 0
+  )
+  select jsonb_build_object(
+    'tz', tz,
+    'threshold', v_thr,
+    'totals', jsonb_build_object(
+      'amount',   (select coalesce(sum(amt), 0) from d),
+      'bills',    (select count(distinct id) from d),
+      'allBills', (select count(*) from o),
+      'gross',    (select coalesce(sum(total), 0) from o),
+      'withPinAmount', (select coalesce(sum(amt), 0) from d where with_pin),
+      'withPinBills',  (select count(distinct id) from d where with_pin),
+      'overThrAmount', (select coalesce(sum(amt), 0) from d where not with_pin and sub > 0 and amt / sub > v_thr),
+      'overThrBills',  (select count(distinct id) from d where not with_pin and sub > 0 and amt / sub > v_thr)),
+    'kinds', (select coalesce(jsonb_agg(jsonb_build_object('kind', kind, 'label', label, 'amount', a, 'bills', n,
+                       'avg', a / nullif(n, 0), 'needPin', dc.need_pin, 'cfgType', dc.type, 'cfgValue', dc.value) order by a desc), '[]'::jsonb)
+                from (select kind, label, max(disc_id) did, sum(amt) a, count(distinct id) n from d group by 1, 2) y
+                left join discounts dc on dc.id = y.did),
+    'staff', (select coalesce(jsonb_agg(jsonb_build_object('id', y.staff, 'name', coalesce(s.name, 'Tidak tercatat'),
+                       'amount', y.a, 'bills', y.n, 'withPin', y.p) order by y.a desc), '[]'::jsonb)
+                from (select staff, sum(amt) a, count(distinct id) n,
+                             coalesce(sum(amt) filter (where with_pin), 0) p from d group by 1) y
+                left join staff s on s.id = y.staff),
+    'days', (select coalesce(jsonb_agg(jsonb_build_object('d', dd, 'amount', a, 'bills', n) order by dd), '[]'::jsonb)
+                from (select lt::date dd, sum(amt) a, count(distinct id) n from d group by 1) y),
+    'hours', (select coalesce(jsonb_agg(jsonb_build_object('h', hh, 'amount', a, 'bills', n) order by hh), '[]'::jsonb)
+                from (select extract(hour from lt)::int hh, sum(amt) a, count(distinct id) n from d group by 1) y),
+    'list', (select coalesce(jsonb_agg(jsonb_build_object('no', d.no, 'at', d.lt, 'loc', d.location_id,
+                       'kind', d.kind, 'label', d.label, 'amount', d.amt, 'sub', d.sub, 'total', d.total,
+                       'ratio', case when d.sub > 0 then d.amt / d.sub else null end,
+                       'staff', coalesce(s.name, d.staff, '-'), 'withPin', d.with_pin, 'reason', d.reason,
+                       'legacy', d.legacy, 'ch', d.channel, 'type', d.type, 'table', d.table_id) order by d.lt desc), '[]'::jsonb)
+                from d left join staff s on s.id = d.staff)
+  ) into r;
+  return r;
+end $$;
+
 revoke execute on function public.report_receipts(timestamptz, timestamptz, text[], int), public.report_categories(timestamptz, timestamptz, text[]),
-  public.report_tables(timestamptz, timestamptz, text, int) from public, anon;
+  public.report_tables(timestamptz, timestamptz, text, int), public.report_items(timestamptz, timestamptz, text[], int),
+  public.report_discounts(timestamptz, timestamptz, text[]) from public, anon;
 grant execute on function public.report_receipts(timestamptz, timestamptz, text[], int), public.report_categories(timestamptz, timestamptz, text[]),
-  public.report_tables(timestamptz, timestamptz, text, int) to authenticated;
+  public.report_tables(timestamptz, timestamptz, text, int), public.report_items(timestamptz, timestamptz, text[], int),
+  public.report_discounts(timestamptz, timestamptz, text[]) to authenticated;

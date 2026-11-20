@@ -6,7 +6,8 @@ import * as D from '../domain.js';
 import { rerender } from '../app.js';
 import { columns, lines, hbar, heat, legend, colorMap, compact, ONE, PAL, OTHER } from '../charts.js';
 
-export const rui = { notaHour: null, notaQ: '', notaMetric: 'total', katMetric: 'value', mejaMetric: 'occ', logKind: 'all' };
+export const rui = { notaHour: null, notaQ: '', notaMetric: 'total', katMetric: 'value', mejaMetric: 'occ', logKind: 'all',
+  itemMetric: 'value', itemQ: '', discOver: false };
 
 // ---------- Data dari server (disimpan per jenis; render lama dipertahankan saat memuat ulang) ----------
 const cache = {};
@@ -217,8 +218,170 @@ export function mejaCsv(db, f, which = 'tables') {
     ...d.per_table.map((t) => [t.id, t.area, t.seats, t.visits, t.sales, t.avg_dur ?? '', t.moves, t.clears])]);
 }
 
+// =====================================================================
+// 4. Penjualan per item & jam
+// =====================================================================
+// HPP tidak tersimpan di baris nota (order_lines.cost kosong), jadi margin
+// dihitung dari resep yang berlaku sekarang — sama seperti tab Penjualan.
+export function item(db, f) {
+  const r = remote('item', [f.from, f.to, f.locs], () => API.reportItems(f.from, f.to, f.locs));
+  return frame(r, (d) => {
+    if (!d.items.length) return `<div class="card"><p class="empty">Belum ada item terjual di periode ini.</p></div>`;
+    const M = rui.itemMetric, isRp = M === 'value';
+    const vfmt = isRp ? rp : (v) => `${num(v)} porsi`;
+    const metric = (x) => (x ? Number(isRp ? x.value : x.qty) : 0);
+    const T = d.totals;
+    const hpp = (it) => D.menuHpp(db, it.id) * Number(it.qty);
+    const htot = d.items.reduce((a, it) => a + hpp(it), 0);
+    const hrs = hourRange(d.hourTotals.map((x) => x.h));
+    const byH = Object.fromEntries(d.hourTotals.map((x) => [x.h, x]));
+    const days = dayList(f.from, f.to);
+    const byD = Object.fromEntries(d.dayTotals.map((x) => [x.d, x]));
+    const top = d.items.slice(0, 15);
+    const ids = top.map((x) => x.id);
+    const colors = colorMap(ids);
+    const HX = {}; d.hours.forEach((x) => { HX[`${x.id}|${x.h}`] = x; });
+    const DX = {}; d.days.forEach((x) => { DX[`${x.id}|${x.d}`] = x; });
+    const name = Object.fromEntries(d.items.map((x) => [x.id, x.name]));
+
+    const perHour = card('Penjualan per jam', columns({ x: hrs.map(HH),
+      series: [{ id: 'v', label: isRp ? 'Penjualan' : 'Porsi', color: ONE, values: hrs.map((h) => metric(byH[h])) }],
+      fmt: vfmt, axisFmt: (v) => compact(v, isRp), height: 210,
+      tipTitle: (i) => `Jam ${HH(hrs[i])}–${String(hrs[i]).padStart(2, '0')}.59`,
+      tipNote: (i) => { const x = byH[hrs[i]]; return x ? `${num(x.qty)} porsi · ${rp(x.value)} · ${num(x.orders)} nota` : 'Tidak ada transaksi'; } }),
+      { sub: 'Berdasarkan jam bayar, seluruh item digabung.', cls: 'span2' });
+
+    const heatCard = card('Item × jam', heat({ rows: top.map((x) => ({ label: x.name, color: colors[x.id] })),
+      cols: hrs.map((h) => String(h).padStart(2, '0')), val: (ri, ci) => metric(HX[`${ids[ri]}|${hrs[ci]}`]),
+      fmt: vfmt, cell: (v) => compact(v, false), title: (ri, ci) => `${name[ids[ri]]} · jam ${HH(hrs[ci])}`,
+      rowTotal: (ri) => Number(isRp ? top[ri].value : top[ri].qty), totalFmt: (v) => (isRp ? compact(v) : num(v)),
+      colTotal: (ci) => ids.reduce((a, id) => a + metric(HX[`${id}|${hrs[ci]}`]), 0) }),
+      { sub: '15 item teratas. Makin gelap makin laku di jam itu.', cls: 'span2' });
+
+    const trend = days.length > 1 ? card('Tren harian', columns({ x: days.map((k) => fmtShort(fromKey(k))),
+      series: [{ id: 'v', label: isRp ? 'Penjualan' : 'Porsi', color: ONE, values: days.map((k) => metric(byD[k])) }],
+      fmt: vfmt, axisFmt: (v) => compact(v, isRp), height: 190,
+      tipTitle: (i) => `${hariNama(fromKey(days[i]))}, ${fmtShort(fromKey(days[i]))}` }), { cls: 'span2' }) : '';
+
+    const dayHeat = days.length > 1 ? card('Item × tanggal', heat({ rows: top.map((x) => ({ label: x.name, color: colors[x.id] })),
+      cols: days.map((k) => fmtShort(fromKey(k))), val: (ri, ci) => metric(DX[`${ids[ri]}|${days[ci]}`]),
+      fmt: vfmt, cell: (v) => compact(v, false), title: (ri, ci) => `${name[ids[ri]]} · ${fmtShort(fromKey(days[ci]))}`,
+      rowTotal: (ri) => Number(isRp ? top[ri].value : top[ri].qty), totalFmt: (v) => (isRp ? compact(v) : num(v)),
+      colTotal: (ci) => ids.reduce((a, id) => a + metric(DX[`${id}|${days[ci]}`]), 0) }),
+      { sub: '15 item teratas per tanggal.', cls: 'span2' }) : '';
+
+    const q = rui.itemQ.trim().toLowerCase();
+    const rows = d.items.filter((x) => !q || x.name.toLowerCase().includes(q) || (x.catname || '').toLowerCase().includes(q));
+    const tbl = `<div class="tbl-wrap rp-scroll"><table class="tbl"><thead><tr><th>Item</th><th>Kategori</th><th class="num">Porsi</th><th class="num">Penjualan</th><th class="num">Porsi penjualan</th><th class="num">HPP resep</th><th class="num">Margin</th><th class="num">Nota</th></tr></thead><tbody>
+      ${rows.map((x) => { const h = hpp(x), v = Number(x.value); return `<tr><td><b>${esc(x.name)}</b></td><td class="muted sm">${esc(x.catname || '–')}</td><td class="num">${num(x.qty)}</td><td class="num">${rp(v)}</td><td class="num">${pct(v / (Number(T.value) || 1), 1)}</td><td class="num">${h ? rp(h) : '<span class="muted">–</span>'}</td><td class="num">${h ? pct((v - h) / v, 1) : '<span class="muted">–</span>'}</td><td class="num">${num(x.orders)}</td></tr>`; }).join('')
+        || '<tr><td colspan="8" class="empty">Tidak ada item cocok.</td></tr>'}
+      <tr class="tot"><td><b>Total</b></td><td></td><td class="num"><b>${num(T.qty)}</b></td><td class="num"><b>${rp(T.value)}</b></td><td class="num">100%</td><td class="num"><b>${htot ? rp(htot) : '–'}</b></td><td class="num"><b>${htot ? pct((Number(T.value) - htot) / Number(T.value), 1) : '–'}</b></td><td class="num">${num(T.orders)}</td></tr>
+    </tbody></table></div>`;
+
+    const hpWarn = htot ? '' : `<p class="hint">HPP tidak tersedia: resep belum diisi untuk item-item ini, jadi kolom HPP dan margin dikosongkan.</p>`;
+    const best = d.items[0];
+    return `<div class="kpis">${kpi('Penjualan item', rp(T.value), 'sebelum diskon tagihan & PB1')}${kpi('Porsi terjual', num(T.qty))}
+        ${kpi('Jenis item terjual', num(T.menus), `dari ${num(T.orders)} nota`)}
+        ${kpi('Item terlaris', esc(best.name), `${num(best.qty)} porsi · ${rp(best.value)}`)}
+        ${kpi('Rata-rata porsi per nota', num(Number(T.qty) / (Number(T.orders) || 1), 1))}</div>
+      <div class="row sb rp-ctl"><p class="muted sm">Jam = jam bayar. Nilai item sebelum diskon tagihan dan PB1.</p>${seg('itemMetric', M, [['value', 'Rupiah'], ['qty', 'Porsi']])}</div>
+      <div class="rp-grid">${perHour}${trend}${heatCard}${dayHeat}
+        ${card('Rekap per item', `<div class="row sb rp-ctl"><span class="muted sm">${num(rows.length)} item</span><input class="inp inp-sm" data-in="itemQ" id="item-q" placeholder="Cari item atau kategori" value="${esc(rui.itemQ)}"></div>${tbl}${hpWarn}`, { cls: 'span2' })}</div>`;
+  });
+}
+export function itemCsv(db, f) {
+  const d = cache.item?.data;
+  if (!d) return toast('Laporan belum selesai dimuat', 'warn');
+  const hppOf = (id, qty) => D.menuHpp(db, id) * Number(qty);
+  downloadCSV(`item-per-tanggal-jam-${dayKey(f.from)}-${dayKey(f.to)}.csv`, [
+    ['Tanggal', 'Jam', 'Item', 'Kategori', 'Porsi', 'Penjualan', 'HPP resep', 'Margin', 'Nota'],
+    ...d.grid.map((x) => { const h = hppOf(x.id, x.qty); return [x.d, HH(x.h), x.name, x.catname, x.qty, x.value, h || '', h ? Number(x.value) - h : '', x.orders]; }),
+    [], ['Rekap seluruh periode'],
+    ['Item', 'Kategori', 'Porsi', 'Penjualan', 'HPP resep', 'Margin', 'Nota'],
+    ...d.items.map((x) => { const h = hppOf(x.id, x.qty); return [x.name, x.catname, x.qty, x.value, h || '', h ? Number(x.value) - h : '', x.orders]; })]);
+}
+
+// =====================================================================
+// 5. Rekap diskon
+// =====================================================================
+export function diskon(db, f) {
+  const r = remote('disc', [f.from, f.to, f.locs], () => API.reportDiscounts(f.from, f.to, f.locs));
+  return frame(r, (d) => {
+    const T = d.totals;
+    if (!Number(T.amount)) return `<div class="card"><p class="empty">Tidak ada diskon diberikan di periode ini.</p><p class="hint">${num(T.allBills)} nota lunas, semuanya tanpa potongan.</p></div>`;
+    const thr = Number(d.threshold) || 0;
+    const days = dayList(f.from, f.to);
+    const byD = Object.fromEntries(d.days.map((x) => [x.d, x]));
+    const hrs = hourRange(d.hours.map((x) => x.h));
+    const byH = Object.fromEntries(d.hours.map((x) => [x.h, x]));
+    const gross = Number(T.gross) || 0, amt = Number(T.amount);
+
+    const trend = days.length > 1 ? card('Diskon per hari', columns({ x: days.map((k) => fmtShort(fromKey(k))),
+      series: [{ id: 'v', label: 'Diskon', color: ONE, values: days.map((k) => Number(byD[k]?.amount || 0)) }],
+      fmt: rp, axisFmt: (v) => compact(v, true), height: 190,
+      tipTitle: (i) => `${hariNama(fromKey(days[i]))}, ${fmtShort(fromKey(days[i]))}`,
+      tipNote: (i) => { const x = byD[days[i]]; return x ? `${num(x.bills)} nota` : ''; } }), { cls: 'span2' }) : '';
+
+    const perHour = card('Diskon per jam', columns({ x: hrs.map(HH),
+      series: [{ id: 'v', label: 'Diskon', color: ONE, values: hrs.map((h) => Number(byH[h]?.amount || 0)) }],
+      fmt: rp, axisFmt: (v) => compact(v, true), height: 190,
+      tipTitle: (i) => `Jam ${HH(hrs[i])}–${String(hrs[i]).padStart(2, '0')}.59`,
+      tipNote: (i) => { const x = byH[hrs[i]]; return x ? `${num(x.bills)} nota` : ''; } }), { cls: 'span2' });
+
+    const kindBar = card('Diskon per jenis', hbar(d.kinds.map((k) => ({ label: k.label, value: Number(k.amount),
+      tipLabel: 'Diskon', note: `${num(k.bills)} nota · rata-rata ${rp(k.avg)}` })), { fmt: rp, total: amt }));
+    const staffBar = card('Diskon per kasir', hbar(d.staff.map((s) => ({ label: s.name, value: Number(s.amount),
+      tipLabel: 'Diskon', note: `${num(s.bills)} nota` })), { fmt: rp, total: amt }),
+      { sub: 'Siapa yang memberi potongan. Berguna untuk melihat pola yang tidak biasa.' });
+
+    const kindTbl = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Jenis diskon</th><th>Setelan</th><th class="num">Nota</th><th class="num">Total diskon</th><th class="num">Rata-rata/nota</th><th class="num">Porsi</th></tr></thead><tbody>
+      ${d.kinds.map((k) => `<tr><td><b>${esc(k.label)}</b>${k.kind === 'impor' ? ' <span class="badge b-mute">impor</span>' : ''}</td>
+        <td class="muted sm">${k.cfgValue != null ? esc(k.cfgType === 'pct' ? `${num(Number(k.cfgValue) * 100, 0)}%` : rp(k.cfgValue)) : '–'}${k.needPin === true ? ' · perlu PIN' : k.needPin === false ? ' · tanpa PIN' : ''}</td>
+        <td class="num">${num(k.bills)}</td><td class="num"><b>${rp(k.amount)}</b></td><td class="num">${rp(k.avg)}</td><td class="num">${pct(Number(k.amount) / amt, 1)}</td></tr>`).join('')}
+      <tr class="tot"><td><b>Total</b></td><td></td><td class="num"><b>${num(T.bills)}</b></td><td class="num"><b>${rp(amt)}</b></td><td class="num"></td><td class="num">100%</td></tr></tbody></table></div>`;
+
+    const list = rui.discOver ? d.list.filter((x) => x.ratio != null && Number(x.ratio) > thr && !x.withPin) : d.list;
+    const shown = list.slice(0, 300);
+    const listCard = `<div class="card rp-card span2"><div class="card-h"><h3>Nota berdiskon</h3>
+        <div class="row">${seg('discOver', rui.discOver ? 'on' : 'all', [['all', 'Semua'], ['on', `Di atas ${num(thr * 100, 0)}%`]])}</div></div>
+      <div class="tbl-wrap rp-scroll"><table class="tbl"><thead><tr><th>No. nota</th><th>Waktu</th><th>Jenis diskon</th><th>Oleh</th><th class="num">Subtotal</th><th class="num">Diskon</th><th class="num">Porsi</th><th>Persetujuan</th><th>Alasan</th></tr></thead><tbody>
+      ${shown.map((x) => `<tr class="${x.ratio != null && Number(x.ratio) > thr && !x.withPin ? 'row-neg' : ''}"><td><b>${esc(x.no)}</b></td><td class="nowrap">${esc(fmtDT(new Date(x.at).getTime()))}</td>
+        <td>${esc(x.label)}</td><td>${esc(x.staff)}</td><td class="num">${x.sub ? rp(x.sub) : '<span class="muted">–</span>'}</td><td class="num"><b>${rp(x.amount)}</b></td>
+        <td class="num">${x.ratio != null ? pct(Number(x.ratio), 1) : '<span class="muted">–</span>'}</td>
+        <td>${x.withPin ? '<span class="badge b-ok">PIN manajer</span>' : x.legacy ? '<span class="badge b-mute">impor</span>' : '<span class="badge b-mute">tidak perlu</span>'}</td>
+        <td class="muted sm">${esc(x.reason || '')}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">Tidak ada nota untuk filter ini.</td></tr>'}
+      </tbody></table></div><p class="hint">${num(list.length)} nota${list.length > shown.length ? `, ditampilkan ${shown.length} terbaru. Unduh CSV untuk semuanya` : ''}.</p></div>`;
+
+    return `<div class="kpis">${kpi('Total diskon', rp(amt), `${pct(gross ? amt / gross : 0, 1)} dari penjualan`)}
+        ${kpi('Nota berdiskon', num(T.bills), `dari ${num(T.allBills)} nota lunas`)}
+        ${kpi('Rata-rata per nota', rp(amt / (Number(T.bills) || 1)))}
+        ${kpi('Lewat PIN manajer', rp(T.withPinAmount), `${num(T.withPinBills)} nota`)}
+        ${kpi(`Di atas ambang ${num(thr * 100, 0)}%`, rp(T.overThrAmount), `${num(T.overThrBills)} nota tanpa PIN`)}</div>
+      <p class="rp-sub">Ambang persetujuan saat ini <b>${num(thr * 100, 0)}%</b>. Diskon preset yang disetel "tanpa PIN" tetap sah walau tidak melewati persetujuan — kolom Persetujuan menunjukkan apakah PIN manajer sempat diminta, bukan apakah diskonnya wajar.</p>
+      <div class="rp-grid">${kindBar}${staffBar}${trend}${perHour}${card('Rekap per jenis diskon', kindTbl, { cls: 'span2' })}${listCard}</div>`;
+  });
+}
+export function diskonCsv(db, f) {
+  const d = cache.disc?.data;
+  if (!d) return toast('Laporan belum selesai dimuat', 'warn');
+  downloadCSV(`diskon-${dayKey(f.from)}-${dayKey(f.to)}.csv`, [
+    ['No nota', 'Waktu', 'Outlet', 'Channel', 'Tipe', 'Meja', 'Jenis diskon', 'Diberikan oleh', 'Subtotal', 'Diskon', 'Porsi diskon', 'Total nota', 'Lewat PIN manajer', 'Alasan'],
+    ...d.list.map((x) => [x.no, new Date(x.at).toLocaleString('id-ID'), D.loc(db, x.loc)?.name || x.loc,
+      D.CH_LABEL[x.ch] || x.ch || '', D.TYPE_LABEL[x.type] || x.type || '', x.table || '', x.label, x.staff,
+      x.sub || '', x.amount, x.ratio != null ? (Number(x.ratio) * 100).toFixed(1) + '%' : '', x.total,
+      x.withPin ? 'Ya' : 'Tidak', x.reason || '']),
+    [], ['Rekap per jenis diskon'], ['Jenis', 'Nota', 'Total diskon', 'Rata-rata per nota'],
+    ...d.kinds.map((k) => [k.label, k.bills, k.amount, Math.round(Number(k.avg))]),
+    [], ['Rekap per kasir'], ['Kasir', 'Nota', 'Total diskon', 'Lewat PIN manajer'],
+    ...d.staff.map((s) => [s.name, s.bills, s.amount, s.withPin]),
+    [], ['Rekap per hari'], ['Tanggal', 'Nota', 'Total diskon'],
+    ...d.days.map((x) => [x.d, x.bills, x.amount])]);
+}
+
 export const actions = {
   notaHour(el) { const h = Number(el.dataset.v); rui.notaHour = rui.notaHour === h ? null : h; rerender(); },
+  itemMetric(el) { rui.itemMetric = el.dataset.v; rerender(); },
+  discOver(el) { rui.discOver = el.dataset.v === 'on'; rerender(); },
   notaMetric(el) { rui.notaMetric = el.dataset.v; rerender(); },
   katMetric(el) { rui.katMetric = el.dataset.v; rerender(); },
   mejaMetric(el) { rui.mejaMetric = el.dataset.v; rerender(); },
@@ -226,4 +389,5 @@ export const actions = {
 };
 export function input(k, el) {
   if (k === 'notaQ') { rui.notaQ = el.value; const pos = el.selectionStart; rerender(); const i = document.getElementById('nota-q'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }
+  if (k === 'itemQ') { rui.itemQ = el.value; const pos = el.selectionStart; rerender(); const i = document.getElementById('item-q'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }
 }
