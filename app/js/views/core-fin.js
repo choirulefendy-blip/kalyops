@@ -81,7 +81,7 @@ function pl(db, from, to) {
       { l: 'Pendapatan bersih', v: net, p: 1, cls: 'tot' }, { l: 'Harga pokok penjualan', v: -cogs, p: P(cogs) }, { l: 'Laba kotor', v: gross, p: P(gross), cls: 'tot' },
       { h: 'Beban operasional' }, ...exps.map((x) => ({ l: x.l, v: -x.v, p: P(x.v), ind: 1 })), { l: 'Total beban', v: -te, p: P(te), cls: 'sub' }, { l: 'Laba bersih', v: np, p: P(np), cls: 'grand' }])}`)}`;
 }
-function bs(db, to) {
+function bs(db, from, to) {
   const b = D.balances(db, ents(), 0, to);
   const a = (c) => b[c] || 0;
   const assets = db.accounts.filter((x) => x.type === 'asset').map((x) => ({ c: x.code, l: x.name, v: a(x.code) })).filter((x) => x.v);
@@ -100,7 +100,32 @@ function bs(db, to) {
   const le = [...liab.map((x) => ({ c: 'L' + x.c, l: x.l, v: x.v })), { c: 'Z1', l: 'Ekuitas (modal)', v: sum(eq, (x) => x.v) }, { c: 'Z2', l: 'Laba berjalan', v: earn }];
   const comp = stack100([{ label: 'Aset', total: ta, segs: segs(assets) }], { fmt: rp }) + stack100([{ label: 'Kewajiban & ekuitas', total: tl + teq, segs: segs(le) }], { fmt: rp });
   const neg = le.filter((x) => x.v < 0);
-  return `<div class="rp-grid">${card('Komposisi neraca', comp, { cls: 'span2', sub: `Posisi per ${fmtDate(Math.min(to, Date.now()))}. Setiap batang = 100%. ${neg.length ? `Nilai negatif (${esc(neg.map((x) => x.l).join(', '))}) tidak digambar, tetap ada di tabel.` : ''}` })}</div>
+  // Pergerakan posisi keuangan: saldo awal periode lalu ditambah mutasi tiap hari
+  const trendCard = (() => {
+    const days = dayStarts(startOfDay(from), Math.min(to, Date.now()));
+    if (days.length < 2) return '';
+    const { out } = dailyBalances(db, days[0], days[days.length - 1]);
+    const open = D.balances(db, ents(), 0, days[0] - 1);
+    const run = { ...open };
+    const A = [], L = [], E = [];
+    const tot = (pred, sign) => sum(db.accounts.filter(pred), (x) => sign * (run[x.code] || 0));
+    days.forEach((_, i) => {
+      for (const c in out[i]) run[c] = (run[c] || 0) + out[i][c];
+      A.push(tot((x) => x.type === 'asset', 1));
+      L.push(tot((x) => x.type === 'liability', -1));
+      E.push(tot((x) => x.type === 'equity', -1) + tot((x) => ['revenue', 'contra', 'cogs', 'expense'].includes(x.type), -1));
+    });
+    return card('Pergerakan posisi keuangan', lines({
+      x: days.map((d) => fmtShort(d)),
+      series: [{ id: 'a', label: 'Aset', color: PAL[0], values: A },
+        { id: 'l', label: 'Kewajiban', color: NEG, values: L },
+        { id: 'e', label: 'Ekuitas', color: POS, values: E }],
+      fmt: rp, axisFmt: (v) => compact(v, true), height: 220,
+      tipTitle: (i) => `${hariNama(days[i])}, ${fmtShort(days[i])}`,
+      emptyText: 'Belum ada mutasi di periode ini.' }),
+      { cls: 'span2', sub: 'Aset selalu sama dengan kewajiban ditambah ekuitas. Jarak antara garis aset dan kewajiban adalah kekayaan bersih.' });
+  })();
+  return `<div class="rp-grid">${card('Komposisi neraca', comp, { cls: 'span2', sub: `Posisi per ${fmtDate(Math.min(to, Date.now()))}. Setiap batang = 100%. ${neg.length ? `Nilai negatif (${esc(neg.map((x) => x.l).join(', '))}) tidak digambar, tetap ada di tabel.` : ''}` })}${trendCard}</div>
     ${stmtCard(db, 0, to, `<p class="muted">Posisi per ${fmtDate(Math.min(to, Date.now()))}. <span class="badge ${ok ? 'b-ok' : 'b-err'}">${ok ? 'Seimbang' : 'Tidak seimbang'}</span></p>
     <div class="grid2">${stmt([{ h: 'Aset' }, ...assets.map((x) => ({ ...x, ind: 1 })), { l: 'Total aset', v: ta, cls: 'grand' }])}
     ${stmt([{ h: 'Kewajiban' }, ...liab.map((x) => ({ ...x, ind: 1 })), { l: 'Total kewajiban', v: tl, cls: 'sub' }, { h: 'Ekuitas' }, ...eq.map((x) => ({ ...x, ind: 1 })), { l: 'Laba berjalan', v: earn, ind: 1 }, { l: 'Total ekuitas', v: teq, cls: 'sub' }, { l: 'Total kewajiban & ekuitas', v: tl + teq, cls: 'grand' }])}</div>
@@ -201,7 +226,7 @@ function journal(db, from, to) {
 }
 // ---------- Piutang (bill pending) ----------
 // Tidak terikat periode laporan: piutang yang belum lunas selalu tampil sampai dilunasi.
-function piutang(db) {
+function piutang(db, from, to) {
   const locs = salesLocs(db);
   const rows = (db.receivables || []).filter((r) => locs.includes(r.loc));
   const open = rows.filter((r) => r.status === 'open').sort((a, b) => (a.due || '9999') .localeCompare(b.due || '9999') || a.created - b.created);
@@ -216,6 +241,43 @@ function piutang(db) {
     <div class="kpi"><small>Belum tertagih</small><b>${rp(outstanding)}</b><small>${num(open.length)} bill</small></div>
     <div class="kpi"><small>Lewat jatuh tempo</small><b class="${overdue.length ? 'neg' : ''}">${rp(sum(overdue, (r) => r.a))}</b><small>${num(overdue.length)} bill</small></div>
     <div class="kpi"><small>Piutang tertua</small><b>${open.length ? num(Math.max(...open.map(age))) + ' hari' : '–'}</b><small>sejak bill ditutup</small></div></div>`;
+
+  // Umur piutang: makin ke kanan makin lama menunggak, makin perlu ditagih
+  const BUCKETS = [[0, 7, '0–7 hari'], [8, 14, '8–14 hari'], [15, 30, '15–30 hari'], [31, 60, '31–60 hari'], [61, Infinity, '> 60 hari']];
+  const bucketOf = (r) => BUCKETS.findIndex(([lo, hi]) => age(r) >= lo && age(r) <= hi);
+  const bVal = BUCKETS.map((_, i) => sum(open.filter((r) => bucketOf(r) === i), (r) => r.a));
+  const bCnt = BUCKETS.map((_, i) => open.filter((r) => bucketOf(r) === i).length);
+  const aging = card('Umur piutang', columns({
+    x: BUCKETS.map((b) => b[2]),
+    series: [{ id: 'v', label: 'Belum tertagih', color: ONE, values: bVal }],
+    fmt: rp, axisFmt: (v) => compact(v, true), height: 200,
+    tipTitle: (i) => BUCKETS[i][2],
+    tipNote: (i) => `${num(bCnt[i])} bill${bVal[i] ? ` · ${pct(bVal[i] / (outstanding || 1), 1)} dari total` : ''}`,
+    emptyText: 'Tidak ada piutang yang belum tertagih.' }),
+    { sub: 'Dihitung sejak bill ditutup. Batang paling kanan yang paling perlu ditagih.' });
+
+  // Siapa yang paling banyak menunggak
+  const byDebtor = {};
+  open.forEach((r) => { const k = r.debtor || '(tanpa nama)'; byDebtor[k] = (byDebtor[k] || 0) + r.a; });
+  const debtors = Object.entries(byDebtor).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const perDebtor = card('Penunggak terbesar', hbar(debtors.map(([l, v]) => ({
+    label: l, value: v, tipLabel: 'Belum tertagih',
+    note: `${num(open.filter((r) => (r.debtor || '(tanpa nama)') === l).length)} bill` })),
+    { fmt: rp, total: outstanding, emptyText: 'Belum ada piutang.' }), { sub: '10 teratas.' });
+
+  // Pergerakan nilai yang belum tertagih: naik saat bill pending dibuat, turun saat dilunasi
+  const days = dayStarts(from, to);
+  const outAt = days.map((d0) => {
+    const end = d0 + DAY - 1;
+    return sum(rows.filter((r) => r.created <= end && (r.status === 'open' || !r.paidOn || fromKey(r.paidOn) > end)), (r) => r.a);
+  });
+  const trend = days.length > 1 ? card('Piutang belum tertagih dari hari ke hari', lines({
+    x: days.map((d) => fmtShort(d)),
+    series: [{ id: 'v', label: 'Belum tertagih', color: ONE, values: outAt }],
+    fmt: rp, axisFmt: (v) => compact(v, true), height: 200, area: true,
+    tipTitle: (i) => `${hariNama(days[i])}, ${fmtShort(days[i])}`,
+    emptyText: 'Belum ada pergerakan piutang di periode ini.' }),
+    { cls: 'span2', sub: 'Naik ketika bill ditutup pending, turun ketika dilunasi.' }) : '';
 
   const openTbl = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>No. bill</th><th>Ditagih ke</th><th>Outlet</th><th>Ditutup</th><th>Umur</th><th>Jatuh tempo</th><th class="num">Jumlah</th><th></th></tr></thead><tbody>
     ${open.map((r) => `<tr class="${r.due && r.due < today ? 'row-neg' : ''}">
@@ -233,6 +295,7 @@ function piutang(db) {
   </tbody></table></div>` : '';
 
   return `${kpis}
+    <div class="rp-grid">${aging}${perDebtor}${trend}</div>
     ${card('Belum tertagih', openTbl, { sub: 'Bill yang ditutup dengan metode <b>Tagih nanti</b>. Nilainya sudah masuk penjualan dan tercatat sebagai aset di akun 1103 Piutang tamu sampai uangnya diterima.' })}
     ${paid.length ? card('Sudah dilunasi', paidTbl, { sub: '100 pelunasan terakhir dalam 90 hari.' }) : ''}`;
 }
@@ -252,8 +315,8 @@ function keuangan(ctx) {
   const [from, to] = D.periodRange(ui.per, { from: ui.from, to: ui.to });
   const f = filt(db, from, to);
   const S = ui.sub;
-  const body = S === 'pl' ? pl(db, from, to) : S === 'bs' ? bs(db, to) : S === 'cf' ? cf(db, from, to) : S === 'sales' ? salesRep(db, from, to)
-    : S === 'piutang' ? piutang(db)
+  const body = S === 'pl' ? pl(db, from, to) : S === 'bs' ? bs(db, from, to) : S === 'cf' ? cf(db, from, to) : S === 'sales' ? salesRep(db, from, to)
+    : S === 'piutang' ? piutang(db, from, to)
     : S === 'nota' ? R.nota(db, f) : S === 'item' ? R.item(db, f) : S === 'kat' ? R.kategori(db, f)
     : S === 'diskon' ? R.diskon(db, f) : S === 'meja' ? (tableLocs(db).length ? R.meja(db, f) : '<div class="card"><p class="empty">Entitas ini tidak punya meja.</p></div>') : journal(db, from, to);
   const range = S === 'bs' ? 'per ' + fmtDate(Math.min(to, Date.now())) : fmtDate(from) + ' – ' + fmtDate(Math.min(to, Date.now()));
