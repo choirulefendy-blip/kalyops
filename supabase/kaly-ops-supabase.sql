@@ -5357,6 +5357,7 @@ begin
 end $$;
 
 -- Rekap penjualan per kategori & jam (nilai item sebelum diskon tagihan dan PB1; HPP aktual dari pemotongan stok)
+-- Penjualan per kategori & jam. HPP memakai cadangan resep yang sama seperti report_items.
 create or replace function public.report_categories(p_from timestamptz, p_to timestamptz, p_locs text[] default null)
 returns jsonb language plpgsql stable security definer set search_path = public as $$
 declare v_locs text[]; tz text := engine.report_tz(); r jsonb;
@@ -5365,15 +5366,25 @@ begin
   with o as (
     select o.id, (o.paid_at at time zone tz) lt from orders o
      where o.status = 'paid' and o.location_id = any(v_locs) and o.paid_at >= p_from and o.paid_at <= p_to
-  ), l as (
-    select l.order_id, l.menu_id, coalesce(nullif(l.name, ''), m.name, l.menu_id) name, l.qty, l.qty * l.price v,
-           coalesce(l.cost, 0) + coalesce((select sum(c.cost) from order_lines c where c.parent_line_id = l.id and c.status <> 'void'), 0) hpp,
-           extract(hour from o.lt)::int h, o.lt::date d, coalesce(m.category_id, '_') cat
+  ), raw as (
+    select l.id, l.order_id, l.menu_id, coalesce(nullif(l.name, ''), m.name, l.menu_id) name, l.qty, l.qty * l.price v,
+           l.cost, extract(hour from o.lt)::int h, o.lt::date d, coalesce(m.category_id, '_') cat
       from order_lines l join o on o.id = l.order_id left join menus m on m.id = l.menu_id
      where l.parent_line_id is null and l.status <> 'void'
+  ), hp as (
+    select menu_id, engine.menu_hpp(menu_id) unit from (select distinct menu_id from raw where menu_id is not null) z
+  ), l as (
+    select raw.*,
+           coalesce(raw.cost,
+                    coalesce((select sum(ch.cost) from order_lines ch where ch.parent_line_id = raw.id and ch.status <> 'void'), 0)
+                      + coalesce(hp.unit, 0) * raw.qty) hpp,
+           (raw.cost is null) est
+      from raw left join hp on hp.menu_id = raw.menu_id
   )
   select jsonb_build_object(
     'tz', tz,
+    'estLines', (select count(*) from l where est),
+    'allLines', (select count(*) from l),
     'master', (select coalesce(jsonb_agg(jsonb_build_object('id', c.id, 'name', c.name, 'sort', c.sort) order by c.sort, c.id), '[]'::jsonb) from menu_categories c),
     'cats', (select coalesce(jsonb_agg(jsonb_build_object('id', x.cat, 'name', coalesce(c.name, 'Tanpa kategori'), 'sort', coalesce(c.sort, 999),
                        'qty', x.q, 'value', x.v, 'hpp', x.hpp, 'orders', x.n, 'menus', x.nm) order by coalesce(c.sort, 999), x.cat), '[]'::jsonb)
@@ -5493,6 +5504,10 @@ end $$;
 
 revoke all on function engine.report_locs(text[]), engine.report_tz() from public;
 -- Rekap penjualan per item, dipecah per tanggal dan per jam bayar
+-- Rekap penjualan per item, dipecah per tanggal dan per jam bayar.
+-- HPP: pakai biaya yang tercatat saat transaksi bila ada, selain itu hitung dari resep
+-- yang berlaku sekarang. Outlet yang Kaly Core-nya mati tidak pernah mencatat cost
+-- (engine.deduct_lines sengaja menulis null), jadi tanpa cadangan ini food cost selalu 0%.
 create or replace function public.report_items(p_from timestamptz, p_to timestamptz, p_locs text[] default null, p_top int default 15)
 returns jsonb language plpgsql stable security definer set search_path = public as $$
 declare v_locs text[]; tz text := engine.report_tz(); r jsonb;
@@ -5501,16 +5516,25 @@ begin
   with o as (
     select o.id, (o.paid_at at time zone tz) lt from orders o
      where o.status = 'paid' and o.location_id = any(v_locs) and o.paid_at >= p_from and o.paid_at <= p_to
-  ), l as (
-    select l.order_id, l.menu_id, coalesce(nullif(l.name, ''), m.name, l.menu_id) name, l.qty, l.qty * l.price v,
-           coalesce(l.cost, 0) + coalesce((select sum(c.cost) from order_lines c where c.parent_line_id = l.id and c.status <> 'void'), 0) hpp,
-           extract(hour from o.lt)::int h, o.lt::date d,
+  ), raw as (
+    select l.id, l.order_id, l.menu_id, coalesce(nullif(l.name, ''), m.name, l.menu_id) name, l.qty, l.qty * l.price v,
+           l.cost, extract(hour from o.lt)::int h, o.lt::date d,
            coalesce(m.category_id, '_') cat, coalesce(c.name, 'Tanpa kategori') catname
       from order_lines l
       join o on o.id = l.order_id
       left join menus m on m.id = l.menu_id
       left join menu_categories c on c.id = m.category_id
      where l.parent_line_id is null and l.status <> 'void'
+  -- HPP resep dihitung sekali per menu, bukan per baris, supaya tetap cepat
+  ), hp as (
+    select menu_id, engine.menu_hpp(menu_id) unit from (select distinct menu_id from raw where menu_id is not null) z
+  ), l as (
+    select raw.*,
+           coalesce(raw.cost,
+                    coalesce((select sum(ch.cost) from order_lines ch where ch.parent_line_id = raw.id and ch.status <> 'void'), 0)
+                      + coalesce(hp.unit, 0) * raw.qty) hpp,
+           (raw.cost is null) est
+      from raw left join hp on hp.menu_id = raw.menu_id
   ), agg as (
     select menu_id, max(name) name, max(cat) cat, max(catname) catname,
            sum(qty) q, sum(v) v, sum(hpp) hpp, count(distinct order_id) n
@@ -5527,7 +5551,11 @@ begin
        'value',  (select coalesce(sum(v), 0) from agg),
        'hpp',    (select coalesce(sum(hpp), 0) from agg),
        'menus',  (select count(*) from agg),
-       'orders', (select count(*) from o)),
+       'orders', (select count(*) from o),
+       'estLines',  (select count(*) from l where est),
+       'allLines',  (select count(*) from l),
+       'noHppValue', (select coalesce(sum(v), 0) from agg where hpp = 0),
+       'noHppItems', (select count(*) from agg where hpp = 0)),
     'items', (select coalesce(jsonb_agg(jsonb_build_object('id', menu_id, 'name', name, 'cat', cat, 'catname', catname,
                        'qty', q, 'value', v, 'hpp', hpp, 'orders', n) order by v desc, name), '[]'::jsonb) from agg),
     'hours', (select coalesce(jsonb_agg(jsonb_build_object('id', menu_id, 'h', h, 'qty', q, 'value', v)), '[]'::jsonb)

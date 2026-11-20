@@ -40,6 +40,16 @@ const seg = (act, cur, opts) => `<div class="seg seg-xs">${opts.map(([k, l]) => 
 const card = (title, body, { sub = '', right = '', cls = '' } = {}) => `<div class="card ${cls}"><div class="card-h"><h3>${esc(title)}</h3>${right}</div>${sub ? `<p class="rp-sub">${sub}</p>` : ''}${body}</div>`;
 const mins = (v) => (v == null ? '–' : `${num(v, 0)} mnt`);
 const DOW = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+// HPP dicatat per baris nota hanya kalau outlet terhubung Kaly Core. Kalau tidak, laporan
+// memakai resep yang berlaku sekarang — berguna, tapi perlu dikatakan apa adanya.
+function hppNote(d, tot) {
+  const est = Number(d.estLines) || 0, all = Number(d.allLines) || 0;
+  if (!all || !est) return '';
+  const nv = Number(tot?.noHppValue) || 0, ni = Number(tot?.noHppItems) || 0, tv = Number(tot?.value) || 0;
+  const gap = nv && tv ? `<br><b>Food cost di atas masih terlalu rendah.</b> ${rp(nv)} penjualan (${pct(nv / tv, 1)}) berasal dari ${num(ni)} item yang resepnya belum diisi, jadi HPP-nya terhitung nol. Isi resepnya supaya margin yang tampil mendekati kenyataan.` : '';
+  return `<p class="hint">${est === all ? 'HPP dan margin dihitung dari <b>resep yang berlaku sekarang</b>, bukan dari biaya yang tercatat saat transaksi'
+    : `HPP ${num(est)} dari ${num(all)} baris dihitung dari <b>resep yang berlaku sekarang</b>`}, karena pencatatan HPP per nota baru aktif bila outlet terhubung Kaly Core. Jadi kalau harga bahan atau resep berubah, angka periode lama ikut bergerak.${gap}</p>`;
+}
 
 // =====================================================================
 // 1. Transaksi per nota & jam penjualan
@@ -144,7 +154,7 @@ export function kategori(db, f) {
       <div class="row sb rp-ctl"><p class="muted sm">Jam = jam bayar. Nilai item sebelum diskon tagihan dan PB1.</p>${seg('katMetric', M, [['value', 'Rupiah'], ['qty', 'Porsi']])}</div>
       <div class="rp-grid">${card('Kategori per jam', stacked, { cls: 'span2' })}${card('Porsi tiap kategori', share)}${card('Food cost per kategori', fc, { sub: 'HPP dibagi penjualan item. Makin pendek makin untung.' })}
         ${card('Kategori × jam', heatTbl, { cls: 'span2', sub: 'Makin gelap makin laku. Kolom Total = jumlah per kategori.' })}
-        ${trend}${card('Rekap per kategori', table, { cls: 'span2' })}${card('Menu teratas per kategori', menus, { cls: 'span2' })}</div>`;
+        ${trend}${card('Rekap per kategori', table + hppNote(d), { cls: 'span2' })}${card('Menu teratas per kategori', menus, { cls: 'span2' })}</div>`;
   });
 }
 export function katCsv(db, f) {
@@ -231,8 +241,8 @@ export function item(db, f) {
     const vfmt = isRp ? rp : (v) => `${num(v)} porsi`;
     const metric = (x) => (x ? Number(isRp ? x.value : x.qty) : 0);
     const T = d.totals;
-    const hpp = (it) => D.menuHpp(db, it.id) * Number(it.qty);
-    const htot = d.items.reduce((a, it) => a + hpp(it), 0);
+    const hpp = (it) => Number(it.hpp) || 0;
+    const htot = Number(T.hpp) || 0;
     const hrs = hourRange(d.hourTotals.map((x) => x.h));
     const byH = Object.fromEntries(d.hourTotals.map((x) => [x.h, x]));
     const days = dayList(f.from, f.to);
@@ -273,12 +283,12 @@ export function item(db, f) {
     const q = rui.itemQ.trim().toLowerCase();
     const rows = d.items.filter((x) => !q || x.name.toLowerCase().includes(q) || (x.catname || '').toLowerCase().includes(q));
     const tbl = `<div class="tbl-wrap rp-scroll"><table class="tbl"><thead><tr><th>Item</th><th>Kategori</th><th class="num">Porsi</th><th class="num">Penjualan</th><th class="num">Porsi penjualan</th><th class="num">HPP resep</th><th class="num">Margin</th><th class="num">Nota</th></tr></thead><tbody>
-      ${rows.map((x) => { const h = hpp(x), v = Number(x.value); return `<tr><td><b>${esc(x.name)}</b></td><td class="muted sm">${esc(x.catname || '–')}</td><td class="num">${num(x.qty)}</td><td class="num">${rp(v)}</td><td class="num">${pct(v / (Number(T.value) || 1), 1)}</td><td class="num">${h ? rp(h) : '<span class="muted">–</span>'}</td><td class="num">${h ? pct((v - h) / v, 1) : '<span class="muted">–</span>'}</td><td class="num">${num(x.orders)}</td></tr>`; }).join('')
+      ${rows.map((x) => { const h = hpp(x), v = Number(x.value); return `<tr><td><b>${esc(x.name)}</b></td><td class="muted sm">${esc(x.catname || '–')}</td><td class="num">${num(x.qty)}</td><td class="num">${rp(v)}</td><td class="num">${pct(v / (Number(T.value) || 1), 1)}</td><td class="num">${h ? rp(h) : '<span class="muted" title="Resep menu ini belum diisi">–</span>'}</td><td class="num">${h ? pct((v - h) / v, 1) : '<span class="muted">–</span>'}</td><td class="num">${num(x.orders)}</td></tr>`; }).join('')
         || '<tr><td colspan="8" class="empty">Tidak ada item cocok.</td></tr>'}
       <tr class="tot"><td><b>Total</b></td><td></td><td class="num"><b>${num(T.qty)}</b></td><td class="num"><b>${rp(T.value)}</b></td><td class="num">100%</td><td class="num"><b>${htot ? rp(htot) : '–'}</b></td><td class="num"><b>${htot ? pct((Number(T.value) - htot) / Number(T.value), 1) : '–'}</b></td><td class="num">${num(T.orders)}</td></tr>
     </tbody></table></div>`;
 
-    const hpWarn = htot ? '' : `<p class="hint">HPP tidak tersedia: resep belum diisi untuk item-item ini, jadi kolom HPP dan margin dikosongkan.</p>`;
+    const hpWarn = hppNote(T, T);
     const best = d.items[0];
     return `<div class="kpis">${kpi('Penjualan item', rp(T.value), 'sebelum diskon tagihan & PB1')}${kpi('Porsi terjual', num(T.qty))}
         ${kpi('Jenis item terjual', num(T.menus), `dari ${num(T.orders)} nota`)}
@@ -292,13 +302,14 @@ export function item(db, f) {
 export function itemCsv(db, f) {
   const d = cache.item?.data;
   if (!d) return toast('Laporan belum selesai dimuat', 'warn');
-  const hppOf = (id, qty) => D.menuHpp(db, id) * Number(qty);
+  const H = (x) => Math.round(Number(x.hpp) || 0);
   downloadCSV(`item-per-tanggal-jam-${dayKey(f.from)}-${dayKey(f.to)}.csv`, [
-    ['Tanggal', 'Jam', 'Item', 'Kategori', 'Porsi', 'Penjualan', 'HPP resep', 'Margin', 'Nota'],
-    ...d.grid.map((x) => { const h = hppOf(x.id, x.qty); return [x.d, HH(x.h), x.name, x.catname, x.qty, x.value, h || '', h ? Number(x.value) - h : '', x.orders]; }),
+    ['Tanggal', 'Jam', 'Item', 'Kategori', 'Porsi', 'Penjualan', 'HPP', 'Margin', 'Nota'],
+    ...d.grid.map((x) => { const h = H(x); return [x.d, HH(x.h), x.name, x.catname, x.qty, x.value, h || '', h ? Number(x.value) - h : '', x.orders]; }),
     [], ['Rekap seluruh periode'],
-    ['Item', 'Kategori', 'Porsi', 'Penjualan', 'HPP resep', 'Margin', 'Nota'],
-    ...d.items.map((x) => { const h = hppOf(x.id, x.qty); return [x.name, x.catname, x.qty, x.value, h || '', h ? Number(x.value) - h : '', x.orders]; })]);
+    ['Item', 'Kategori', 'Porsi', 'Penjualan', 'HPP', 'Margin', 'Nota'],
+    ...d.items.map((x) => { const h = H(x); return [x.name, x.catname, x.qty, x.value, h || '', h ? Number(x.value) - h : '', x.orders]; }),
+    [], [Number(d.totals.estLines) ? 'Catatan: HPP dihitung dari resep yang berlaku saat laporan diunduh, bukan dari biaya yang tercatat saat transaksi.' : '']]);
 }
 
 // =====================================================================

@@ -170,7 +170,8 @@ function salesRep(db, from, to) {
       ${card('Per tipe pesanan', hbar(grp((o) => o.type, (k) => D.TYPE_LABEL[k]), { fmt: rp, total: tot }))}
       ${card('Per kasir', hbar(grp((o) => o.paidBy || o.by, (k) => (k === 'online' || k === 'null' ? 'Bayar online' : D.userName(db, k))), { fmt: rp, total: tot }), { cls: 'span2' })}
       ${card('Per menu', wrapS(`<table class="tbl"><thead><tr><th>Menu</th><th class="r">Qty</th><th class="r">Penjualan</th><th class="r">HPP</th><th class="r">Margin</th></tr></thead><tbody>${ms.map((x) => `<tr><td>${esc(x.n)}</td><td class="r">${num(x.q)}</td><td class="r">${rp(x.v)}</td><td class="r">${rp(x.h)}</td><td class="r">${pct(x.v ? (x.v - x.h) / x.v : 0)}</td></tr>`).join('')}</tbody></table>`), { cls: 'span2' })}</div>
-    <p class="hint">Data penjualan memakai pesanan yang sedang dimuat aplikasi (35 hari terakhir untuk Owner). Untuk periode lebih lama, gunakan laporan Nota & jam atau Kategori & jam.</p>`;
+    <p class="hint">Data penjualan memakai pesanan yang sedang dimuat aplikasi (35 hari terakhir untuk Owner). Untuk periode lebih lama, gunakan laporan Item & jam, Nota & jam, atau Kategori & jam.
+      HPP dan margin dihitung dari <b>resep yang berlaku sekarang</b>, bukan dari biaya yang tercatat saat transaksi, jadi angkanya ikut berubah bila harga bahan atau resep diperbarui.</p>`;
 }
 // Rincian jurnal dimuat dari database saat laporan Jurnal dibuka (ringkasan harian dipakai untuk laporan lain)
 let jrKey = null;
