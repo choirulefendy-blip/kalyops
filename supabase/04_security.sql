@@ -629,7 +629,7 @@ select engine.policy('staff_alerts', 'staf baca', 'select',
   'public.is_staff() and (location_id is null or public.can_loc(location_id)) and (public.alert_roles(kind) is null or public.is_staff(public.alert_roles(kind)))');
 
 create or replace function engine.pay_label(p_method text) returns text language sql immutable set search_path = '' as $$
-  select case p_method when 'cash' then 'Tunai' when 'qris' then 'QRIS' when 'card' then 'Kartu' when 'transfer' then 'Transfer' when 'deposit' then 'Deposit' else initcap(p_method) end;
+  select case p_method when 'cash' then 'Tunai' when 'qris' then 'QRIS' when 'card' then 'Kartu' when 'transfer' then 'Transfer' when 'deposit' then 'Deposit' when 'dp' then 'DP reservasi' when 'other' then 'Lainnya' when 'bill' then 'Tagih nanti' else initcap(p_method) end;
 $$;
 
 -- Shift dibuka / ditutup → Owner; semua shift outlet ditutup → ringkasan penjualan hari itu

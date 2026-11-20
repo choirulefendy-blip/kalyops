@@ -675,7 +675,7 @@ create index if not exists order_lines_order_idx on public.order_lines (order_id
 create table if not exists public.order_payments (
   id       bigint generated always as identity primary key,
   order_id text not null references public.orders(id) on delete cascade,
-  method   text not null check (method in ('cash', 'qris', 'card', 'transfer', 'deposit')),
+  method   text not null check (method in ('cash', 'qris', 'card', 'transfer', 'deposit', 'dp', 'other', 'bill')),
   amount   numeric(14,0) not null check (amount > 0),
   card_id  text references public.deposit_cards(id),
   ref      text
@@ -692,7 +692,7 @@ create table if not exists public.order_refunds (
   item_name   text not null default '',
   qty         numeric(10,2) not null check (qty > 0),
   amount      numeric(14,0) not null check (amount > 0),
-  method      text not null check (method in ('cash', 'qris', 'card', 'transfer', 'deposit')),
+  method      text not null check (method in ('cash', 'qris', 'card', 'transfer', 'deposit', 'dp', 'other')),
   card_id     text references public.deposit_cards(id),
   shift_id    text references public.shifts(id),
   reason      text not null default '',
@@ -4820,7 +4820,7 @@ select engine.policy('staff_alerts', 'staf baca', 'select',
   'public.is_staff() and (location_id is null or public.can_loc(location_id)) and (public.alert_roles(kind) is null or public.is_staff(public.alert_roles(kind)))');
 
 create or replace function engine.pay_label(p_method text) returns text language sql immutable set search_path = '' as $$
-  select case p_method when 'cash' then 'Tunai' when 'qris' then 'QRIS' when 'card' then 'Kartu' when 'transfer' then 'Transfer' when 'deposit' then 'Deposit' else initcap(p_method) end;
+  select case p_method when 'cash' then 'Tunai' when 'qris' then 'QRIS' when 'card' then 'Kartu' when 'transfer' then 'Transfer' when 'deposit' then 'Deposit' when 'dp' then 'DP reservasi' when 'other' then 'Lainnya' when 'bill' then 'Tagih nanti' else initcap(p_method) end;
 $$;
 
 -- Shift dibuka / ditutup → Owner; semua shift outlet ditutup → ringkasan penjualan hari itu
