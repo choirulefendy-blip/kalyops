@@ -422,6 +422,71 @@ export function diskonCsv(db, f) {
     ...d.days.map((x) => [x.d, x.bills, x.amount])]);
 }
 
+// =====================================================================
+// 6. Metode pembayaran
+// =====================================================================
+export function bayar(db, f) {
+  const r = remote('pay', [f.from, f.to, f.locs], () => API.reportPayments(f.from, f.to, f.locs));
+  return frame(r, (d) => {
+    const T = d.totals, amt = Number(T.amount) || 0;
+    if (!d.methods.length) return `<div class="card"><p class="empty">Belum ada pembayaran di periode ini.</p></div>`;
+    const colors = colorMap(d.methods.map((m) => m.m));
+    const days = dayList(f.from, f.to);
+    const byD = Object.fromEntries(d.dayTotals.map((x) => [x.d, x]));
+    const hrs = hourRange(d.hourTotals.map((x) => x.h));
+    const byH = Object.fromEntries(d.hourTotals.map((x) => [x.h, x]));
+    const DX = {}; d.days.forEach((x) => { DX[`${x.m}|${x.d}`] = x; });
+    const HX = {}; d.hours.forEach((x) => { HX[`${x.m}|${x.h}`] = x; });
+    const anyRef = d.methods.some((m) => Number(m.refund));
+
+    const bar = card('Uang masuk per metode', hbar(d.methods.map((m) => ({ label: m.label, value: Number(m.amount),
+      color: colors[m.m], tipLabel: 'Diterima', note: `${num(m.orders)} nota · rata-rata ${rp(m.avg)}` })), { fmt: rp, total: amt }));
+
+    const perHour = card('Uang masuk per jam', columns({ x: hrs.map(HH),
+      series: d.methods.map((m) => ({ id: m.m, label: m.label, color: colors[m.m], values: hrs.map((h) => Number(HX[`${m.m}|${h}`]?.amount || 0)) })),
+      fmt: rp, axisFmt: (v) => compact(v, true), height: 210,
+      tipTitle: (i) => `Jam ${HH(hrs[i])}–${String(hrs[i]).padStart(2, '0')}.59`,
+      tipNote: (i) => { const x = byH[hrs[i]]; return x ? `${num(x.orders)} nota · ${rp(x.amount)}` : ''; } }),
+      { cls: 'span2', sub: 'Berdasarkan jam bayar.' });
+
+    const trend = days.length > 1 ? card('Uang masuk per hari', columns({ x: days.map((k) => fmtShort(fromKey(k))),
+      series: d.methods.map((m) => ({ id: m.m, label: m.label, color: colors[m.m], values: days.map((k) => Number(DX[`${m.m}|${k}`]?.amount || 0)) })),
+      fmt: rp, axisFmt: (v) => compact(v, true), height: 200,
+      tipTitle: (i) => `${hariNama(fromKey(days[i]))}, ${fmtShort(fromKey(days[i]))}`,
+      tipNote: (i) => { const x = byD[days[i]]; return x ? `${num(x.orders)} nota` : ''; } }), { cls: 'span2' }) : '';
+
+    const tbl = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Metode bayar</th><th class="num">Jumlah transaksi</th><th class="num">Total diterima</th><th class="num">Rata-rata/nota</th><th class="num">Porsi</th>${anyRef ? '<th class="num">Refund</th>' : ''}</tr></thead><tbody>
+      ${d.methods.map((m) => `<tr><td><span class="rp-badge"><i style="background:${colors[m.m]}"></i>${esc(m.label)}</span></td><td class="num">${num(m.orders)}</td><td class="num"><b>${rp(m.amount)}</b></td><td class="num">${rp(m.avg)}</td><td class="num">${pct(Number(m.amount) / (amt || 1), 1)}</td>${anyRef ? `<td class="num">${Number(m.refund) ? `<span class="neg">-${rp(m.refund)}</span>` : '<span class="muted">–</span>'}</td>` : ''}</tr>`).join('')}
+      <tr class="tot"><td><b>Total</b></td><td class="num"><b>${num(T.orders)}</b></td><td class="num"><b>${rp(amt)}</b></td><td class="num">${rp(amt / (Number(T.orders) || 1))}</td><td class="num">100%</td>${anyRef ? `<td class="num"><b class="neg">-${rp(T.refund)}</b></td>` : ''}</tr>
+    </tbody></table></div>
+    ${Number(T.split) ? `<p class="hint">${num(T.split)} nota dibayar dengan lebih dari satu metode, jadi terhitung di tiap metode yang dipakai. Baris Total memakai jumlah nota sebenarnya, bukan penjumlahan kolom di atasnya.</p>` : ''}
+    <p class="hint">Yang dihitung adalah uang yang benar-benar diterima, jadi kembalian tunai tidak ikut.</p>`;
+
+    const top = d.methods[0];
+    return `<div class="kpis">${kpi('Total diterima', rp(amt), `${num(T.orders)} nota`)}
+        ${kpi('Metode terbanyak', esc(top.label), `${pct(Number(top.amount) / (amt || 1), 1)} dari uang masuk`)}
+        ${kpi('Rata-rata per nota', rp(amt / (Number(T.orders) || 1)))}
+        ${kpi('Jenis metode dipakai', num(T.methods))}
+        ${Number(T.refund) ? kpi('Refund', rp(T.refund), 'uang keluar') : ''}</div>
+      <div class="rp-grid">${bar}${card('Rekap per metode', tbl)}${perHour}${trend}</div>`;
+  });
+}
+export function bayarCsv(db, f) {
+  const d = cache.pay?.data;
+  if (!d) return toast('Laporan belum selesai dimuat', 'warn');
+  const N0 = (v) => Math.round(Number(v) || 0);
+  const T = d.totals;
+  downloadCSV(`payment-methods-${dayKey(f.from)}-${dayKey(f.to)}.csv`, [
+    ['Payment Method', 'Number of Transactions', 'Total Collected', 'Average per Transaction', 'Refund'],
+    ...d.methods.map((m) => [m.label, N0(m.orders), N0(m.amount), N0(m.avg), N0(m.refund) ? -N0(m.refund) : 0]),
+    ['Total', N0(T.orders), N0(T.amount), N0(Number(T.amount) / (Number(T.orders) || 1)), N0(T.refund) ? -N0(T.refund) : 0],
+    [], ['Rincian per hari'], ['Tanggal', 'Metode', 'Nota', 'Diterima'],
+    ...[...d.days].sort((a, b) => String(a.d).localeCompare(b.d) || String(a.m).localeCompare(b.m))
+      .map((x) => [x.d, D.PAY[x.m]?.label || x.m, N0(x.orders), N0(x.amount)]),
+    [], ['Catatan: yang dihitung adalah uang yang benar-benar diterima, kembalian tunai tidak ikut.'],
+    [Number(T.split) ? `${T.split} nota dibayar lebih dari satu metode, terhitung di tiap metode yang dipakai; baris Total memakai jumlah nota sebenarnya.` : '']]);
+}
+
 export const actions = {
   notaHour(el) { const h = Number(el.dataset.v); rui.notaHour = rui.notaHour === h ? null : h; rerender(); },
   itemMetric(el) { rui.itemMetric = el.dataset.v; rerender(); },

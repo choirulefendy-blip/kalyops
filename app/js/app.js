@@ -62,7 +62,7 @@ let kicking = false;
 const LAPORAN_KIDS = [
   ['ringkasan', 'Ringkasan'], ['pl', 'Laba rugi'], ['bs', 'Neraca'], ['cf', 'Arus kas'], ['sales', 'Penjualan'],
   ['piutang', 'Piutang'], ['nota', 'Nota & jam'], ['item', 'Item & jam'], ['kat', 'Kategori & jam'],
-  ['diskon', 'Diskon'], ['meja', 'Aktivitas meja'], ['jr', 'Jurnal'], ['b2b', 'B2B antar entitas'], ['fraud', 'Deteksi fraud'],
+  ['diskon', 'Diskon'], ['bayar', 'Metode bayar'], ['meja', 'Aktivitas meja'], ['jr', 'Jurnal'], ['b2b', 'B2B antar entitas'], ['fraud', 'Deteksi fraud'],
 ];
 const BO_NAV = [
   ['Backoffice', [['', 'Dashboard', 'layout-dashboard'], ['laporan', 'Laporan', 'chart-column', LAPORAN_KIDS], ['core', 'Stok & resep', 'boxes'], ['goods', 'Pembelian & supplier', 'truck'], ['pos', 'Menu & harga', 'utensils'],

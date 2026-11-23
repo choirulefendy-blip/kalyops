@@ -495,9 +495,60 @@ begin
   return r;
 end $$;
 
+-- Rekap uang masuk per metode bayar. Satu nota bisa dibayar beberapa metode, jadi
+-- "jumlah transaksi" dihitung per nota yang unik untuk tiap metode: nota yang dibayar
+-- tunai + QRIS terhitung satu kali di tunai dan satu kali di QRIS, tapi hanya sekali
+-- pada total, supaya penjumlahan kolom tidak melebihi jumlah nota sebenarnya.
+create or replace function public.report_payments(p_from timestamptz, p_to timestamptz, p_locs text[] default null)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare v_locs text[]; tz text := engine.report_tz(); r jsonb;
+begin
+  v_locs := engine.report_locs(p_locs);
+  with o as (
+    select o.id, (o.paid_at at time zone tz) lt
+      from orders o
+     where o.status in ('paid', 'refund') and o.location_id = any(v_locs)
+       and o.paid_at >= p_from and o.paid_at <= p_to
+  ), p as (
+    select pm.method m, pm.amount amt, pm.order_id, o.lt
+      from order_payments pm join o on o.id = pm.order_id
+     where pm.amount > 0
+  ), rfx as (
+    select rr.method m, sum(rr.amount) amt, count(distinct rr.order_id) n
+      from order_refunds rr join o on o.id = rr.order_id
+     group by rr.method
+  ), agg as (
+    select m, count(distinct order_id) n, sum(amt) amt from p group by m
+  )
+  select jsonb_build_object(
+    'tz', tz,
+    'totals', jsonb_build_object(
+      'amount',  (select coalesce(sum(amt), 0) from p),
+      'orders',  (select count(*) from o),
+      'methods', (select count(*) from agg),
+      'refund',  (select coalesce(sum(amt), 0) from rfx),
+      'split',   (select count(*) from (select order_id from p group by order_id having count(distinct m) > 1) z)),
+    'methods', (select coalesce(jsonb_agg(jsonb_build_object('m', a.m, 'label', engine.pay_label(a.m),
+                       'orders', a.n, 'amount', a.amt, 'avg', a.amt / nullif(a.n, 0),
+                       'refund', coalesce(x.amt, 0), 'refundOrders', coalesce(x.n, 0)) order by a.amt desc), '[]'::jsonb)
+                from agg a left join rfx x on x.m = a.m),
+    'days', (select coalesce(jsonb_agg(jsonb_build_object('m', m, 'd', d, 'amount', amt, 'orders', n)), '[]'::jsonb)
+                from (select m, lt::date d, sum(amt) amt, count(distinct order_id) n from p group by 1, 2) y),
+    'dayTotals', (select coalesce(jsonb_agg(jsonb_build_object('d', d, 'amount', amt, 'orders', n) order by d), '[]'::jsonb)
+                from (select lt::date d, sum(amt) amt, count(distinct order_id) n from p group by 1) y),
+    'hours', (select coalesce(jsonb_agg(jsonb_build_object('m', m, 'h', h, 'amount', amt)), '[]'::jsonb)
+                from (select m, extract(hour from lt)::int h, sum(amt) amt from p group by 1, 2) y),
+    'hourTotals', (select coalesce(jsonb_agg(jsonb_build_object('h', h, 'amount', amt, 'orders', n) order by h), '[]'::jsonb)
+                from (select extract(hour from lt)::int h, sum(amt) amt, count(distinct order_id) n from p group by 1) y)
+  ) into r;
+  return r;
+end $$;
+
 revoke execute on function public.report_receipts(timestamptz, timestamptz, text[], int), public.report_categories(timestamptz, timestamptz, text[]),
   public.report_tables(timestamptz, timestamptz, text, int), public.report_items(timestamptz, timestamptz, text[], int),
-  public.report_discounts(timestamptz, timestamptz, text[]) from public, anon;
+  public.report_discounts(timestamptz, timestamptz, text[]),
+  public.report_payments(timestamptz, timestamptz, text[]) from public, anon;
 grant execute on function public.report_receipts(timestamptz, timestamptz, text[], int), public.report_categories(timestamptz, timestamptz, text[]),
   public.report_tables(timestamptz, timestamptz, text, int), public.report_items(timestamptz, timestamptz, text[], int),
-  public.report_discounts(timestamptz, timestamptz, text[]) to authenticated;
+  public.report_discounts(timestamptz, timestamptz, text[]),
+  public.report_payments(timestamptz, timestamptz, text[]) to authenticated;

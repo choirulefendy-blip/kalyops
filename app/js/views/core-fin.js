@@ -12,7 +12,7 @@ import * as R from './core-reports.js';
 const ui = { ent: 'e1', per: 'month', from: '', to: '', sub: 'pl', loc: 'all', tloc: null };
 const ents = () => (ui.ent === 'all' ? ['e1', 'e2'] : [ui.ent]);
 const accName = (db, c) => db.accounts.find((a) => a.code === c)?.name || c;
-const SUBS = [['pl', 'Laba rugi'], ['bs', 'Neraca'], ['cf', 'Arus kas'], ['sales', 'Penjualan'], ['piutang', 'Piutang'], ['nota', 'Nota & jam'], ['item', 'Item & jam'], ['kat', 'Kategori & jam'], ['diskon', 'Diskon'], ['meja', 'Aktivitas meja'], ['jr', 'Jurnal']];
+const SUBS = [['pl', 'Laba rugi'], ['bs', 'Neraca'], ['cf', 'Arus kas'], ['sales', 'Penjualan'], ['piutang', 'Piutang'], ['nota', 'Nota & jam'], ['item', 'Item & jam'], ['kat', 'Kategori & jam'], ['diskon', 'Diskon'], ['bayar', 'Metode bayar'], ['meja', 'Aktivitas meja'], ['jr', 'Jurnal']];
 const OUTLET_SUBS = ['sales', 'nota', 'kat'];
 const salesLocs = (db) => db.locations.filter((l) => ents().includes(l.entity) && l.type !== 'gudang').map((l) => l.id);
 const tableLocs = (db) => db.locations.filter((l) => ents().includes(l.entity) && db.tables.some((t) => t.loc === l.id)).map((l) => l.id);
@@ -318,11 +318,11 @@ function keuangan(ctx) {
   const body = S === 'pl' ? pl(db, from, to) : S === 'bs' ? bs(db, from, to) : S === 'cf' ? cf(db, from, to) : S === 'sales' ? salesRep(db, from, to)
     : S === 'piutang' ? piutang(db, from, to)
     : S === 'nota' ? R.nota(db, f) : S === 'item' ? R.item(db, f) : S === 'kat' ? R.kategori(db, f)
-    : S === 'diskon' ? R.diskon(db, f) : S === 'meja' ? (tableLocs(db).length ? R.meja(db, f) : '<div class="card"><p class="empty">Entitas ini tidak punya meja.</p></div>') : journal(db, from, to);
+    : S === 'diskon' ? R.diskon(db, f) : S === 'bayar' ? R.bayar(db, f) : S === 'meja' ? (tableLocs(db).length ? R.meja(db, f) : '<div class="card"><p class="empty">Entitas ini tidak punya meja.</p></div>') : journal(db, from, to);
   const range = S === 'bs' ? 'per ' + fmtDate(Math.min(to, Date.now())) : fmtDate(from) + ' – ' + fmtDate(Math.min(to, Date.now()));
   return `${controls(db)}
     <div class="row sb wrap fin-bar"><div class="seg fin-subs">${SUBS.map(([k, l]) => `<button class="${S === k ? 'on' : ''}" data-a="finSub" data-v="${k}">${l}</button>`).join('')}</div>
-      <div class="row"><span class="muted sm">${esc(range)}</span>${['pl', 'cf', 'jr'].includes(S) ? `<button class="btn" data-a="finExp">${ic('notebook-pen', 16)} Catat beban</button>` : ''}${['nota', 'item', 'kat', 'diskon', 'meja'].includes(S) ? `<button class="btn" data-a="finReload" title="Muat ulang dari database">${ic('refresh-cw', 16)}</button>` : ''}<button class="btn" data-a="finCsv">${ic('download', 16)} Unduh CSV</button></div></div>
+      <div class="row"><span class="muted sm">${esc(range)}</span>${['pl', 'cf', 'jr'].includes(S) ? `<button class="btn" data-a="finExp">${ic('notebook-pen', 16)} Catat beban</button>` : ''}${['nota', 'item', 'kat', 'diskon', 'bayar', 'meja'].includes(S) ? `<button class="btn" data-a="finReload" title="Muat ulang dari database">${ic('refresh-cw', 16)}</button>` : ''}<button class="btn" data-a="finCsv">${ic('download', 16)} Unduh CSV</button></div></div>
     ${body}
     <p class="hint">Laporan ini otomatis dari transaksi kasir, pembelian, produksi, stock opname, dan B2B. Untuk pelaporan pajak resmi, tetap verifikasi dengan akuntan.</p>`;
 }
@@ -395,6 +395,7 @@ export const actions = {
     if (ui.sub === 'kat') return R.katCsv(db, f);
     if (ui.sub === 'item') return R.itemCsv(db, f);
     if (ui.sub === 'diskon') return R.diskonCsv(db, f);
+    if (ui.sub === 'bayar') return R.bayarCsv(db, f);
     if (ui.sub === 'meja') return R.mejaCsv(db, f);
     if (ui.sub === 'piutang') {
       const locs = salesLocs(db);

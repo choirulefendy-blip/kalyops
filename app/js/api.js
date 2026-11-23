@@ -168,6 +168,7 @@ export const reportCategories = (from, to, locs) => C.rpc('report_categories', {
 export const reportTables = (from, to, loc, log = 400) => C.rpc('report_tables', { p_from: isoT(from), p_to: isoT(to), p_loc: loc || 'L1', p_log: log });
 export const reportItems = (from, to, locs, top = 15) => C.rpc('report_items', { p_from: isoT(from), p_to: isoT(to), p_locs: locs || null, p_top: top });
 export const reportDiscounts = (from, to, locs) => C.rpc('report_discounts', { p_from: isoT(from), p_to: isoT(to), p_locs: locs || null });
+export const reportPayments = (from, to, locs) => C.rpc('report_payments', { p_from: isoT(from), p_to: isoT(to), p_locs: locs || null });
 
 // ---------- 2.1 · Printer & stasiun cetak ----------
 export const printStationSave = (id, name, loc, active = true, lan = {}) => rpc('print_station_save', { p_id: id || null, p_name: name, p_loc: loc, p_active: active,
