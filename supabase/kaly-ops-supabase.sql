@@ -5505,6 +5505,8 @@ end $$;
 revoke all on function engine.report_locs(text[]), engine.report_tz() from public;
 -- Rekap penjualan per item, dipecah per tanggal dan per jam bayar
 -- Rekap penjualan per item, dipecah per tanggal dan per jam bayar.
+-- Sampai ke penjualan bersih seperti format laporan Item Sales POS lama: diskon nota dibagi
+-- ke tiap item menurut porsinya terhadap subtotal, refund diambil per baris nota.
 -- HPP: pakai biaya yang tercatat saat transaksi bila ada, selain itu hitung dari resep
 -- yang berlaku sekarang. Outlet yang Kaly Core-nya mati tidak pernah mencatat cost
 -- (engine.deduct_lines sengaja menulis null), jadi tanpa cadangan ini food cost selalu 0%.
@@ -5514,16 +5516,26 @@ declare v_locs text[]; tz text := engine.report_tz(); r jsonb;
 begin
   v_locs := engine.report_locs(p_locs);
   with o as (
-    select o.id, (o.paid_at at time zone tz) lt from orders o
-     where o.status = 'paid' and o.location_id = any(v_locs) and o.paid_at >= p_from and o.paid_at <= p_to
+    select o.id, (o.paid_at at time zone tz) lt,
+           coalesce((o.bill->>'disc')::numeric, 0) odisc,
+           coalesce((o.bill->>'sub')::numeric, 0) osub
+      from orders o
+     where o.status in ('paid', 'refund') and o.location_id = any(v_locs)
+       and o.paid_at >= p_from and o.paid_at <= p_to
+  ), rf as (   -- refund per baris nota
+    select line_id, sum(qty) rq, sum(amount) ramt from order_refunds where line_id is not null group by line_id
   ), raw as (
     select l.id, l.order_id, l.menu_id, coalesce(nullif(l.name, ''), m.name, l.menu_id) name, l.qty, l.qty * l.price v,
            l.cost, extract(hour from o.lt)::int h, o.lt::date d,
-           coalesce(m.category_id, '_') cat, coalesce(c.name, 'Tanpa kategori') catname
+           coalesce(m.category_id, '_') cat, coalesce(c.name, 'Tanpa kategori') catname,
+           -- diskon nota dibagi menurut porsi nilai item terhadap subtotal nota
+           case when o.osub > 0 then round(l.qty * l.price / o.osub * o.odisc, 2) else 0 end dsc,
+           coalesce(rf.rq, 0) rqty, coalesce(rf.ramt, 0) ramt
       from order_lines l
       join o on o.id = l.order_id
       left join menus m on m.id = l.menu_id
       left join menu_categories c on c.id = m.category_id
+      left join rf on rf.line_id = l.id
      where l.parent_line_id is null and l.status <> 'void'
   -- HPP resep dihitung sekali per menu, bukan per baris, supaya tetap cepat
   ), hp as (
@@ -5533,11 +5545,13 @@ begin
            coalesce(raw.cost,
                     coalesce((select sum(ch.cost) from order_lines ch where ch.parent_line_id = raw.id and ch.status <> 'void'), 0)
                       + coalesce(hp.unit, 0) * raw.qty) hpp,
-           (raw.cost is null) est
+           (raw.cost is null) est,
+           raw.v - raw.dsc - raw.ramt net
       from raw left join hp on hp.menu_id = raw.menu_id
   ), agg as (
     select menu_id, max(name) name, max(cat) cat, max(catname) catname,
-           sum(qty) q, sum(v) v, sum(hpp) hpp, count(distinct order_id) n
+           sum(qty) q, sum(rqty) rq, sum(v) v, sum(dsc) dsc, sum(ramt) ramt, sum(net) net,
+           sum(hpp) hpp, count(distinct order_id) n
       from l group by menu_id
   ), top as (
     select menu_id from agg order by v desc, menu_id limit greatest(1, p_top)
@@ -5548,7 +5562,11 @@ begin
     'to',   (p_to   at time zone tz)::date,
     'totals', jsonb_build_object(
        'qty',    (select coalesce(sum(q), 0) from agg),
+       'qtyRef', (select coalesce(sum(rq), 0) from agg),
        'value',  (select coalesce(sum(v), 0) from agg),
+       'disc',   (select coalesce(sum(dsc), 0) from agg),
+       'refund', (select coalesce(sum(ramt), 0) from agg),
+       'net',    (select coalesce(sum(net), 0) from agg),
        'hpp',    (select coalesce(sum(hpp), 0) from agg),
        'menus',  (select count(*) from agg),
        'orders', (select count(*) from o),
@@ -5557,7 +5575,8 @@ begin
        'noHppValue', (select coalesce(sum(v), 0) from agg where hpp = 0),
        'noHppItems', (select count(*) from agg where hpp = 0)),
     'items', (select coalesce(jsonb_agg(jsonb_build_object('id', menu_id, 'name', name, 'cat', cat, 'catname', catname,
-                       'qty', q, 'value', v, 'hpp', hpp, 'orders', n) order by v desc, name), '[]'::jsonb) from agg),
+                       'qty', q, 'qtyRef', rq, 'value', v, 'disc', dsc, 'refund', ramt, 'net', net,
+                       'hpp', hpp, 'orders', n) order by v desc, name), '[]'::jsonb) from agg),
     'hours', (select coalesce(jsonb_agg(jsonb_build_object('id', menu_id, 'h', h, 'qty', q, 'value', v)), '[]'::jsonb)
                 from (select l.menu_id, l.h, sum(l.qty) q, sum(l.v) v from l join top t on t.menu_id = l.menu_id group by 1, 2) y),
     'hourTotals', (select coalesce(jsonb_agg(jsonb_build_object('h', h, 'qty', q, 'value', v, 'orders', n) order by h), '[]'::jsonb)
@@ -5567,9 +5586,11 @@ begin
     'dayTotals', (select coalesce(jsonb_agg(jsonb_build_object('d', d, 'qty', q, 'value', v) order by d), '[]'::jsonb)
                 from (select d, sum(qty) q, sum(v) v from l group by 1) y),
     'grid', (select coalesce(jsonb_agg(jsonb_build_object('id', menu_id, 'name', name, 'catname', catname,
-                       'd', d, 'h', h, 'qty', q, 'value', v, 'hpp', hpp, 'orders', n) order by d, h, name), '[]'::jsonb)
+                       'd', d, 'h', h, 'qty', q, 'qtyRef', rq, 'value', v, 'disc', dsc, 'refund', ramt,
+                       'net', net, 'hpp', hpp, 'orders', n) order by d, h, name), '[]'::jsonb)
                 from (select menu_id, max(name) name, max(catname) catname, d, h,
-                             sum(qty) q, sum(v) v, sum(hpp) hpp, count(distinct order_id) n
+                             sum(qty) q, sum(rqty) rq, sum(v) v, sum(dsc) dsc, sum(ramt) ramt, sum(net) net,
+                             sum(hpp) hpp, count(distinct order_id) n
                         from l group by menu_id, d, h) y)
   ) into r;
   return r;
