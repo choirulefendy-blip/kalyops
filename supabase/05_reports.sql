@@ -438,24 +438,31 @@ begin
            coalesce((o.bill->>'sub')::numeric, 0) sub,
            coalesce(o.total, (o.bill->>'total')::numeric, 0) total
       from orders o
-     where o.status = 'paid' and o.location_id = any(v_locs)
+     where o.status in ('paid', 'refund') and o.location_id = any(v_locs)
        and o.paid_at >= p_from and o.paid_at <= p_to
+  ), rfo as (
+    select l.order_id, sum(rr.qty * l.price) rv
+      from order_refunds rr join order_lines l on l.id = rr.line_id
+     group by l.order_id
   ), d as (
     select o.id, o.no, o.location_id, o.lt, o.sub, o.total, o.channel, o.type, o.table_id,
            coalesce(nullif(x->>'kind', ''), 'lain') kind,
            coalesce(nullif(x->>'label', ''), 'Tanpa nama') label,
            (x->>'amt')::numeric amt,
+           case when o.sub > 0 then round((x->>'amt')::numeric * least(coalesce(rfo.rv, 0) / o.sub, 1), 2) else 0 end ref_amt,
            coalesce(o.discount->'manual'->>'by', o.paid_by) staff,
            coalesce((o.discount->'manual'->>'approved')::boolean, false) with_pin,
            o.discount->'manual'->>'disc' disc_id,
            nullif(o.discount->'manual'->>'reason', '') reason,
            false legacy
-      from o, jsonb_array_elements(coalesce(o.bill->'discs', '[]'::jsonb)) x
+      from o
+      left join rfo on rfo.order_id = o.id,
+      jsonb_array_elements(coalesce(o.bill->'discs', '[]'::jsonb)) x
      where coalesce((x->>'amt')::numeric, 0) > 0
     union all
     select o.id, o.no, o.location_id, o.lt, o.sub, o.total, o.channel, o.type, o.table_id,
            'impor', coalesce(nullif(o.discount->>'note', ''), 'Diskon impor'),
-           (o.discount->>'amount')::numeric, o.paid_by, false, null, null, true
+           (o.discount->>'amount')::numeric, 0, o.paid_by, false, null, null, true
       from o
      where jsonb_array_length(coalesce(o.bill->'discs', '[]'::jsonb)) = 0
        and o.discount ? 'amount' and coalesce((o.discount->>'amount')::numeric, 0) > 0
@@ -465,6 +472,8 @@ begin
     'threshold', v_thr,
     'totals', jsonb_build_object(
       'amount',   (select coalesce(sum(amt), 0) from d),
+      'refunded', (select coalesce(sum(ref_amt), 0) from d),
+      'net',      (select coalesce(sum(amt - ref_amt), 0) from d),
       'bills',    (select count(distinct id) from d),
       'allBills', (select count(*) from o),
       'gross',    (select coalesce(sum(total), 0) from o),
@@ -472,9 +481,11 @@ begin
       'withPinBills',  (select count(distinct id) from d where with_pin),
       'overThrAmount', (select coalesce(sum(amt), 0) from d where not with_pin and sub > 0 and amt / sub > v_thr),
       'overThrBills',  (select count(distinct id) from d where not with_pin and sub > 0 and amt / sub > v_thr)),
-    'kinds', (select coalesce(jsonb_agg(jsonb_build_object('kind', kind, 'label', label, 'amount', a, 'bills', n,
-                       'avg', a / nullif(n, 0), 'needPin', dc.need_pin, 'cfgType', dc.type, 'cfgValue', dc.value) order by a desc), '[]'::jsonb)
-                from (select kind, label, max(disc_id) did, sum(amt) a, count(distinct id) n from d group by 1, 2) y
+    'kinds', (select coalesce(jsonb_agg(jsonb_build_object('kind', y.kind, 'label', y.label, 'amount', y.a,
+                       'refunded', y.ra, 'net', y.a - y.ra, 'bills', y.n, 'avg', y.a / nullif(y.n, 0),
+                       'needPin', dc.need_pin, 'cfgType', dc.type, 'cfgValue', dc.value) order by y.a desc), '[]'::jsonb)
+                from (select kind, label, max(disc_id) did, sum(amt) a, sum(ref_amt) ra, count(distinct id) n
+                        from d group by 1, 2) y
                 left join discounts dc on dc.id = y.did),
     'staff', (select coalesce(jsonb_agg(jsonb_build_object('id', y.staff, 'name', coalesce(s.name, 'Tidak tercatat'),
                        'amount', y.a, 'bills', y.n, 'withPin', y.p) order by y.a desc), '[]'::jsonb)
@@ -486,7 +497,8 @@ begin
     'hours', (select coalesce(jsonb_agg(jsonb_build_object('h', hh, 'amount', a, 'bills', n) order by hh), '[]'::jsonb)
                 from (select extract(hour from lt)::int hh, sum(amt) a, count(distinct id) n from d group by 1) y),
     'list', (select coalesce(jsonb_agg(jsonb_build_object('no', d.no, 'at', d.lt, 'loc', d.location_id,
-                       'kind', d.kind, 'label', d.label, 'amount', d.amt, 'sub', d.sub, 'total', d.total,
+                       'kind', d.kind, 'label', d.label, 'amount', d.amt, 'refunded', d.ref_amt,
+                       'sub', d.sub, 'total', d.total,
                        'ratio', case when d.sub > 0 then d.amt / d.sub else null end,
                        'staff', coalesce(s.name, d.staff, '-'), 'withPin', d.with_pin, 'reason', d.reason,
                        'legacy', d.legacy, 'ch', d.channel, 'type', d.type, 'table', d.table_id) order by d.lt desc), '[]'::jsonb)
