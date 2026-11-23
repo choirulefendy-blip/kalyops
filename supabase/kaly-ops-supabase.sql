@@ -5357,19 +5357,31 @@ begin
 end $$;
 
 -- Rekap penjualan per kategori & jam (nilai item sebelum diskon tagihan dan PB1; HPP aktual dari pemotongan stok)
--- Penjualan per kategori & jam. HPP memakai cadangan resep yang sama seperti report_items.
+-- Penjualan per kategori & jam, disamakan dengan laporan item: sampai ke penjualan bersih.
+-- Diskon nota dibagi ke tiap baris menurut porsinya terhadap subtotal, refund diambil
+-- per baris nota. HPP memakai cadangan resep yang sama seperti report_items.
 create or replace function public.report_categories(p_from timestamptz, p_to timestamptz, p_locs text[] default null)
 returns jsonb language plpgsql stable security definer set search_path = public as $$
 declare v_locs text[]; tz text := engine.report_tz(); r jsonb;
 begin
   v_locs := engine.report_locs(p_locs);
   with o as (
-    select o.id, (o.paid_at at time zone tz) lt from orders o
-     where o.status = 'paid' and o.location_id = any(v_locs) and o.paid_at >= p_from and o.paid_at <= p_to
+    select o.id, (o.paid_at at time zone tz) lt,
+           coalesce((o.bill->>'disc')::numeric, 0) odisc,
+           coalesce((o.bill->>'sub')::numeric, 0) osub
+      from orders o
+     where o.status in ('paid', 'refund') and o.location_id = any(v_locs)
+       and o.paid_at >= p_from and o.paid_at <= p_to
+  ), rf as (
+    select line_id, sum(qty) rq, sum(amount) ramt from order_refunds where line_id is not null group by line_id
   ), raw as (
     select l.id, l.order_id, l.menu_id, coalesce(nullif(l.name, ''), m.name, l.menu_id) name, l.qty, l.qty * l.price v,
-           l.cost, extract(hour from o.lt)::int h, o.lt::date d, coalesce(m.category_id, '_') cat
-      from order_lines l join o on o.id = l.order_id left join menus m on m.id = l.menu_id
+           l.cost, extract(hour from o.lt)::int h, o.lt::date d, coalesce(m.category_id, '_') cat,
+           case when o.osub > 0 then round(l.qty * l.price / o.osub * o.odisc, 2) else 0 end dsc,
+           coalesce(rf.rq, 0) rqty, coalesce(rf.ramt, 0) ramt
+      from order_lines l join o on o.id = l.order_id
+      left join menus m on m.id = l.menu_id
+      left join rf on rf.line_id = l.id
      where l.parent_line_id is null and l.status <> 'void'
   ), hp as (
     select menu_id, engine.menu_hpp(menu_id) unit from (select distinct menu_id from raw where menu_id is not null) z
@@ -5378,17 +5390,28 @@ begin
            coalesce(raw.cost,
                     coalesce((select sum(ch.cost) from order_lines ch where ch.parent_line_id = raw.id and ch.status <> 'void'), 0)
                       + coalesce(hp.unit, 0) * raw.qty) hpp,
-           (raw.cost is null) est
+           (raw.cost is null) est,
+           raw.v - raw.dsc - raw.ramt net
       from raw left join hp on hp.menu_id = raw.menu_id
   )
   select jsonb_build_object(
     'tz', tz,
     'estLines', (select count(*) from l where est),
     'allLines', (select count(*) from l),
+    'totals', jsonb_build_object(
+      'qty',    (select coalesce(sum(qty), 0) from l),
+      'qtyRef', (select coalesce(sum(rqty), 0) from l),
+      'value',  (select coalesce(sum(v), 0) from l),
+      'disc',   (select coalesce(sum(dsc), 0) from l),
+      'refund', (select coalesce(sum(ramt), 0) from l),
+      'net',    (select coalesce(sum(net), 0) from l),
+      'hpp',    (select coalesce(sum(hpp), 0) from l)),
     'master', (select coalesce(jsonb_agg(jsonb_build_object('id', c.id, 'name', c.name, 'sort', c.sort) order by c.sort, c.id), '[]'::jsonb) from menu_categories c),
     'cats', (select coalesce(jsonb_agg(jsonb_build_object('id', x.cat, 'name', coalesce(c.name, 'Tanpa kategori'), 'sort', coalesce(c.sort, 999),
-                       'qty', x.q, 'value', x.v, 'hpp', x.hpp, 'orders', x.n, 'menus', x.nm) order by coalesce(c.sort, 999), x.cat), '[]'::jsonb)
-               from (select cat, sum(qty) q, sum(v) v, sum(hpp) hpp, count(distinct order_id) n, count(distinct menu_id) nm from l group by cat) x
+                       'qty', x.q, 'qtyRef', x.rq, 'value', x.v, 'disc', x.dsc, 'refund', x.ramt, 'net', x.net,
+                       'hpp', x.hpp, 'orders', x.n, 'menus', x.nm) order by coalesce(c.sort, 999), x.cat), '[]'::jsonb)
+               from (select cat, sum(qty) q, sum(rqty) rq, sum(v) v, sum(dsc) dsc, sum(ramt) ramt, sum(net) net,
+                            sum(hpp) hpp, count(distinct order_id) n, count(distinct menu_id) nm from l group by cat) x
                left join menu_categories c on c.id = x.cat),
     'orders', (select count(*) from o),
     'hours', (select coalesce(jsonb_agg(jsonb_build_object('c', cat, 'h', h, 'qty', q, 'value', v)), '[]'::jsonb)

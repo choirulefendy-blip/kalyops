@@ -144,13 +144,18 @@ export function kategori(db, f) {
     const DD = {}; d.days.forEach((x) => { DD[`${x.c}|${x.d}`] = x; });
     const trend = days.length > 1 ? card('Tren harian per kategori', columns({ x: days.map((k) => fmtShort(fromKey(k))), series: order.map((c) => ({ id: c, label: name[c], color: colors[c], values: days.map((k) => metric(DD[`${c}|${k}`])) })),
       fmt: vfmt, axisFmt: (v) => compact(v, isRp), height: 210, tipTitle: (i) => `${hariNama(fromKey(days[i]))}, ${fmtShort(fromKey(days[i]))}` }), { cls: 'span2' }) : '';
-    const table = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Kategori</th><th class="num">Porsi</th><th class="num">Penjualan</th><th class="num">Porsi penjualan</th><th class="num">HPP</th><th class="num">Food cost</th><th class="num">Margin kotor</th><th class="num">Nota</th><th class="num">Menu terjual</th></tr></thead><tbody>
-      ${cats.map((c) => `<tr><td><span class="rp-badge"><i style="background:${colors[c.id]}"></i>${esc(c.name)}</span></td><td class="num">${num(c.qty)}</td><td class="num">${rp(c.value)}</td><td class="num">${pct(c.value / (tot || 1), 1)}</td><td class="num">${rp(c.hpp)}</td><td class="num">${pct(c.value ? c.hpp / c.value : 0, 1)}</td><td class="num">${rp(c.value - c.hpp)}</td><td class="num">${num(c.orders)}</td><td class="num">${num(c.menus)}</td></tr>`).join('')}
-      <tr class="tot"><td><b>Total</b></td><td class="num"><b>${num(qtot)}</b></td><td class="num"><b>${rp(tot)}</b></td><td class="num">100%</td><td class="num"><b>${rp(htot)}</b></td><td class="num"><b>${pct(tot ? htot / tot : 0, 1)}</b></td><td class="num"><b>${rp(tot - htot)}</b></td><td class="num">${num(d.orders)}</td><td></td></tr></tbody></table></div>`;
+    // Kolom sejajar laporan Item: kotor → diskon → refund → bersih → HPP → laba.
+    // Kolom refund hanya muncul bila periode ini memang ada refund.
+    const T = d.totals || {}, tnet = Number(T.net) || tot;
+    const dsc = (c) => Number(c.disc) || 0, rfd = (c) => Number(c.refund) || 0, nt = (c) => (c.net == null ? c.value : Number(c.net));
+    const anyRef = cats.some((c) => Number(c.qtyRef) || rfd(c));
+    const table = `<div class="tbl-wrap rp-scroll"><table class="tbl"><thead><tr><th>Kategori</th><th class="num">Terjual</th>${anyRef ? '<th class="num">Refund</th>' : ''}<th class="num">Penjualan kotor</th><th class="num">Diskon</th>${anyRef ? '<th class="num">Nilai refund</th>' : ''}<th class="num">Penjualan bersih</th><th class="num">HPP</th><th class="num">Food cost</th><th class="num">Laba kotor</th><th class="num">Nota</th></tr></thead><tbody>
+      ${cats.map((c) => { const n = nt(c); return `<tr><td><span class="rp-badge"><i style="background:${colors[c.id]}"></i>${esc(c.name)}</span></td><td class="num">${num(c.qty)}</td>${anyRef ? `<td class="num">${Number(c.qtyRef) ? num(c.qtyRef) : '<span class="muted">–</span>'}</td>` : ''}<td class="num">${rp(c.value)}</td><td class="num">${dsc(c) ? `<span class="neg">-${rp(dsc(c))}</span>` : '<span class="muted">–</span>'}</td>${anyRef ? `<td class="num">${rfd(c) ? `<span class="neg">-${rp(rfd(c))}</span>` : '<span class="muted">–</span>'}</td>` : ''}<td class="num"><b>${rp(n)}</b></td><td class="num">${rp(c.hpp)}</td><td class="num">${pct(n ? c.hpp / n : 0, 1)}</td><td class="num">${rp(n - c.hpp)}</td><td class="num">${num(c.orders)}</td></tr>`; }).join('')}
+      <tr class="tot"><td><b>Total</b></td><td class="num"><b>${num(qtot)}</b></td>${anyRef ? `<td class="num"><b>${num(T.qtyRef)}</b></td>` : ''}<td class="num"><b>${rp(tot)}</b></td><td class="num">${Number(T.disc) ? `<b class="neg">-${rp(T.disc)}</b>` : '–'}</td>${anyRef ? `<td class="num">${Number(T.refund) ? `<b class="neg">-${rp(T.refund)}</b>` : '–'}</td>` : ''}<td class="num"><b>${rp(tnet)}</b></td><td class="num"><b>${rp(htot)}</b></td><td class="num"><b>${pct(tnet ? htot / tnet : 0, 1)}</b></td><td class="num"><b>${rp(tnet - htot)}</b></td><td class="num">${num(d.orders)}</td></tr></tbody></table></div>`;
     const menus = `<div class="rp-grid rp-menus">${order.map((c) => { const ms = d.menus.filter((m) => m.c === c).slice(0, 6); return `<div><h4 class="rp-badge"><i style="background:${colors[c]}"></i>${esc(name[c])}</h4>${hbar(ms.map((m) => ({ label: m.name, value: Number(isRp ? m.value : m.qty), color: colors[c], tipLabel: isRp ? 'Penjualan' : 'Porsi', note: `${num(m.qty)} porsi · ${rp(m.value)}` })), { fmt: vfmt })}</div>`; }).join('')}</div>`;
     const topCat = [...cats].sort((a, b) => b.value - a.value)[0];
-    return `<div class="kpis">${kpi('Penjualan item', rp(tot), 'sebelum diskon tagihan & PB1')}${kpi('Porsi terjual', num(qtot))}${kpi('Kategori teratas', esc(topCat.name), `${pct(topCat.value / (tot || 1), 1)} dari penjualan`)}
-        ${kpi('Food cost', pct(tot ? htot / tot : 0, 1), `HPP ${rp(htot)}`)}${kpi('Margin kotor', rp(tot - htot))}</div>
+    return `<div class="kpis">${kpi('Penjualan bersih', rp(tnet), `kotor ${rp(tot)} dikurangi diskon${Number(T.refund) ? ' & refund' : ''}`)}${kpi('Porsi terjual', num(qtot), Number(T.qtyRef) ? `${num(T.qtyRef)} porsi direfund` : '')}${kpi('Kategori teratas', esc(topCat.name), `${pct(topCat.value / (tot || 1), 1)} dari penjualan`)}
+        ${kpi('Food cost', pct(tnet ? htot / tnet : 0, 1), `HPP ${rp(htot)}`)}${kpi('Laba kotor', rp(tnet - htot))}</div>
       <div class="row sb rp-ctl"><p class="muted sm">Jam = jam bayar. Nilai item sebelum diskon tagihan dan PB1.</p>${seg('katMetric', M, [['value', 'Rupiah'], ['qty', 'Porsi']])}</div>
       <div class="rp-grid">${card('Kategori per jam', stacked, { cls: 'span2' })}${card('Porsi tiap kategori', share)}${card('Food cost per kategori', fc, { sub: 'HPP dibagi penjualan item. Makin pendek makin untung.' })}
         ${card('Kategori × jam', heatTbl, { cls: 'span2', sub: 'Makin gelap makin laku. Kolom Total = jumlah per kategori.' })}
@@ -161,9 +166,21 @@ export function katCsv(db, f) {
   const d = cache.kat?.data;
   if (!d) return toast('Laporan belum selesai dimuat', 'warn');
   const name = Object.fromEntries(d.cats.map((c) => [c.id, c.name]));
-  downloadCSV(`kategori-per-jam-${dayKey(f.from)}-${dayKey(f.to)}.csv`, [['Kategori', 'Jam', 'Porsi', 'Penjualan'],
+  // Susunan kolom mengikuti laporan Category Sales POS lama supaya bisa dibandingkan berdampingan
+  const N0 = (v) => Math.round(Number(v) || 0);
+  const neg = (v) => (N0(v) ? -N0(v) : 0);
+  const marg = (net, hpp) => (net > 0 ? `${((net - hpp) / net * 100).toFixed(1)}%` : '');
+  const row = (c) => { const net = N0(c.net), h = N0(c.hpp);
+    return [c.name, N0(c.qty), N0(c.qtyRef), N0(c.value), neg(c.disc), neg(c.refund), net, h, net - h, marg(net, h)]; };
+  const T = d.totals || {}, tnet = N0(T.net), thpp = N0(T.hpp);
+  downloadCSV(`category-sales-${dayKey(f.from)}-${dayKey(f.to)}.csv`, [
+    ['Category Name', 'Item Sold', 'Item Refunded', 'Gross Sales', 'Discount', 'Refund', 'Net Sales', 'COGS', 'Gross Profit', 'Gross Margin'],
+    ...d.cats.map(row),
+    ['Total', N0(T.qty), N0(T.qtyRef), N0(T.value), neg(T.disc), neg(T.refund), tnet, thpp, tnet - thpp, marg(tnet, thpp)],
+    [], ['Rincian per jam'], ['Kategori', 'Jam', 'Porsi', 'Penjualan kotor'],
     ...[...d.hours].sort((a, b) => a.h - b.h || String(a.c).localeCompare(b.c)).map((x) => [name[x.c] || x.c, HH(x.h), x.qty, x.value]),
-    [], ['Kategori', 'Porsi', 'Penjualan', 'HPP', 'Margin kotor', 'Nota', 'Menu terjual'], ...d.cats.map((c) => [c.name, c.qty, c.value, c.hpp, c.value - c.hpp, c.orders, c.menus])]);
+    [], [Number(d.estLines) ? 'Catatan: COGS dihitung dari resep yang berlaku saat laporan diunduh, bukan dari biaya yang tercatat saat transaksi.' : ''],
+    [Number(T.disc) ? 'Discount: diskon nota dibagi ke tiap item menurut porsi nilainya terhadap subtotal nota.' : '']]);
 }
 
 // =====================================================================
