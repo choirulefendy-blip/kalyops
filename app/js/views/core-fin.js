@@ -341,6 +341,10 @@ function b2b(ctx) {
 }
 
 export function render(tab, ctx) { return tab === 'keuangan' ? keuangan(ctx) : b2b(ctx); }
+// Dipakai menu samping Backoffice: tiap halaman laporan punya tautannya sendiri (#/laporan?r=item)
+export const subKeys = SUBS.map((s) => s[0]);
+export const subLabel = Object.fromEntries(SUBS);
+export const setSub = (s) => { if (subKeys.includes(s)) ui.sub = s; };
 export function input(k, el, e, ctx) { R.input(k, el, e, ctx); }
 
 export const actions = {

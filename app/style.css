@@ -230,6 +230,8 @@ body.dark-view .view { background: #1C2116; color: #EEEFEA; }
   .brand { padding: 10px 12px; } .brand-t, .brand .logo { display: none; } .brand .k-icon { display: block; width: 32px; height: 32px; }
   .nav { display: flex; overflow-x: auto; padding: 6px 4px; scrollbar-width: none; }
   .nav a { flex: none; padding: 8px 10px; } .nav a span { display: none; } .nav a.on::before { display: none; } .nav-sep { display: none; }
+  /* Baris ikon: anak menu tidak muat, halaman laporan tetap dijangkau lewat tab di dalamnya */
+  .nav-grp { display: contents; } .nav-kids, .nav-caret { display: none !important; }
   .rail-foot { border: 0; padding: 6px 10px; } .who { display: none; }
   .main { min-height: 0; } .view { overflow: visible; padding: 14px 16px 28px; }
   .top { padding: 0 14px; } .sync { display: none; }
@@ -1314,6 +1316,17 @@ button.tkr-m { cursor: pointer; }
 /* 2.7 · Kaly Backoffice (Owner / Manajer) */
 .nav-sec { margin: 12px 12px 4px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: rgba(242, 242, 243, .5); }
 .nav-sec:first-child { margin-top: 2px; }
+/* Kelompok menu samping yang bisa dibuka-tutup (Laporan) */
+.nav-grp { display: grid; gap: 1px; }
+.nav-caret { display: flex; align-items: center; margin-left: auto; padding: 2px; border-radius: 5px; opacity: .6; transition: transform .18s, opacity .15s; }
+.nav-caret:hover { opacity: 1; background: rgba(255,255,255,.12); }
+.nav-grp.open .nav-caret { transform: rotate(180deg); }
+.nav-kids { display: none; margin: 1px 0 2px 21px; padding-left: 10px; border-left: 1px solid rgba(255,255,255,.14); }
+.nav-grp.open .nav-kids { display: grid; gap: 1px; }
+.nav-kids a { padding: 6px 10px; font-size: 12.5px; font-weight: 500; opacity: .82; }
+.nav-kids a:hover { opacity: 1; }
+.nav-kids a.on { opacity: 1; font-weight: 600; }
+.nav-kids a.on::before { left: -11px; top: 6px; bottom: 6px; }
 body.rail-off .nav-sec { display: none; }
 @media (max-width: 900px) { .nav-sec { display: none; } }
 body.bo .brand-t small { color: #E8C98A; }

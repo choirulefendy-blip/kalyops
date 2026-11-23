@@ -18,7 +18,7 @@ import POS from './views/pos.js';
 import Kitchen from './views/kitchen.js';
 import Lounge from './views/lounge.js';
 import Display from './views/display.js';
-import Core from './views/core.js';
+import Core, { Laporan } from './views/core.js';
 import OrderAdmin from './views/order-admin.js';
 import OrderPublic from './views/order-public.js';
 import Loop from './views/loop.js';
@@ -36,7 +36,8 @@ export const NAV = [
   { r: 'denah', label: 'Denah Meja', icon: 'map', roles: ['owner', 'kasir', 'service'], desc: 'Status meja live untuk service' },
   { r: 'pos', label: 'Kaly POS', icon: 'store', roles: ['owner', 'kasir'], desc: 'Kasir, meja, split bill, deposit' },
   { r: 'kitchen', label: 'Kaly Kitchen', icon: 'chef-hat', roles: ['owner', 'dapur'], desc: 'Layar dapur & serving time' },
-  { r: 'core', label: 'Kaly Core', icon: 'layout-dashboard', roles: ['owner', 'gudang'], desc: 'Resep, stok, produksi, laporan' },
+  { r: 'core', label: 'Kaly Core', icon: 'layout-dashboard', roles: ['owner', 'gudang'], desc: 'Resep, stok, produksi' },
+  { r: 'laporan', label: 'Laporan', icon: 'chart-column', roles: ['owner'], desc: 'Keuangan, penjualan, piutang, diskon, fraud' },
   { r: 'order-admin', label: 'Kaly Order', icon: 'qr-code', roles: ['owner', 'kasir'], desc: 'QR meja & pre-order reservasi' },
   { r: 'loop', label: 'Kaly Loop', icon: 'award', roles: ['owner', 'kasir'], desc: 'Member, campaign, misi' },
   { r: 'book-admin', label: 'Kaly Book', icon: 'calendar-check', roles: ['owner', 'kasir', 'service'], desc: 'Reservasi meja' },
@@ -56,8 +57,15 @@ export const OPS_URL = CFG.OPS_URL || '';
 export const BO_URL = CFG.BO_URL || '';
 export const wrongApp = (role) => (MODE === 'backoffice' && role !== 'owner') || (MODE === 'ops' && role === 'owner');
 let kicking = false;
+// Entri menu samping: [rute, label, ikon] — boleh ditambah anak menu [rute, label, ikon, [[kunci, label], …]]
+// yang jadi tautan #/<rute>?r=<kunci>. Anak menu hanya tampil di layar lebar (lihat navHtml).
+const LAPORAN_KIDS = [
+  ['ringkasan', 'Ringkasan'], ['pl', 'Laba rugi'], ['bs', 'Neraca'], ['cf', 'Arus kas'], ['sales', 'Penjualan'],
+  ['piutang', 'Piutang'], ['nota', 'Nota & jam'], ['item', 'Item & jam'], ['kat', 'Kategori & jam'],
+  ['diskon', 'Diskon'], ['meja', 'Aktivitas meja'], ['jr', 'Jurnal'], ['b2b', 'B2B antar entitas'], ['fraud', 'Deteksi fraud'],
+];
 const BO_NAV = [
-  ['Backoffice', [['', 'Dashboard', 'layout-dashboard'], ['core', 'Stok, resep & laporan', 'chart-column'], ['goods', 'Pembelian & supplier', 'truck'], ['pos', 'Menu & harga', 'utensils'],
+  ['Backoffice', [['', 'Dashboard', 'layout-dashboard'], ['laporan', 'Laporan', 'chart-column', LAPORAN_KIDS], ['core', 'Stok & resep', 'boxes'], ['goods', 'Pembelian & supplier', 'truck'], ['pos', 'Menu & harga', 'utensils'],
     ['loop', 'Member & promo', 'award'], ['book-admin', 'Reservasi', 'calendar-check'], ['transaksi', 'Transaksi & shift', 'receipt'], ['order-admin', 'Pesanan online & QR', 'qr-code'], ['settings', 'Pengaturan & printer', 'settings'], ['audit', 'Audit log', 'history']]],
   ['Pantau operasional', [['denah', 'Denah meja', 'map'], ['kitchen', 'Layar dapur', 'chef-hat'], ['print', 'Stasiun cetak', 'printer']]],
 ];
@@ -82,6 +90,7 @@ const ROUTES = {
   denah: { v: Denah, title: 'Denah Meja', wide: true },
   kitchen: { v: Kitchen, title: 'Kaly Kitchen', dark: true, wide: true },
   core: { v: Core, title: 'Kaly Core' },
+  laporan: { v: Laporan, title: 'Laporan' },
   'order-admin': { v: OrderAdmin, title: 'Kaly Order' },
   loop: { v: Loop, title: 'Kaly Loop' },
   'book-admin': { v: BookAdmin, title: 'Kaly Book' },
@@ -120,6 +129,14 @@ export const setOutlet = (L) => { try { localStorage.setItem('kaly.outlet', L); 
 export const can = (route) => { const u = currentUser(); const r = ROUTES[route]; return !!u && (!r?.roles || r.roles.includes(u.role)); };
 
 // Nama menu & urutan Backoffice (dipakai juga oleh kartu modul di Dashboard)
+// Kelompok menu samping yang sedang terbuka (diingat per perangkat)
+export function navOpen(r, set) {
+  try {
+    if (set !== undefined) { localStorage.setItem('kaly.nav.' + r, set ? '1' : '0'); return set; }
+    const v = localStorage.getItem('kaly.nav.' + r);
+    return v === null ? parseHash().path === r : v === '1';   // belum pernah diatur: terbuka saat halamannya aktif
+  } catch { return parseHash().path === r; }
+}
 export const BO_LABEL = Object.fromEntries(BO_NAV.flatMap(([, l]) => l.map(([r, label]) => [r, label])));
 export const BO_ORDER = BO_NAV.flatMap(([, l]) => l.map(([r]) => r));
 // Portal terakhir yang dipakai perangkat ini (untuk halaman masuk setelah keluar)
@@ -176,7 +193,11 @@ function renderShell() {
   document.body.classList.toggle('bo', bo);
   document.title = bo ? 'Kaly Backoffice' : 'Kaly Ops';
   const navHtml = bo
-    ? BO_NAV.map(([sec, list]) => `<p class="nav-sec">${esc(sec)}</p>${list.filter(([r]) => items.some((n) => n.r === r)).map(([r, label, icon]) => `<a href="#/${r}" data-r="${r}">${ic(icon, 19)}<span>${esc(label)}</span></a>`).join('')}`).join('')
+    ? BO_NAV.map(([sec, list]) => `<p class="nav-sec">${esc(sec)}</p>${list.filter(([r]) => items.some((n) => n.r === r)).map(([r, label, icon, kids]) => {
+      const link = `<a href="#/${r}" data-r="${r}">${ic(icon, 19)}<span>${esc(label)}</span>${kids ? `<i class="nav-caret" data-a="navGrp" role="button" tabindex="0" aria-label="Buka atau tutup daftar ${esc(label)}">${ic('chevron-down', 16)}</i>` : ''}</a>`;
+      if (!kids) return link;
+      return `<div class="nav-grp${navOpen(r) ? ' open' : ''}" data-grp="${r}">${link}<div class="nav-kids">${kids.map(([q, kl]) => `<a href="#/${r}?r=${q}" data-r="${r}" data-sub="${q}">${esc(kl)}</a>`).join('')}</div></div>`;
+    }).join('')}`).join('')
     : items.map((n) => `<a href="#/${n.r}" data-r="${n.r}">${ic(n.icon, 19)}<span>${esc(n.label)}</span></a>`).join('');
   document.getElementById('root').innerHTML = `
   <aside class="rail" aria-label="Navigasi">
@@ -253,7 +274,13 @@ function updateShell() {
   paintRailBtn();
   const t = $('#top-title');
   if (t) t.textContent = (cur.view?.title && cur.view.title(cur.ctx)) || (isBO() && BO_LABEL[cur.name]) || cur.r?.title || '';
-  $$('.nav a[data-r]').forEach((a) => a.classList.toggle('on', a.dataset.r === cur.name));
+  // Induk menyala saat rutenya aktif; anak menyala hanya yang persis sedang dibuka
+  const curSub = parseHash().q?.r || '';
+  $$('.nav a[data-r]').forEach((a) => {
+    const mine = a.dataset.r === cur.name;
+    a.classList.toggle('on', a.dataset.sub ? mine && a.dataset.sub === curSub : mine);
+  });
+  $$('.nav .nav-grp').forEach((g) => { if (g.dataset.grp === cur.name) g.classList.add('open'); });
   const db = getDb();
   // Layar dapur: lonceng berisi notifikasi dari kasir (2.5); peran lain: pesanan siap dari dapur
   const n = currentUser()?.role === 'dapur' ? N.kitchenUnread(getOutlet()) : db.notices.filter((x) => !x.seen && x.loc === getOutlet()).length;
@@ -351,6 +378,14 @@ const GLOBAL = {
     document.body.classList.toggle('rail-off', off);
     try { localStorage.setItem('kaly.rail', off ? 'off' : 'on'); } catch {}
     paintRailBtn();
+  },
+  // Buka-tutup kelompok menu samping tanpa ikut berpindah halaman
+  navGrp(el, e) {
+    e.preventDefault(); e.stopPropagation();
+    const g = el.closest('.nav-grp'); if (!g) return;
+    const open = !g.classList.contains('open');
+    g.classList.toggle('open', open);
+    navOpen(g.dataset.grp, open);
   },
   go(el) { go(el.dataset.to || ''); },
   soundPrefs() { N.openPrefs(); },

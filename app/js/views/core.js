@@ -8,9 +8,16 @@ import * as Stock from './core-stock.js';
 import * as Fin from './core-fin.js';
 
 const ui = { tab: null, dashLoc: 'all', flagSev: 'all', flagSt: 'open' };
+// 2.22 · Laporan dipisah jadi menu samping sendiri, tidak lagi menumpang di Kaly Core.
 const TABS = [
-  ['dash', 'Dashboard', ['owner']], ['resep', 'Menu & resep', ['owner', 'gudang']], ['produksi', 'Produksi', ['owner', 'gudang']], ['stok', 'Stok', ['owner', 'gudang']],
-  ['mutasi', 'Mutasi', ['owner', 'gudang']], ['opname', 'Stock opname', ['owner', 'gudang']], ['keuangan', 'Laporan', ['owner']], ['b2b', 'B2B antar entitas', ['owner']], ['fraud', 'Deteksi fraud', ['owner']],
+  ['resep', 'Menu & resep', ['owner', 'gudang']], ['produksi', 'Produksi', ['owner', 'gudang']], ['stok', 'Stok', ['owner', 'gudang']],
+  ['mutasi', 'Mutasi', ['owner', 'gudang']], ['opname', 'Stock opname', ['owner', 'gudang']],
+];
+// Ringkasan = dashboard operasional yang dulu jadi tab pertama Kaly Core. Isinya beda dari
+// halaman Beranda Backoffice (yang cuma portal), jadi tetap dipertahankan di sini.
+const TABS_LAP = [
+  ['ringkasan', 'Ringkasan', ['owner']], ['keuangan', 'Laporan keuangan', ['owner']],
+  ['b2b', 'B2B antar entitas', ['owner']], ['fraud', 'Deteksi fraud', ['owner']],
 ];
 
 function dashboard(ctx) {
@@ -108,19 +115,27 @@ function fraud(ctx) {
     </aside></div>`;
 }
 
+// Kerangka bersama Kaly Core dan Laporan: deretan tab di atas + isi halaman.
+// Tab strip tetap ada walau menu samping sudah memuat tiap laporan, karena di layar
+// ≤900px menu samping berubah jadi baris ikon tanpa label dan tanpa sub-menu.
+function shell(list, st, ctx, body) {
+  const tabs = list.filter((t) => t[2].includes(ctx.user.role));
+  if (!tabs.length) return '<div class="card"><p class="empty">Tidak ada halaman untuk peran ini.</p></div>';
+  if (ctx.q.tab && ctx.q !== st.q && tabs.find((t) => t[0] === ctx.q.tab)) st.tab = ctx.q.tab;
+  st.q = ctx.q;
+  if (!st.tab || !tabs.find((t) => t[0] === st.tab)) st.tab = tabs[0][0];
+  return `<div class="tabs scroll">${tabs.map(([k, l]) => `<button class="tab ${st.tab === k ? 'on' : ''}" data-a="${st.act}" data-v="${k}">${l}</button>`).join('')}</div><div class="tabbody">${body(st.tab)}</div>`;
+}
+
+// Tautan lama (#/core?tab=keuangan, notifikasi yang terlanjur terkirim, bookmark) tetap mendarat benar
+const MOVED = { dash: 'ringkasan', keuangan: 'pl', b2b: 'b2b', fraud: 'fraud' };
+
 export default {
   render(ctx) {
-    const tabs = TABS.filter((t) => t[2].includes(ctx.user.role));
-    // Tautan #/core?tab=… (mis. dari notifikasi) membuka tab itu, juga bila Kaly Core sudah terbuka di tab lain
-    if (ctx.q.tab && ctx.q !== ui.q && tabs.find((t) => t[0] === ctx.q.tab)) ui.tab = ctx.q.tab;
-    ui.q = ctx.q;
-    if (!ui.tab || !tabs.find((t) => t[0] === ui.tab)) ui.tab = tabs[0][0];
-    let body;
-    if (ui.tab === 'dash') body = dashboard(ctx);
-    else if (ui.tab === 'fraud') body = fraud(ctx);
-    else if (['keuangan', 'b2b'].includes(ui.tab)) body = Fin.render(ui.tab, ctx);
-    else body = Stock.render(ui.tab, ctx);
-    return `<div class="tabs scroll">${tabs.map(([k, l]) => `<button class="tab ${ui.tab === k ? 'on' : ''}" data-a="tab" data-v="${k}">${l}</button>`).join('')}</div><div class="tabbody">${body}</div>`;
+    const moved = MOVED[ctx.q.tab];
+    if (moved) { location.hash = `#/laporan?r=${moved}`; return ''; }
+    ui.act = 'tab';
+    return shell(TABS, ui, ctx, (t) => Stock.render(t, ctx));
   },
   input(k, el, e, ctx) { Stock.input?.(k, el, e, ctx); Fin.input?.(k, el, e, ctx); },
   actions: {
@@ -130,6 +145,29 @@ export default {
     flagSt(el) { ui.flagSt = el.dataset.v; rerender(); },
     async flagOk(el, e, ctx) { await API.flagChecked(el.dataset.id, ctx.user.id); await C.refresh('flags'); toast('Flag ditandai sudah dicek'); rerender(); },
     ...Stock.actions,
+    ...Fin.actions,
+  },
+};
+
+// ---------- Laporan: menu samping tersendiri ----------
+const lui = { tab: null, act: 'lapTab' };
+export const Laporan = {
+  render(ctx) {
+    // #/laporan?r=item → langsung ke satu halaman laporan dari menu samping
+    const r = ctx.q.r;
+    if (r && ctx.q !== lui.q) {
+      if (Fin.subKeys.includes(r)) { Fin.setSub(r); lui.tab = 'keuangan'; }
+      else if (TABS_LAP.some((t) => t[0] === r)) lui.tab = r;
+    }
+    return shell(TABS_LAP, lui, ctx, (t) => (t === 'ringkasan' ? dashboard(ctx) : t === 'fraud' ? fraud(ctx) : Fin.render(t, ctx)));
+  },
+  input(k, el, e, ctx) { Fin.input?.(k, el, e, ctx); },
+  actions: {
+    lapTab(el) { lui.tab = el.dataset.v; rerender(); },
+    dashLoc(el) { ui.dashLoc = el.dataset.v; rerender(); },
+    flagSev(el) { ui.flagSev = el.dataset.v; rerender(); },
+    flagSt(el) { ui.flagSt = el.dataset.v; rerender(); },
+    async flagOk(el, e, ctx) { await API.flagChecked(el.dataset.id, ctx.user.id); await C.refresh('flags'); toast('Flag ditandai sudah dicek'); rerender(); },
     ...Fin.actions,
   },
 };
