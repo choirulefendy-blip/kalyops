@@ -68,22 +68,44 @@ export function moveDialog(ctx, from, { order = null, done } = {}) {
   const src = db.tables.find((x) => x.id === from);
   if (!occ.length && !src?.hold) return toast(`Meja ${from} sedang kosong`, 'warn');
   const grp = occ.find((o) => o.status === 'open' && o.table === from && o.merged?.length);
-  const free = db.tables.filter((x) => x.loc === L && x.id !== from && isFree(db, L, x));
+  const other = db.tables.filter((x) => x.loc === L && x.id !== from && x.active !== false);
+  const free = other.filter((x) => isFree(db, L, x));
+  // Meja yang sebetulnya sudah ditinggal tamu, tapi masih bertanda "Lunas" karena belum dikosongkan.
+  // Dulu meja seperti ini hilang dari daftar dan kasir mengira mejanya memang tidak ada.
+  const held = other.filter((x) => x.hold && !occupants(db, L, x.id).length);
   const areas = [...new Set(free.map((x) => x.area))];
   const nos = [...new Set([...occ.map((o) => o.no), ...(src?.hold ? [D.order(db, src.hold.order)?.no] : [])].filter(Boolean))];
   const tile = (x) => {
     const r = soonRes(db, x.id);
     return `<button class="tb ${r ? 'res' : 'free'}" data-t="${esc(x.id)}" aria-label="Meja ${esc(x.id)}, ${x.seats} kursi${r ? `, reservasi ${esc(r.time)}` : ''}"><span class="tb-n">${esc(x.id)}</span><span class="tb-s">${x.seats} kursi</span>${r ? `<span class="tb-o">Reservasi ${esc(r.time)}</span>` : ''}</button>`;
   };
+  const heldTile = (x) => {
+    const o = D.order(db, x.hold.order);
+    return `<button class="tb paid" data-t="${esc(x.id)}" data-held="1" aria-label="Meja ${esc(x.id)}, sudah dibayar pukul ${esc(fmtTime(x.hold.at))}, belum dikosongkan"><span class="tb-n">${esc(x.id)}</span><span class="tb-s">${esc(x.area)}</span><span class="tb-o">Lunas ${esc(fmtTime(x.hold.at))}${o?.no ? ` · ${esc(o.no)}` : ''}</span></button>`;
+  };
   openModal({
     title: `Pindahkan tamu meja ${from}`,
     body: `<p class="muted sm">${nos.length ? `Bill ${esc(nos.join(', '))} ` : 'Semua pesanan '}ikut pindah${src?.hold ? ', termasuk tanda lunas' : ''}. Pilih meja kosong:</p>
       ${grp ? `<label class="switch sm mv-unmerge"><input type="checkbox" name="unmerge" checked><span>Lepas meja gabungan ${esc(grp.merged.join(', '))} (pindah satu rombongan ke satu meja)</span></label>` : ''}
-      ${free.length ? areas.map((a) => `<h4 class="sec-t">${esc(a)}</h4><div class="tables sm">${free.filter((x) => x.area === a).map(tile).join('')}</div>`).join('') : '<p class="empty">Tidak ada meja kosong saat ini.</p>'}`,
+      ${free.length ? areas.map((a) => `<h4 class="sec-t">${esc(a)}</h4><div class="tables sm">${free.filter((x) => x.area === a).map(tile).join('')}</div>`).join('')
+        : `<p class="empty">Tidak ada meja kosong saat ini.${held.length ? '' : ' Kosongkan dulu meja yang tamunya sudah pulang.'}</p>`}
+      ${held.length ? `<h4 class="sec-t">Belum dikosongkan</h4><div class="tables sm">${held.map(heldTile).join('')}</div>
+        <p class="hint">Meja ini sudah dibayar dan tamunya biasanya sudah pulang, tapi tandanya belum dibuka. Pilih salah satu untuk mengosongkan sekaligus memindahkan tamu ke sana.</p>` : ''}`,
     onMount(m, api) {
       m.addEventListener('click', async (e) => {
         const b = e.target.closest('[data-t]'); if (!b) return;
         const to = b.dataset.t;
+        if (b.dataset.held) {
+          const unmerge0 = !!m.querySelector('[name=unmerge]')?.checked;
+          const t = getDb().tables.find((x) => x.id === to);
+          const o = t?.hold ? D.order(getDb(), t.hold.order) : null;
+          if (!(await confirmBox(`Kosongkan meja ${to} dulu?`, `Meja ${esc(to)} masih bertanda Lunas${o?.no ? ` dari bill <b>${esc(o.no)}</b>` : ''}${t?.hold ? ` pukul ${esc(fmtTime(t.hold.at))}` : ''}. Pastikan tamunya sudah pulang dan mejanya sudah bersih. Kosongkan lalu pindahkan tamu meja ${esc(from)} ke sana?`, 'Kosongkan & pindahkan'))) return;
+          api.close();
+          await clearTable(to, L);
+          const res0 = await moveGuests(from, to, L, { unmerge: unmerge0, order });
+          done?.(to, res0 || undefined);
+          return;
+        }
         const r = soonRes(getDb(), to);
         if (r && !(await confirmBox(`Meja ${to} ada reservasi`, `Reservasi <b>${esc(r.name)}</b> pukul ${esc(r.time)} memakai meja ${esc(to)}. Tetap pindahkan tamu ke sana?`, 'Tetap pindahkan'))) return;
         const unmerge = !!m.querySelector('[name=unmerge]')?.checked;

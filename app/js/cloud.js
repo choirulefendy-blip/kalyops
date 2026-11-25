@@ -29,7 +29,32 @@ export function errMsg(e) {
 // Transaksinya dibatalkan utuh, jadi aman diulang otomatis beberapa kali.
 const retryable = (e) => e && (e.code === '40P01' || e.code === '40001' || e.code === '55P03' || /deadlock detected|could not serialize/i.test(e.message || ''));
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Sesi bisa putus diam-diam di tengah pemakaian: perpanjangan token gagal karena koneksi sempat hilang,
+// atau akun yang sama dipakai di perangkat lain. Supabase lalu mengirim permintaan berikutnya tanpa identitas,
+// dan server menolaknya dengan "belum terdaftar sebagai staf" — padahal yang habis adalah sesinya, bukan akunnya.
+// Jadi sebelum memanggil fungsi database, pastikan sesinya masih ada; sekali coba perpanjang kalau sudah lewat.
+export async function sessionOk() {
+  if (!sb) return true;
+  try {
+    const { data } = await sb.auth.getSession();
+    if (data?.session) return true;
+    const { data: r } = await sb.auth.refreshSession();
+    return !!r?.session;
+  } catch { return false; }
+}
+// Sesi hilang: hentikan sinkron, kosongkan data di perangkat, lalu layar akan kembali ke halaman masuk.
+function sessionLost() {
+  try {
+    if (!me) return;
+    me = null; ready = false;
+    stopSync();
+  } catch {}
+  emit('session');
+}
+
 export async function rpc(fn, args = {}) {
+  if (me && !(await sessionOk())) { sessionLost(); throw new Error('Sesi login habis. Masuk lagi untuk melanjutkan.'); }
   for (let i = 0; ; i++) {
     const { data, error } = await sb.rpc(fn, args);
     if (!error) return data;
@@ -173,6 +198,9 @@ function emptyDb() {
 export const db = emptyDb();
 export let me = null;
 let ready = false;
+// Supabase menghapus sesi sendiri saat token tidak bisa diperpanjang lagi; tangkap di sini supaya
+// layar langsung kembali ke halaman masuk, bukan diam-diam mengirim permintaan tanpa identitas.
+if (sb) sb.auth.onAuthStateChange((ev, s) => { if (!s && ev === 'SIGNED_OUT') sessionLost(); });
 export const isReady = () => ready;
 const touch = () => { db.rev = (db.rev || 0) + 1; };
 
