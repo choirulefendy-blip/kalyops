@@ -383,7 +383,7 @@ export function diskon(db, f) {
     const anyRef = d.kinds.some((k) => Number(k.refunded));
     const tref = Number(T.refunded) || 0, tnet = Number(T.net) ?? amt;
     const kindTbl = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Jenis diskon</th><th>Setelan</th><th class="num">Nota</th><th class="num">Diskon kotor</th>${anyRef ? '<th class="num">Batal karena refund</th><th class="num">Diskon bersih</th>' : ''}<th class="num">Rata-rata/nota</th><th class="num">Porsi</th></tr></thead><tbody>
-      ${d.kinds.map((k) => `<tr><td><b>${esc(k.label)}</b>${k.kind === 'impor' ? ' <span class="badge b-mute">impor</span>' : ''}</td>
+      ${d.kinds.map((k) => `<tr><td><b>${esc(k.label)}</b>${k.kind === 'impor' ? ' <span class="badge b-mute">impor</span>' : k.kind === 'item' ? ' <span class="badge b-info">per item</span>' : ''}</td>
         <td class="muted sm">${k.cfgValue != null ? esc(k.cfgType === 'pct' ? `${num(Number(k.cfgValue) * 100, 0)}%` : rp(k.cfgValue)) : '–'}${k.needPin === true ? ' · perlu PIN' : k.needPin === false ? ' · tanpa PIN' : ''}</td>
         <td class="num">${num(k.bills)}</td><td class="num"><b>${rp(k.amount)}</b></td>${anyRef ? `<td class="num">${Number(k.refunded) ? `<span class="neg">-${rp(k.refunded)}</span>` : '<span class="muted">–</span>'}</td><td class="num"><b>${rp(k.net)}</b></td>` : ''}<td class="num">${rp(k.avg)}</td><td class="num">${pct(Number(k.amount) / amt, 1)}</td></tr>`).join('')}
       <tr class="tot"><td><b>Total</b></td><td></td><td class="num"><b>${num(T.bills)}</b></td><td class="num"><b>${rp(amt)}</b></td>${anyRef ? `<td class="num"><b class="neg">-${rp(tref)}</b></td><td class="num"><b>${rp(tnet)}</b></td>` : ''}<td class="num"></td><td class="num">100%</td></tr></tbody></table></div>
@@ -421,7 +421,7 @@ export function diskonCsv(db, f) {
       x.withPin ? 'Ya' : 'Tidak', x.reason || '']),
     [], ['Rekap per jenis diskon'],
     ['Discount Name', 'Discount Amount', 'Count', 'Gross Discount', 'Discount Refunded', 'Net Discount', 'Average per Bill'],
-    ...d.kinds.map((k) => [k.label,
+    ...d.kinds.map((k) => [k.label + (k.kind === 'item' ? ' (per item)' : ''),
       k.cfgValue == null ? '-' : k.cfgType === 'pct' ? `${Math.round(Number(k.cfgValue) * 100)}%` : Math.round(Number(k.cfgValue)),
       Math.round(Number(k.bills) || 0), -Math.round(Number(k.amount) || 0),
       Number(k.refunded) ? -Math.round(Number(k.refunded)) : 0, -Math.round(Number(k.net) || 0),

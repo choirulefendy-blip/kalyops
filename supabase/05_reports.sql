@@ -179,14 +179,30 @@ begin
        and o.paid_at >= p_from and o.paid_at <= p_to
   ), rf as (
     select line_id, sum(qty) rq, sum(amount) ramt from order_refunds where line_id is not null group by line_id
+  ), ld as (   -- 2.20: potongan yang menempel di satu baris, rumusnya sama dengan engine.compute_bill
+    select l.id line_id, l.order_id,
+           least(case when l.disc->>'type' = 'pct'
+                      then least(engine.jsround(l.qty * l.price * (l.disc->>'value')::numeric),
+                                 case when coalesce((l.disc->>'max')::numeric, 0) > 0 then (l.disc->>'max')::numeric else 1e15 end)
+                      else engine.jsround((l.disc->>'value')::numeric) end,
+                 l.qty * l.price) amt
+      from order_lines l join o on o.id = l.order_id
+     where l.parent_line_id is null and l.status <> 'void'
+       and jsonb_typeof(l.disc) = 'object' and coalesce((l.disc->>'value')::numeric, 0) > 0
+  ), ldo as (
+    select order_id, sum(amt) amt from ld group by 1
   ), raw as (
     select l.id, l.order_id, l.menu_id, coalesce(nullif(l.name, ''), m.name, l.menu_id) name, l.qty, l.qty * l.price v,
            l.cost, extract(hour from o.lt)::int h, o.lt::date d, coalesce(m.category_id, '_') cat,
-           case when o.osub > 0 then round(l.qty * l.price / o.osub * o.odisc, 2) else 0 end dsc,
+           coalesce(ld.amt, 0) + case when (o.osub - coalesce(ldo.amt, 0)) > 0
+             then round((l.qty * l.price - coalesce(ld.amt, 0)) / (o.osub - coalesce(ldo.amt, 0)) * (o.odisc - coalesce(ldo.amt, 0)), 2)
+             else 0 end dsc,
            coalesce(rf.rq, 0) rqty, coalesce(rf.ramt, 0) ramt
       from order_lines l join o on o.id = l.order_id
       left join menus m on m.id = l.menu_id
       left join rf on rf.line_id = l.id
+      left join ld on ld.line_id = l.id
+      left join ldo on ldo.order_id = l.order_id
      where l.parent_line_id is null and l.status <> 'void'
   ), hp as (
     select menu_id, engine.menu_hpp(menu_id) unit from (select distinct menu_id from raw where menu_id is not null) z
@@ -352,18 +368,34 @@ begin
        and o.paid_at >= p_from and o.paid_at <= p_to
   ), rf as (   -- refund per baris nota
     select line_id, sum(qty) rq, sum(amount) ramt from order_refunds where line_id is not null group by line_id
+  ), ld as (   -- 2.20: potongan yang menempel di satu baris, rumusnya sama dengan engine.compute_bill
+    select l.id line_id, l.order_id,
+           least(case when l.disc->>'type' = 'pct'
+                      then least(engine.jsround(l.qty * l.price * (l.disc->>'value')::numeric),
+                                 case when coalesce((l.disc->>'max')::numeric, 0) > 0 then (l.disc->>'max')::numeric else 1e15 end)
+                      else engine.jsround((l.disc->>'value')::numeric) end,
+                 l.qty * l.price) amt
+      from order_lines l join o on o.id = l.order_id
+     where l.parent_line_id is null and l.status <> 'void'
+       and jsonb_typeof(l.disc) = 'object' and coalesce((l.disc->>'value')::numeric, 0) > 0
+  ), ldo as (
+    select order_id, sum(amt) amt from ld group by 1
   ), raw as (
     select l.id, l.order_id, l.menu_id, coalesce(nullif(l.name, ''), m.name, l.menu_id) name, l.qty, l.qty * l.price v,
            l.cost, extract(hour from o.lt)::int h, o.lt::date d,
            coalesce(m.category_id, '_') cat, coalesce(c.name, 'Tanpa kategori') catname,
            -- diskon nota dibagi menurut porsi nilai item terhadap subtotal nota
-           case when o.osub > 0 then round(l.qty * l.price / o.osub * o.odisc, 2) else 0 end dsc,
+           coalesce(ld.amt, 0) + case when (o.osub - coalesce(ldo.amt, 0)) > 0
+             then round((l.qty * l.price - coalesce(ld.amt, 0)) / (o.osub - coalesce(ldo.amt, 0)) * (o.odisc - coalesce(ldo.amt, 0)), 2)
+             else 0 end dsc,
            coalesce(rf.rq, 0) rqty, coalesce(rf.ramt, 0) ramt
       from order_lines l
       join o on o.id = l.order_id
       left join menus m on m.id = l.menu_id
       left join menu_categories c on c.id = m.category_id
       left join rf on rf.line_id = l.id
+      left join ld on ld.line_id = l.id
+      left join ldo on ldo.order_id = l.order_id
      where l.parent_line_id is null and l.status <> 'void'
   -- HPP resep dihitung sekali per menu, bukan per baris, supaya tetap cepat
   ), hp as (
