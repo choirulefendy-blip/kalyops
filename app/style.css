@@ -715,22 +715,28 @@ video.cam { width: 100%; border-radius: 9px; background: #000; }
 .dn-map { position: relative; aspect-ratio: 2174 / 1710; container-type: inline-size; user-select: none; -webkit-user-select: none; }
 .dn-map > img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
 .dn-pins { position: absolute; inset: 0; }
-.dn-pin { position: absolute; transform: translate(-50%, -50%); width: 2.4cqi; height: 1.9cqi; padding: 0; display: grid; place-content: center; justify-items: center; gap: 0; line-height: 1.05;
-  border: max(1.5px, .12cqi) solid var(--ink); border-radius: .3cqi; background: #fff; color: var(--ink); cursor: pointer; font-family: inherit; box-shadow: 0 .08cqi .25cqi rgba(30,36,22,.18); }
-.dn-pin b { font-size: .72cqi; font-weight: 800; letter-spacing: -.02em; }
-.dn-pin small { font-size: .5cqi; font-weight: 600; color: var(--ink-3); white-space: nowrap; }
+/* Ukuran meja memakai satuan cqi supaya ikut membesar saat denah di-zoom. Container query baru ada
+   di Safari 16, jadi iPad lama (iOS 15) membuang semua baris cqi dan kotak mejanya jadi melar ikut
+   teksnya lalu saling tumpang tindih. Nilai px di bawah ini dipasang lebih dulu sebagai cadangan;
+   peramban yang paham cqi tetap memakai baris cqi di bawahnya. */
+.dn-pin { position: absolute; transform: translate(-50%, -50%); width: 43px; height: 34px; padding: 0; display: grid; place-content: center; justify-items: center; gap: 0; line-height: 1.05;
+  border: 2px solid var(--ink); border-radius: 5px; background: #fff; color: var(--ink); cursor: pointer; font-family: inherit; box-shadow: 0 1.5px 4px rgba(30,36,22,.18);
+  width: 2.4cqi; height: 1.9cqi; border-width: max(1.5px, .12cqi); border-radius: .3cqi; box-shadow: 0 .08cqi .25cqi rgba(30,36,22,.18); }
+.dn-pin b { font-size: 13px; font-size: .72cqi; font-weight: 800; letter-spacing: -.02em; }
+.dn-pin small { font-size: 9px; font-size: .5cqi; font-weight: 600; color: var(--ink-3); white-space: nowrap; }
 .dn-pin:hover { z-index: 3; transform: translate(-50%, -50%) scale(1.12); }
 .dn-pin.st-busy { background: var(--olive); border-color: var(--olive-900); color: #fff; } .dn-pin.st-busy small { color: #DDE3CF; }
 .dn-pin.st-ready { background: var(--orange); border-color: var(--orange-700); color: #fff; animation: dn-pulse 1.6s ease-out infinite; } .dn-pin.st-ready small { color: #FFE7DF; }
 .dn-pin.st-res { background: #EEF4F5; border-color: var(--kolam); border-style: dashed; color: #234A52; } .dn-pin.st-res small { color: var(--kolam); }
-.dn-pin.gz { border-radius: 999px; outline: max(1.5px, .1cqi) solid currentColor; outline-offset: max(1.5px, .1cqi); }
+.dn-pin.gz { border-radius: 999px; outline: 2px solid currentColor; outline-offset: 2px; outline-width: max(1.5px, .1cqi); outline-offset: max(1.5px, .1cqi); }
 .dn-pin.gz.st-free { outline-color: var(--ink); }
-.dn-pin.sel { z-index: 4; box-shadow: 0 0 0 .22cqi #fff, 0 0 0 .4cqi var(--olive-900); }
+.dn-pin.sel { z-index: 4; box-shadow: 0 0 0 4px #fff, 0 0 0 7px var(--olive-900); box-shadow: 0 0 0 .22cqi #fff, 0 0 0 .4cqi var(--olive-900); }
 .dn-pin.dim { opacity: .28; }
 .dn-pin.dragging { z-index: 5; cursor: grabbing; transform: translate(-50%, -50%) scale(1.18); box-shadow: 0 .3cqi .8cqi rgba(30,36,22,.35); }
-.dn-dot { position: absolute; top: -.55cqi; right: -.55cqi; min-width: 1cqi; height: 1cqi; padding: 0 .2cqi; border-radius: 999px; background: #fff; color: var(--orange-700); border: max(1px, .08cqi) solid var(--orange-700); font-style: normal; font-weight: 800; font-size: .58cqi; display: grid; place-items: center; }
+.dn-dot { position: absolute; top: -10px; right: -10px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 999px; background: #fff; color: var(--orange-700); border: 1.5px solid var(--orange-700); font-style: normal; font-weight: 800; font-size: 10px; display: grid; place-items: center;
+  top: -.55cqi; right: -.55cqi; min-width: 1cqi; height: 1cqi; padding: 0 .2cqi; border-width: max(1px, .08cqi); font-size: .58cqi; }
 .editing .dn-pin { cursor: grab; } .editing .dn-wrap { cursor: default; }
-.editing .dn-pin::after { content: ''; position: absolute; inset: -.3cqi; border: max(1px, .08cqi) dashed var(--orange-700); border-radius: inherit; pointer-events: none; }
+.editing .dn-pin::after { content: ''; position: absolute; inset: -5px; border: 1.5px dashed var(--orange-700); border-radius: inherit; pointer-events: none; inset: -.3cqi; border-width: max(1px, .08cqi); }
 @keyframes dn-pulse { 0% { box-shadow: 0 0 0 0 rgba(204,94,68,.55); } 80%, 100% { box-shadow: 0 0 0 .9cqi rgba(204,94,68,0); } }
 .dn-legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--ink-2); }
 .dn-legend span { display: inline-flex; align-items: center; gap: 6px; }
