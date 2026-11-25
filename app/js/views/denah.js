@@ -73,6 +73,15 @@ function lineRows(o) {
     return `<li class="${s === 'ready' ? 'hl' : ''}"><span><span><b>${l.q}×</b> ${esc(l.n)}</span>${l.note ? `<small>${esc(l.note)}</small>` : ''}</span><span class="badge ${cls}">${lab}</span></li>`;
   }).join('')}</ul>`;
 }
+// Booking masih boleh dibatalkan selama tamunya belum memesan apa pun: belum ada bill yang
+// tertaut ke reservasi itu, dan mejanya belum dipakai bill terbuka. Reservasi ber-DP tidak
+// ikut — itu menyangkut uang tamu, jadi lewat kasir atau Kaly Book, bukan dari denah.
+function resCancelable(db, r, t) {
+  if (!r || !D.RES_ACTIVE.includes(r.status) || r.order || Number(r.dp) > 0) return false;
+  const tbls = D.resTables(r);
+  return !db.orders.some((o) => o.status === 'open' && (tbls.includes(o.table) || o.merged?.some((x) => tbls.includes(x)) || (t && o.table === t.id)));
+}
+
 function detail(db, t, s, ctx) {
   const pos = can('pos') && ctx.user.role !== 'owner';  // POS Manajer/Owner hanya untuk kelola menu
   const owner = ctx.user.role === 'owner';
@@ -105,7 +114,8 @@ function detail(db, t, s, ctx) {
     body = `<div class="dn-o"><div class="row sb"><b class="dn-no">${esc(r.time)}</b><span class="badge b-info">${r.status === 'datang' ? 'Tamu datang' : esc(r.status)}</span></div>
       <dl class="kv sm"><dt>Nama</dt><dd>${esc(r.name)}</dd><dt>Tamu</dt><dd>${r.pax} orang</dd><dt>Meja</dt><dd>${esc(D.resTableLabel(r))}</dd><dt>No. HP</dt><dd>${esc(r.phone)}</dd>${r.note ? `<dt>Catatan</dt><dd>${esc(r.note)}</dd>` : ''}<dt>Kode</dt><dd>${esc(r.code)}</dd></dl></div>
       <div class="dn-act">${pos ? `<button class="btn btn-pri btn-block" data-a="checkin" data-r="${r.id}" data-pos="1">${ic('concierge-bell', 18)} Check-in & buka bill</button>` : ''}
-      ${r.status !== 'datang' ? `<button class="btn btn-block" data-a="checkin" data-r="${r.id}">${ic('check', 18)} Tandai tamu datang</button>` : ''}</div>
+      ${r.status !== 'datang' ? `<button class="btn btn-block" data-a="checkin" data-r="${r.id}">${ic('check', 18)} Tandai tamu datang</button>` : ''}
+      ${resCancelable(db, r, t) ? `<button class="btn btn-block btn-danger-ghost" data-a="cancelRes" data-r="${r.id}">${ic('x', 18)} Batalkan booking</button>` : ''}</div>
       ${r.status === 'datang' && !pos ? `<p class="hint">${ic('concierge-bell', 14)} Tamu sudah duduk. Kasir sudah dikabari dan membuka bill meja ini di Kaly POS.</p>` : r.status !== 'datang' && !pos ? `<p class="hint">Setelah ditandai datang, kasir langsung dikabari untuk membuat bill.</p>` : ''}`;
   } else {
     const later = db.reservations.filter((r) => D.resTables(r).includes(t.id) && D.RES_ACTIVE.includes(r.status) && r.date === dayKey() && D.resStart(r) > Date.now()).sort((a, b) => D.resStart(a) - D.resStart(b)).slice(0, 3);
@@ -383,6 +393,19 @@ export default {
         openFromDenah({ table: r.table, merged: (r.join || []).filter((x) => x !== r.table), res: r.id, cust: { name: r.name, phone: r.phone }, mem: r.mem || (D.findMemberByPhone(db, r.phone)?.id ?? null) });
         go('pos');
       } else toast(`${r.name} sudah datang. Antar ke meja ${D.resTableLabel(r)}. Kasir sudah dikabari untuk membuat bill.`, 'ok', 5000);
+    },
+    async cancelRes(el) {
+      const db = getDb(), r = db.reservations.find((x) => x.id === el.dataset.r);
+      if (!r) return toast('Data booking sudah berubah. Tekan tombol sinkron, lalu coba lagi.', 'warn', 5000);
+      if (!resCancelable(db, r, null)) return toast(`Booking ${r.name} tidak bisa dibatalkan dari sini karena tamunya sudah punya bill atau DP. Minta kasir yang membatalkan.`, 'warn', 6000);
+      if (!(await confirmBox(`Batalkan booking ${r.name}?`,
+        `Meja <b>${esc(D.resTableLabel(r))}</b> kembali kosong dan bisa dipakai tamu lain. Booking yang sudah dibatalkan tidak bisa dikembalikan — kalau tamunya jadi datang, book ulang mejanya.`,
+        'Batalkan booking', true))) return;
+      local((d) => { const rr = d.reservations.find((x) => x.id === r.id); if (rr) rr.status = 'batal'; });
+      try { await API.reservationStatus(r.id, 'batal'); } catch (e) { toast(e.message, 'err', 5000); await C.refresh('reservations'); return rerender(); }
+      await C.refresh('reservations');
+      toast(`Booking ${r.name} dibatalkan. Meja ${D.resTableLabel(r)} kembali kosong.`, 'ok', 4000);
+      rerender();
     },
     async clearTable(el) {
       const id = el.dataset.id;
