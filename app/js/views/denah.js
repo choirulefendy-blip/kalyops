@@ -73,13 +73,17 @@ function lineRows(o) {
     return `<li class="${s === 'ready' ? 'hl' : ''}"><span><span><b>${l.q}×</b> ${esc(l.n)}</span>${l.note ? `<small>${esc(l.note)}</small>` : ''}</span><span class="badge ${cls}">${lab}</span></li>`;
   }).join('')}</ul>`;
 }
-// Booking masih boleh dibatalkan selama tamunya belum memesan apa pun: belum ada bill yang
-// tertaut ke reservasi itu, dan mejanya belum dipakai bill terbuka. Reservasi ber-DP tidak
-// ikut — itu menyangkut uang tamu, jadi lewat kasir atau Kaly Book, bukan dari denah.
+// Booking masih boleh dibatalkan selama tamunya belum benar-benar memesan: bill yang tertaut ke
+// reservasi itu tidak ada atau sudah dibatalkan, dan mejanya tidak sedang dipakai bill terbuka.
+// Bill berstatus "void" sengaja tidak mengunci — reservations.order_id tetap menunjuk bill yang
+// sudah dibatalkan, dan dulu itu membuat booking-nya terkunci selamanya.
+// Reservasi ber-DP tidak ikut: itu menyangkut uang tamu, jadi lewat kasir atau Kaly Book.
 function resCancelable(db, r, t) {
-  if (!r || !D.RES_ACTIVE.includes(r.status) || r.order || Number(r.dp) > 0) return false;
-  const tbls = D.resTables(r);
-  return !db.orders.some((o) => o.status === 'open' && (tbls.includes(o.table) || o.merged?.some((x) => tbls.includes(x)) || (t && o.table === t.id)));
+  if (!r || !D.RES_ACTIVE.includes(r.status) || Number(r.dp) > 0) return false;
+  const lo = r.order ? D.order(db, r.order) : null;
+  if (lo && lo.status !== 'void') return false;
+  const tbls = [...D.resTables(r), ...(t ? [t.id] : [])];
+  return !db.orders.some((o) => o.status === 'open' && (tbls.includes(o.table) || o.merged?.some((x) => tbls.includes(x))));
 }
 
 function detail(db, t, s, ctx) {
@@ -397,7 +401,7 @@ export default {
     async cancelRes(el) {
       const db = getDb(), r = db.reservations.find((x) => x.id === el.dataset.r);
       if (!r) return toast('Data booking sudah berubah. Tekan tombol sinkron, lalu coba lagi.', 'warn', 5000);
-      if (!resCancelable(db, r, null)) return toast(`Booking ${r.name} tidak bisa dibatalkan dari sini karena tamunya sudah punya bill atau DP. Minta kasir yang membatalkan.`, 'warn', 6000);
+      if (!resCancelable(db, r, null)) return toast(`Booking ${r.name} tidak bisa dibatalkan dari sini karena tamunya sudah punya bill berjalan atau DP. Minta kasir yang membatalkan.`, 'warn', 6000);
       if (!(await confirmBox(`Batalkan booking ${r.name}?`,
         `Meja <b>${esc(D.resTableLabel(r))}</b> kembali kosong dan bisa dipakai tamu lain. Booking yang sudah dibatalkan tidak bisa dikembalikan — kalau tamunya jadi datang, book ulang mejanya.`,
         'Batalkan booking', true))) return;
