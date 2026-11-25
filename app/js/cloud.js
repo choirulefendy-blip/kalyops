@@ -155,6 +155,7 @@ export function mapLine(r) {
   if (r.stock_deducted) l.sd = true;
   if (r.cost != null) l.cg = N(r.cost);
   if (r.void_reason) { l.vr = r.void_reason; l.vby = r.void_by; l.vat = T(r.void_at); }
+  if (r.disc && typeof r.disc === 'object') l.disc = r.disc;   // 2.20 · diskon per item
   return l;
 }
 export function mapOrder(r) {

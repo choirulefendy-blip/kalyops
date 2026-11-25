@@ -272,12 +272,32 @@ export function voucherCheck(db, code, sub, memId, ts = Date.now()) {
 }
 
 // ---------- Hitung tagihan ----------
+// Potongan rupiah untuk satu baris pesanan. Diskon persen dihitung dari nilai baris (qty × harga)
+// dan boleh dibatasi max; diskon rupiah memotong barisnya, bukan per porsi. Tidak pernah melebihi
+// nilai barisnya sendiri. Harus sama persis dengan perhitungan di engine.compute_bill.
+export function lineDisc(l) {
+  const d = l?.disc;
+  if (!d || !(Number(d.value) > 0)) return 0;
+  const line = l.q * l.p;
+  let a = d.type === 'pct' ? Math.round(line * Number(d.value)) : Math.round(Number(d.value));
+  if (d.type === 'pct' && Number(d.max) > 0) a = Math.min(a, Number(d.max));
+  return Math.max(0, Math.min(a, line));
+}
+
 export function bill(db, o, ts) {
   if ((o.status === 'paid' || o.status === 'refund') && o.bill) return o.bill;
   ts = ts || o.created || Date.now();
   const L = o.lines.filter((l) => l.s !== 'void' && !l.par);
   const sub = sum(L, (l) => l.q * l.p);
   const discs = [];
+  // 2.20 · Diskon per item dipotong paling awal, jadi promo, member, voucher dan diskon nota
+  // berpersen menghitung dari tagihan yang sudah dipotong. Sama urutannya dengan engine.compute_bill.
+  const byName = new Map();
+  for (const l of L) {
+    const a = lineDisc(l);
+    if (a > 0) byName.set(l.disc.name || 'Diskon item', (byName.get(l.disc.name || 'Diskon item') || 0) + a);
+  }
+  for (const [label, amt] of byName) discs.push({ label, amt, kind: 'item' });
   for (const p of db.promos) {
     if (!promoActive(p, ts)) continue;
     if (p.outlets && !p.outlets.includes(o.loc)) continue;

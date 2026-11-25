@@ -344,6 +344,10 @@ body.bare { background: var(--bg); }
 .bl-main { display: flex; justify-content: space-between; gap: 8px; }
 .bl-n { display: grid; font-weight: 600; } .bl-n small { color: var(--ink-3); font-weight: 500; } .bl-n .note { color: var(--kunyit); }
 .bl-a { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* 2.20 · Diskon per item */
+.bl-n .bl-disc { display: inline-flex; align-items: center; gap: 4px; color: var(--cabai); font-weight: 600; }
+.bl-a s { color: var(--ink-3); font-weight: 500; margin-right: 4px; }
+.bl-ctl .btn-icon.on { color: var(--cabai); border-color: #E7B8AC; background: #FDF1EE; }
 .bl-ctl { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .bl-ctl .badge { margin-left: auto; }
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--line); vertical-align: middle; }
@@ -375,7 +379,7 @@ body.bare { background: var(--bg); }
 .receipt { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; background: #FFFEF8; border: 1px dashed var(--line); padding: 14px; border-radius: 6px; line-height: 1.45; }
 .receipt h3 { text-align: center; font-size: 14px; } .receipt .logo { height: 28px; margin: 0 auto 6px; } .receipt p { text-align: center; margin: 2px 0; }
 .receipt hr { border: 0; border-top: 1px dashed #B9B9B0; margin: 8px 0; }
-.rl { display: flex; justify-content: space-between; gap: 8px; } .rl.big { font-weight: 800; font-size: 13.5px; }
+.rl { display: flex; justify-content: space-between; gap: 8px; } .rl.big { font-weight: 800; font-size: 13.5px; } .rl.sub { font-size: .92em; }
 details.reg { margin-top: 12px; border-top: 1px solid var(--line-2); padding-top: 10px; }
 details.reg summary { cursor: pointer; font-weight: 700; color: var(--olive-700); margin-bottom: 10px; }
 @media (max-width: 1280px) { .pos-legacy { grid-template-columns: 260px minmax(0, 1fr) 340px; } }

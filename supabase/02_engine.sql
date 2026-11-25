@@ -408,13 +408,30 @@ create or replace function engine.compute_bill(p_order text, p_at timestamptz de
 declare
   o public.orders; s public.settings := engine.cfg(); p public.promos; t public.tiers; mem public.members;
   v_at timestamptz; v_sub numeric; v_base numeric; v_q numeric; v_free numeric; v_run numeric; v_a numeric; v_disc numeric; v_svc numeric; v_tax numeric; v_gross numeric; v_round numeric;
-  v_discs jsonb := '[]'::jsonb; v_chk jsonb; v_md jsonb; v_pts numeric;
+  v_discs jsonb := '[]'::jsonb; v_chk jsonb; v_md jsonb; v_pts numeric; li record;
 begin
   select * into o from orders where id = p_order;
   if o.id is null then return null; end if;
   if o.status in ('paid', 'refund') and o.bill is not null then return o.bill; end if;
   v_at := coalesce(p_at, o.created_at, now());
   select coalesce(sum(qty * price), 0) into v_sub from order_lines where order_id = p_order and status <> 'void' and parent_line_id is null;
+  -- 2.20: diskon per item dipotong paling awal, jadi promo, member, voucher dan diskon nota
+  -- berpersen menghitung dari tagihan yang sudah dipotong. Digabung per nama diskon.
+  for li in
+    select coalesce(nullif(l.disc->>'name', ''), 'Diskon item') nm,
+           sum(least(
+             case when l.disc->>'type' = 'pct'
+                  then least(engine.jsround(l.qty * l.price * (l.disc->>'value')::numeric),
+                             case when coalesce((l.disc->>'max')::numeric, 0) > 0 then (l.disc->>'max')::numeric else 1e15 end)
+                  else engine.jsround((l.disc->>'value')::numeric) end,
+             l.qty * l.price)) amt
+      from order_lines l
+     where l.order_id = p_order and l.status <> 'void' and l.parent_line_id is null
+       and jsonb_typeof(l.disc) = 'object' and coalesce((l.disc->>'value')::numeric, 0) > 0
+     group by 1
+  loop
+    if li.amt > 0 then v_discs := v_discs || jsonb_build_object('label', li.nm, 'amt', li.amt, 'kind', 'item'); end if;
+  end loop;
   for p in select * from promos order by id loop
     continue when not engine.promo_active(p, v_at);
     continue when p.outlets is not null and not (o.location_id = any(p.outlets));

@@ -285,13 +285,15 @@ function billPanel(ctx) {
     <div class="bill-lines" data-keep-scroll="bill">${top.map((l) => {
       const comps = o.lines.filter((c) => c.par === l.id);
       const [sl, sc] = ST[l.s];
+      const ld = l.s === 'void' ? 0 : D.lineDisc(l);   // 2.20 · potongan khusus item ini
       return `<div class="bl ${l.s === 'void' ? 'void' : ''}">
-        <div class="bl-main"><span class="bl-n">${esc(l.n)}${l.note ? `<small class="note">${esc(l.note)}</small>` : ''}${comps.length ? `<small>${comps.map((c) => `${c.q}× ${esc(c.n)} <i class="dot ${c.s}"></i>`).join(', ')}</small>` : ''}</span>
-          <span class="bl-a">${rp(l.q * l.p)}</span></div>
+        <div class="bl-main"><span class="bl-n">${esc(l.n)}${l.note ? `<small class="note">${esc(l.note)}</small>` : ''}${comps.length ? `<small>${comps.map((c) => `${c.q}× ${esc(c.n)} <i class="dot ${c.s}"></i>`).join(', ')}</small>` : ''}${ld > 0 ? `<small class="bl-disc">${ic('percent', 11)} ${esc(l.disc.name || 'Diskon item')} −${rp(ld)}</small>` : ''}</span>
+          <span class="bl-a">${ld > 0 ? `<s>${rp(l.q * l.p)}</s> ${rp(l.q * l.p - ld)}` : rp(l.q * l.p)}</span></div>
         <div class="bl-ctl">${l.s === 'draft' ? `<span class="qty"><button data-a="qty" data-id="${l.id}" data-d="-1" aria-label="Kurangi">${ic('minus', 14)}</button><b>${l.q}</b><button data-a="qty" data-id="${l.id}" data-d="1" aria-label="Tambah">${ic('plus', 14)}</button></span><button class="lnk" data-a="note" data-id="${l.id}">Catatan</button>`
           : `<span class="qty-ro">${l.q}×</span>`}
           <span class="badge ${comps.length ? (comps.every((c) => c.s === 'served' || c.s === 'ready') ? 'b-ok' : 'b-info') : sc}">${comps.length && l.s !== 'draft' && l.s !== 'void' ? 'Paket' : sl}</span>
           ${!comps.length && l.st && l.st !== 'none' && ['new', 'cook', 'ready'].includes(l.s) ? `<button class="btn btn-xs ${l.s === 'ready' ? 'btn-pri' : ''}" data-a="serveLine" data-o="${o.id}" data-l="${l.id}" title="Item ini sudah diantar ke tamu">${ic('check', 13)} Antar</button>` : ''}
+          ${o.status === 'open' && l.s !== 'void' && !comps.length ? `<button class="btn-icon sm${ld > 0 ? ' on' : ''}" data-a="lineDisc" data-id="${l.id}" aria-label="Diskon untuk item ini" title="Diskon untuk item ini saja">${ic('percent', 15)}</button>` : ''}
           ${l.s === 'void' ? '' : l.s === 'draft' ? `<button class="btn-icon sm" data-a="rmLine" data-id="${l.id}" aria-label="Hapus">${ic('trash-2', 15)}</button>` : `<button class="btn-icon sm" data-a="voidLine" data-id="${l.id}" aria-label="Batalkan item" title="Batalkan item (perlu alasan)">${ic('rotate-ccw', 15)}</button>`}
         </div></div>`;
     }).join('') || '<p class="empty sm">Belum ada item.</p>'}</div>
@@ -662,6 +664,43 @@ export default {
           });
         } });
     },
+    // 2.20 · Diskon untuk satu item saja. Template, alasan, dan PIN-nya sama dengan diskon se-nota;
+    // bedanya cuma sasarannya, supaya tidak ada jalan pintas memberi potongan tanpa persetujuan.
+    lineDisc(el, e, ctx) {
+      const db = ctx.db, o = curOrder(db), l = o.lines.find((x) => x.id === el.dataset.id);
+      if (!l) return toast('Item sudah berubah. Tekan sinkron, lalu coba lagi.', 'warn');
+      const cur = l.disc?.disc || '';
+      const line = l.q * l.p;
+      const ds = (db.discounts || []).filter((d) => d.active && (!d.until || d.until > Date.now()) && (!d.outlets || d.outlets.includes(o.loc)));
+      const val = (d) => (d.type === 'pct' ? `${Math.round(d.value * 1000) / 10}%${d.max ? ` maks. ${rp(d.max)}` : ''}` : rp(d.value));
+      const hit = (d) => rp(Math.min(d.type === 'pct' ? Math.min(Math.round(line * d.value), d.max > 0 ? d.max : Infinity) : Math.round(d.value), line));
+      openModal({ title: `Diskon untuk ${l.n}`, size: 'sm',
+        body: `<p class="muted sm">${num(l.q)}× ${esc(l.n)} · nilai item <b>${rp(line)}</b>. Potongan hanya untuk item ini, item lain di nota tidak ikut.</p>
+          ${ds.length ? `<div class="disc-pick" role="radiogroup">${ds.map((d) => `<label class="disc-opt ${cur === d.id ? 'on' : ''}"><input type="radio" name="d" value="${d.id}" ${cur === d.id ? 'checked' : ''}>
+              <span><b>${esc(d.name)}</b><small>${esc(val(d))} · potong ${hit(d)}${d.needPin ? ' · perlu PIN manajer' : ''}${d.needReason ? ' · perlu alasan' : ''}</small></span></label>`).join('')}</div>
+            <label class="fld"><span>Alasan (wajib untuk diskon tertentu)</span><input name="r" placeholder="Contoh: porsi tidak sesuai"></label>
+            <p class="hint">Diskon berpersen dihitung dari nilai item ini. Diskon rupiah memotong itemnya, bukan per porsi.</p>`
+          : '<p class="empty sm">Belum ada diskon yang disiapkan untuk outlet ini. Minta Owner/Manajer membuatnya di Kaly Backoffice › Member & promo › Diskon kasir.</p>'}`,
+        footer: `${cur ? '<button class="btn btn-danger-ghost" data-rm>Lepas diskon</button>' : ''}<button class="btn" data-close>Batal</button>${ds.length ? '<button class="btn btn-pri" data-ok>Terapkan</button>' : ''}`,
+        onMount(mm, api) {
+          mm.addEventListener('change', () => mm.querySelectorAll('.disc-opt').forEach((x) => x.classList.toggle('on', x.querySelector('input').checked)));
+          mm.querySelector('[data-rm]')?.addEventListener('click', async () => {
+            api.close();
+            try { await op(o.id, () => API.lineDiscountRemove(l.id)); await C.refreshOrder(o.id); toast(`Diskon pada ${l.n} dilepas`); } catch (err) { failToast(err); }
+            rerender();
+          });
+          mm.querySelector('[data-ok]')?.addEventListener('click', async () => {
+            const f = formData(mm), d = ds.find((x) => x.id === f.d);
+            if (!d) return toast('Pilih diskonnya dulu', 'warn');
+            if (d.needReason && !f.r.trim()) return toast(`${d.name} wajib diisi alasannya`, 'warn');
+            api.close();
+            let pin = null;
+            if (d.needPin) { pin = await askPin(`${d.name} perlu persetujuan manajer.`); if (!pin) return toast('Diskon dibatalkan', 'warn'); }
+            try { await op(o.id, () => API.lineDiscountApply(l.id, d.id, f.r.trim(), pin)); await C.refreshOrder(o.id); toast(`${d.name} dipasang di ${l.n}`); } catch (err) { failToast(err); }
+            rerender();
+          });
+        } });
+    },
     more(el, e, ctx) {
       const o = curOrder(ctx.db);
       openModal({ title: `Aksi untuk ${o.no}`, size: 'sm', body: `<div class="act-list">
@@ -969,7 +1008,10 @@ export function receiptHtml(db, o, cfg) {
     ${R.logo ? '<img class="logo" src="assets/kaly-logo-dark.svg" alt="kaly">' : ''}<p class="rc-name">${esc(R.name || db.settings.brand.name)}</p>${R.outlet ? `<p>${esc(D.loc(db, o.loc)?.name || '')}</p>` : ''}${R.header ? `<p class="rc-head">${rcLines(R.header)}</p>` : ''}${(R.contacts || []).length ? `<p class="rc-ct">${R.contacts.map((c) => `<span><img src="assets/ic-ct-${c.k}.svg" alt="">${esc(c.v)}</span>`).join('')}</p>` : ''}
     <p>${fmtDate(t)} ${fmtTime(t)}</p>
     <p>No. ${esc(o.no)} ${o.table ? 'Meja ' + esc([o.table, ...(o.merged || [])].join('+')) : esc(D.TYPE_LABEL[o.type])}${R.cashier ? `<br>Kasir: ${esc(D.cashierName(db, o))}` : ''}</p><hr>
-    ${o.lines.filter((l) => !l.par && (l.s !== 'void' || (o.status === 'refund' && /^Refund:/.test(l.vr || '')))).map((l) => `<div class="rl"><span>${l.q}× ${esc(l.n)}</span><span>${rp(l.q * l.p)}</span></div>`).join('')}<hr>
+    ${o.lines.filter((l) => !l.par && (l.s !== 'void' || (o.status === 'refund' && /^Refund:/.test(l.vr || '')))).map((l) => {
+      const ld = l.s === 'void' ? 0 : D.lineDisc(l);   // 2.20 · potongan item tampil tepat di bawah itemnya
+      return `<div class="rl"><span>${l.q}× ${esc(l.n)}</span><span>${rp(l.q * l.p)}</span></div>${ld > 0 ? `<div class="rl sub"><span>&nbsp;&nbsp;${esc(l.disc.name || 'Diskon item')}</span><span>-${rp(ld)}</span></div>` : ''}`;
+    }).join('')}<hr>
     <div class="rl"><span>Subtotal</span><span>${rp(b.sub)}</span></div>${b.discs.map((d) => `<div class="rl"><span>${esc(d.label)}</span><span>-${rp(d.amt)}</span></div>`).join('')}
     <div class="rl"><span>PB1</span><span>${rp(b.tax)}</span></div>${b.deliv ? `<div class="rl"><span>Ongkir</span><span>${rp(b.deliv)}</span></div>` : ''}${b.round ? `<div class="rl"><span>Pembulatan</span><span>-${rp(b.round)}</span></div>` : ''}<div class="rl big"><span>Total</span><span>${rp(b.total)}</span></div>
     ${settled ? o.pays.map((p) => `<div class="rl"><span>${D.PAY[p.m]?.label || p.m}${p.card ? ' ' + p.card : ''}${p.ref ? ' — ' + esc(p.ref) : ''}</span><span>${rp(p.a + (p.m === 'cash' ? o.change || 0 : 0))}</span></div>`).join('') + (o.change ? `<div class="rl"><span>Kembalian</span><span>${rp(o.change)}</span></div>` : '') : o.status === 'void' ? '' : '<p><b>TAGIHAN SEMENTARA</b></p>' + (qr ? `<img class="rc-qris" src="${qr}" alt="QRIS"><p>Scan QRIS untuk membayar</p>` : '')}

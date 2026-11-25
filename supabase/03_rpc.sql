@@ -191,6 +191,70 @@ begin
   return engine.compute_bill(p_order);
 end $$;
 
+-- 2.20 · Diskon per item: kasir memotong satu baris pesanan saja, bukan seluruh nota.
+-- Aturan template, alasan, dan PIN manajer sama persis dengan discount_apply, supaya jalur
+-- item tidak menjadi celah memberi potongan tanpa persetujuan.
+create or replace function public.line_discount_apply(p_line text, p_disc text, p_reason text default null, p_pin text default null)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare me public.staff; o public.orders; l public.order_lines; d public.discounts; v_ok boolean := false; v_reason text;
+begin
+  me := engine.require_role(array['owner', 'kasir']);
+  perform engine.on_();
+  select * into l from order_lines where id = p_line;
+  if l.id is null then raise exception 'Item tidak ditemukan'; end if;
+  if l.status = 'void' then raise exception 'Item ini sudah dibatalkan'; end if;
+  if l.parent_line_id is not null then raise exception 'Item bawaan paket ikut diskon paketnya, tidak bisa didiskon sendiri'; end if;
+  select * into o from orders where id = l.order_id for update;
+  if o.id is null or o.status <> 'open' then raise exception 'Pesanan tidak ditemukan atau sudah ditutup'; end if;
+  if not public.can_loc(o.location_id) then raise exception 'Tidak punya akses ke outlet ini' using errcode = '42501'; end if;
+
+  select * into d from discounts where id = p_disc;
+  if d.id is null then raise exception 'Diskon tidak ditemukan. Minta Owner/Manajer membuatnya di Backoffice.'; end if;
+  if not d.active then raise exception 'Diskon % sudah dinonaktifkan', d.name; end if;
+  if d.until is not null and d.until < now() then raise exception 'Diskon % sudah lewat masa berlakunya', d.name; end if;
+  if d.outlets is not null and cardinality(d.outlets) > 0 and not (o.location_id = any(d.outlets)) then
+    raise exception 'Diskon % tidak berlaku di outlet ini', d.name;
+  end if;
+  v_reason := nullif(trim(coalesce(p_reason, '')), '');
+  if d.need_reason and v_reason is null then raise exception 'Alasan wajib diisi untuk diskon %', d.name; end if;
+  if d.need_pin then
+    v_ok := exists (select 1 from app_secrets where id = 1 and manager_pin_hash = extensions.crypt(coalesce(p_pin, ''), manager_pin_hash));
+    if not v_ok then raise exception 'PIN manajer salah. Diskon % perlu persetujuan manajer.', d.name; end if;
+  end if;
+
+  update order_lines set disc = jsonb_strip_nulls(jsonb_build_object(
+      'type', d.type, 'value', d.value, 'name', d.name, 'disc', d.id, 'max', d.max_disc,
+      'reason', v_reason, 'by', me.id, 'approved', v_ok)) where id = p_line;
+  update orders set updated_at = now() where id = o.id;
+  if v_ok then
+    perform engine.flag('Diskon perlu persetujuan manajer', 'sedang',
+      'Diskon ' || d.name || ' pada item ' || l.name || ' di ' || o.no || ' disetujui manajer.' || coalesce(' Alasan: ' || v_reason, ''),
+      me.id, o.id, o.location_id);
+  end if;
+  return engine.compute_bill(o.id);
+end $$;
+
+create or replace function public.line_discount_remove(p_line text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare me public.staff; o public.orders; l public.order_lines;
+begin
+  me := engine.require_role(array['owner', 'kasir']);
+  perform engine.on_();
+  select * into l from order_lines where id = p_line;
+  if l.id is null then raise exception 'Item tidak ditemukan'; end if;
+  select * into o from orders where id = l.order_id for update;
+  if o.id is null or o.status <> 'open' then raise exception 'Pesanan tidak ditemukan atau sudah ditutup'; end if;
+  if not public.can_loc(o.location_id) then raise exception 'Tidak punya akses ke outlet ini' using errcode = '42501'; end if;
+  update order_lines set disc = null where id = p_line;
+  update orders set updated_at = now() where id = o.id;
+  return engine.compute_bill(o.id);
+end $$;
+
+revoke all on function public.line_discount_apply(text, text, text, text) from public, anon;
+revoke all on function public.line_discount_remove(text) from public, anon;
+grant execute on function public.line_discount_apply(text, text, text, text) to authenticated;
+grant execute on function public.line_discount_remove(text) to authenticated;
+
 -- Pisahkan sebagian item ke bill baru. p_sel = {"<line_id>": jumlah}
 create or replace function public.split_order(p_order text, p_sel jsonb) returns text language plpgsql security definer set search_path = public as $$
 declare me public.staff; a public.orders; v_new text; l record; v_q numeric; v_left int; v_nl text; v_cg numeric;

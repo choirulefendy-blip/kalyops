@@ -660,6 +660,7 @@ create table if not exists public.order_lines (
   void_reason    text,
   void_by        text references public.staff(id),
   void_at        timestamptz,
+  disc           jsonb,            -- 2.20: diskon khusus baris ini {type,value,name,disc,max,reason,by,approved}
   sort           bigint generated always as identity
 );
 comment on table public.order_lines is 'Item pesanan. status: draft (belum dikirim) → new → cook → ready → served, atau void. Komponen paket punya parent_line_id.';
