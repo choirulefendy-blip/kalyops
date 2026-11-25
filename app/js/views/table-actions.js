@@ -185,8 +185,8 @@ export function heldListDialog(ctx, { done } = {}) {
 const hhmm = (t) => { const d = new Date(t); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
 export function bookNowDialog(ctx, tableId, { done } = {}) {
   const db = getDb(), t = db.tables.find((x) => x.id === tableId);
-  if (!t) return;
-  const next = db.reservations.find((r) => D.resTables(r).includes(tableId) && ['menunggu', 'dikonfirmasi'].includes(r.status) && D.resStart(r) > Date.now() && D.resStart(r) - Date.now() < db.settings.resDuration * 60000);
+  if (!t) return toast(`Data meja ${tableId || ''} belum termuat di perangkat ini. Tekan tombol sinkron di kanan atas, lalu coba lagi.`, 'warn', 6000);
+  const next = (db.reservations || []).find((r) => D.resTables(r).includes(tableId) && ['menunggu', 'dikonfirmasi'].includes(r.status) && D.resStart(r) > Date.now() && D.resStart(r) - Date.now() < (db.settings?.resDuration || 90) * 60000);
   openModal({
     title: `Book meja ${tableId} sekarang`, size: 'sm',
     body: `<p class="muted sm">Untuk tamu yang sudah datang dan duduk. Kasir langsung mendapat notifikasi, lalu membuka bill meja ini di Kaly POS.</p>

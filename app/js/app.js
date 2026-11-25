@@ -341,7 +341,14 @@ document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-a]');
   if (!el || el.disabled) return;
   const fn = findAction(el.dataset.a);
-  if (!fn) return;
+  // Tombol ada di layar tapi aksinya tidak dikenal — hampir selalu karena halaman yang terbuka
+  // versi lama (perangkat belum memuat ulang setelah aplikasi diperbarui). Dulu tombolnya diam saja
+  // dan terasa rusak; sekarang bilang apa yang terjadi dan apa yang perlu dilakukan.
+  if (!fn) {
+    console.warn('Aksi tidak dikenal:', el.dataset.a, 'di halaman', cur.name);
+    toast(`Tombol ini belum aktif di halaman yang terbuka. Muat ulang Kaly Ops dulu (tarik layar ke bawah atau tekan ⟳).`, 'warn', 6000);
+    return;
+  }
   e.preventDefault();
   run(fn, el, e);
 });
