@@ -49,5 +49,8 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: app
+      # Artefak kadang belum terdaftar di katalog GitHub saat langkah terbit menanyakannya,
+      # dan terbitnya gagal dengan "No artifacts named github-pages". Beri jeda sebentar.
+      - run: sleep 10
       - id: deploy
         uses: actions/deploy-pages@v4
