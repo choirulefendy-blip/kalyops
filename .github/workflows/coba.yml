@@ -1,0 +1,25 @@
+# Perubahan di branch coba ikut diterbitkan, tapi penerbitannya tetap dijalankan dari main.
+#
+# GitHub Pages di repositori ini dilindungi aturan "hanya boleh terbit dari main". Alur pages.yml
+# memang sudah mengambil kedua branch dan membangun keduanya, jadi cukup memintanya berjalan dari
+# main setiap kali ada perubahan di coba — hasilnya sama, aturan perlindungannya tetap utuh.
+name: Perubahan di coba, terbitkan ulang
+
+on:
+  push:
+    branches: [coba]
+    paths: ['app/**']
+
+permissions:
+  actions: write
+
+jobs:
+  picu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: gh workflow run pages.yml --ref main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
