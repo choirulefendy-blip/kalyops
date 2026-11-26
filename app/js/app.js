@@ -46,6 +46,7 @@ export const NAV = [
   { r: 'goods', label: 'Kaly Goods', icon: 'truck', roles: ['owner', 'gudang'], desc: 'Supplier & purchase order' },
   { r: 'print', label: 'Stasiun cetak', icon: 'printer', roles: ['owner', 'kasir', 'service', 'dapur'], desc: 'Printer Bar, Dapur & kasir' },
   { r: 'settings', label: 'Pengaturan', icon: 'settings', roles: ['owner'] },
+  { r: 'invoice', label: 'Invoice', icon: 'file-text', roles: ['owner', 'kasir'], desc: 'Tagihan untuk tamu korporat, bill pending & reservasi DP' },
   { r: 'transaksi', label: 'Transaksi & shift', icon: 'receipt', roles: ['owner'], desc: 'Riwayat transaksi, struk, refund, riwayat shift' },
   { r: 'audit', label: 'Audit log', icon: 'history', roles: ['owner'], desc: 'Semua aktivitas akun' },
 ];

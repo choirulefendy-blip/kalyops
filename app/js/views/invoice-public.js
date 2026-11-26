@@ -2,7 +2,7 @@
 // dan tombol Unduh PDF memakai dialog cetak peramban (Simpan sebagai PDF) supaya tidak perlu
 // memuat pustaka PDF apa pun ke aplikasi kasir.
 import * as API from '../api.js';
-import { esc, rp, num, ic, fmtDate, copyText } from '../lib.js';
+import { esc, rp, num, ic, fmtDate, copyText, logo } from '../lib.js';
 
 const ui = { state: 'load', inv: null, err: '' };
 
@@ -36,7 +36,7 @@ function view() {
     </div>
     <div class="inv-p-card ${sc}">
       <div class="inv-p-head">
-        <div><h1>${esc(f.name || 'Invoice')}</h1>
+        <div>${logo('olive', 'inv-p-logo')}<h1>${esc(f.name || 'Invoice')}</h1>
           ${f.address ? `<p>${esc(f.address)}</p>` : ''}
           ${[f.phone, f.email].filter(Boolean).length ? `<p>${esc([f.phone, f.email].filter(Boolean).join(' · '))}</p>` : ''}
           ${f.npwp ? `<p>NPWP ${esc(f.npwp)}</p>` : ''}</div>

@@ -1642,6 +1642,7 @@ dl.sum .disc { color: var(--cabai); }
 .inv-p-bar { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 12px; flex-wrap: wrap; }
 .inv-p-card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 28px; color: var(--ink); }
 .inv-p-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.inv-p-logo { height: 30px; width: auto; display: block; margin-bottom: 10px; }
 .inv-p-head h1 { font-size: 20px; margin: 0 0 4px; }
 .inv-p-head p { margin: 0; font-size: 13px; color: var(--ink-3); }
 .inv-p-no { text-align: right; display: grid; gap: 2px; }
