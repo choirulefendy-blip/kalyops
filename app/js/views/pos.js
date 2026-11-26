@@ -285,7 +285,7 @@ function billPanel(ctx) {
     <div class="bill-lines" data-keep-scroll="bill">${top.map((l) => {
       const comps = o.lines.filter((c) => c.par === l.id);
       const [sl, sc] = ST[l.s];
-      const ld = l.s === 'void' ? 0 : D.lineDisc(l);   // 2.20 · potongan khusus item ini
+      const ld = l.s === 'void' ? 0 : D.lineDisc(l);   // 2.22 · potongan khusus item ini
       return `<div class="bl ${l.s === 'void' ? 'void' : ''}">
         <div class="bl-main"><span class="bl-n">${esc(l.n)}${l.note ? `<small class="note">${esc(l.note)}</small>` : ''}${comps.length ? `<small>${comps.map((c) => `${c.q}× ${esc(c.n)} <i class="dot ${c.s}"></i>`).join(', ')}</small>` : ''}${ld > 0 ? `<small class="bl-disc">${ic('percent', 11)} ${esc(l.disc.name || 'Diskon item')} −${rp(ld)}</small>` : ''}</span>
           <span class="bl-a">${ld > 0 ? `<s>${rp(l.q * l.p)}</s> ${rp(l.q * l.p - ld)}` : rp(l.q * l.p)}</span></div>
@@ -664,7 +664,7 @@ export default {
           });
         } });
     },
-    // 2.20 · Diskon untuk satu item saja. Template, alasan, dan PIN-nya sama dengan diskon se-nota;
+    // 2.22 · Diskon untuk satu item saja. Template, alasan, dan PIN-nya sama dengan diskon se-nota;
     // bedanya cuma sasarannya, supaya tidak ada jalan pintas memberi potongan tanpa persetujuan.
     lineDisc(el, e, ctx) {
       const db = ctx.db, o = curOrder(db), l = o.lines.find((x) => x.id === el.dataset.id);
@@ -1009,7 +1009,7 @@ export function receiptHtml(db, o, cfg) {
     <p>${fmtDate(t)} ${fmtTime(t)}</p>
     <p>No. ${esc(o.no)} ${o.table ? 'Meja ' + esc([o.table, ...(o.merged || [])].join('+')) : esc(D.TYPE_LABEL[o.type])}${R.cashier ? `<br>Kasir: ${esc(D.cashierName(db, o))}` : ''}</p><hr>
     ${o.lines.filter((l) => !l.par && (l.s !== 'void' || (o.status === 'refund' && /^Refund:/.test(l.vr || '')))).map((l) => {
-      const ld = l.s === 'void' ? 0 : D.lineDisc(l);   // 2.20 · potongan item tampil tepat di bawah itemnya
+      const ld = l.s === 'void' ? 0 : D.lineDisc(l);   // 2.22 · potongan item tampil tepat di bawah itemnya
       return `<div class="rl"><span>${l.q}× ${esc(l.n)}</span><span>${rp(l.q * l.p)}</span></div>${ld > 0 ? `<div class="rl sub"><span>&nbsp;&nbsp;${esc(l.disc.name || 'Diskon item')}</span><span>-${rp(ld)}</span></div>` : ''}`;
     }).join('')}<hr>
     <div class="rl"><span>Subtotal</span><span>${rp(b.sub)}</span></div>${b.discs.map((d) => `<div class="rl"><span>${esc(d.label)}</span><span>-${rp(d.amt)}</span></div>`).join('')}

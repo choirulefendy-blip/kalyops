@@ -415,7 +415,7 @@ begin
   if o.status in ('paid', 'refund') and o.bill is not null then return o.bill; end if;
   v_at := coalesce(p_at, o.created_at, now());
   select coalesce(sum(qty * price), 0) into v_sub from order_lines where order_id = p_order and status <> 'void' and parent_line_id is null;
-  -- 2.20: diskon per item dipotong paling awal, jadi promo, member, voucher dan diskon nota
+  -- 2.22: diskon per item dipotong paling awal, jadi promo, member, voucher dan diskon nota
   -- berpersen menghitung dari tagihan yang sudah dipotong. Digabung per nama diskon.
   for li in
     select coalesce(nullif(l.disc->>'name', ''), 'Diskon item') nm,
@@ -492,7 +492,7 @@ begin
   v_svc := engine.jsround(v_run * s.service_rate);
   v_tax := engine.jsround((v_run + v_svc) * s.tax_rate);
   v_gross := v_run + v_svc + v_tax + o.delivery_fee;
-  -- 2.21: pembulatan dua arah. v_round positif = tagihan dipotong, negatif = tagihan ditambah.
+  -- 2.22: pembulatan dua arah. v_round positif = tagihan dipotong, negatif = tagihan ditambah.
   -- Tagihan yang belum mencapai satu kelipatan tidak pernah dibulatkan menjadi nol.
   v_round := 0;
   if s.rounding and s.rounding_to > 0 and v_gross >= s.rounding_to then

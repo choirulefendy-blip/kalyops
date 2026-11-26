@@ -13,6 +13,8 @@ import * as APK from './apk.js';   // 2.19 · pemberitahuan pembaruan aplikasi A
 import Login from './views/login.js';
 import Audit from './views/audit.js';
 import Trx from './views/trx.js';
+import Invoice from './views/invoice.js';
+import InvoicePublic from './views/invoice-public.js';
 import Home from './views/home.js';
 import POS from './views/pos.js';
 import Kitchen from './views/kitchen.js';
@@ -66,7 +68,7 @@ const LAPORAN_KIDS = [
 ];
 const BO_NAV = [
   ['Backoffice', [['', 'Dashboard', 'layout-dashboard'], ['laporan', 'Laporan', 'chart-column', LAPORAN_KIDS], ['core', 'Stok & resep', 'boxes'], ['goods', 'Pembelian & supplier', 'truck'], ['pos', 'Menu & harga', 'utensils'],
-    ['loop', 'Member & promo', 'award'], ['book-admin', 'Reservasi', 'calendar-check'], ['transaksi', 'Transaksi & shift', 'receipt'], ['order-admin', 'Pesanan online & QR', 'qr-code'], ['settings', 'Pengaturan & printer', 'settings'], ['audit', 'Audit log', 'history']]],
+    ['loop', 'Member & promo', 'award'], ['book-admin', 'Reservasi', 'calendar-check'], ['transaksi', 'Transaksi & shift', 'receipt'], ['invoice', 'Invoice', 'file-text'], ['order-admin', 'Pesanan online & QR', 'qr-code'], ['settings', 'Pengaturan & printer', 'settings'], ['audit', 'Audit log', 'history']]],
   ['Pantau operasional', [['denah', 'Denah meja', 'map'], ['kitchen', 'Layar dapur', 'chef-hat'], ['print', 'Stasiun cetak', 'printer']]],
 ];
 // Menu tiap peran: halaman utama peran itu selalu paling atas (kasir → Kaly POS, service → Denah, dst.)
@@ -98,6 +100,8 @@ const ROUTES = {
   settings: { v: Settings, title: 'Pengaturan' },
   audit: { v: Audit, title: 'Audit log' },
   transaksi: { v: Trx, title: 'Transaksi & shift' },
+  invoice: { v: Invoice, title: 'Invoice', roles: ['owner', 'kasir'] },
+  tagihan: { v: InvoicePublic, pub: true, bare: true },
   print: { v: Print, title: 'Stasiun cetak' },
   lounge: { v: Lounge, pub: true, bare: true },
   display: { v: Display, pub: true, bare: true },

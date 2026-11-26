@@ -104,6 +104,7 @@ export function mapSettings(r) {
   s.qrisImage = r.qris_image || '';
   s.printCopies = printCopies(r.print_copies);
   s.receipt = receiptCfg(r.receipt);
+  s.invoice = invoiceCfg(r.invoice);
   return s;
 }
 // Tampilan nota (Pengaturan › Cetak nota › Atur tampilan nota)
@@ -117,6 +118,16 @@ export function receiptCfg(v) {
     .slice(0, 6).map((c) => ({ k: c.k, v: String(c.v).trim().slice(0, 60) }));
   if (![58, 80].includes(d.paper)) d.paper = 58;
   if (!['kecil', 'normal', 'besar'].includes(d.font)) d.font = 'normal';
+  return d;
+}
+// 2.22 · Identitas penerbit di invoice. Kunci yang dikosongkan memakai data nota / nama usaha.
+export const INVOICE_DEFAULT = { name: '', address: '', phone: '', email: '', npwp: '', bank: [], terms: '', dueDays: 14, footer: '' };
+export function invoiceCfg(v) {
+  const o = v && typeof v === 'object' ? v : {}, d = { ...INVOICE_DEFAULT };
+  for (const k of ['name', 'address', 'phone', 'email', 'npwp', 'terms', 'footer']) if (typeof o[k] === 'string') d[k] = o[k].slice(0, 500);
+  const n = Number(o.dueDays); if (Number.isFinite(n)) d.dueDays = Math.max(0, Math.min(180, Math.round(n)));
+  d.bank = (Array.isArray(o.bank) ? o.bank : []).filter((b) => b && String(b.no || '').trim()).slice(0, 4)
+    .map((b) => ({ bank: String(b.bank || '').trim().slice(0, 40), no: String(b.no).trim().slice(0, 40), an: String(b.an || '').trim().slice(0, 60) }));
   return d;
 }
 // Jumlah lembar sekali cetak: nota pelanggan, salinan kasir, slip Bar, slip Dapur (0 = tidak dicetak)
@@ -133,6 +144,7 @@ export function settingsRow(patch) {
     if (k === 'qrisImage') { row.qris_image = v || null; continue; }
     if (k === 'printCopies') { row.print_copies = printCopies(v); continue; }
     if (k === 'receipt') { row.receipt = receiptCfg(v); continue; }
+    if (k === 'invoice') { row.invoice = invoiceCfg(v); continue; }
     if (SETTINGS_MAP[k]) row[SETTINGS_MAP[k]] = v;
   }
   return row;
@@ -155,7 +167,7 @@ export function mapLine(r) {
   if (r.stock_deducted) l.sd = true;
   if (r.cost != null) l.cg = N(r.cost);
   if (r.void_reason) { l.vr = r.void_reason; l.vby = r.void_by; l.vat = T(r.void_at); }
-  if (r.disc && typeof r.disc === 'object') l.disc = r.disc;   // 2.20 · diskon per item
+  if (r.disc && typeof r.disc === 'object') l.disc = r.disc;   // 2.22 · diskon per item
   return l;
 }
 export function mapOrder(r) {
@@ -183,6 +195,13 @@ export const mapMember = (r) => ({ id: r.id, name: r.name, phone: r.phone, email
 const mapRes = (r) => ({ id: r.id, code: r.code, name: r.name, phone: r.phone, date: r.date, time: hm(r.time), pax: N(r.pax), area: r.area || '', table: r.table_id,
   join: r.join_tables || [], status: r.status, src: r.source, note: r.note || '', created: T(r.created_at), mem: r.member_id, order: r.order_id,
   dp: N(r.dp_amount), dpMethod: r.dp_method || '', dpNote: r.dp_note || '', dpAt: T(r.dp_paid_at), dpBy: r.dp_by || '' });
+// 2.22 · Invoice
+const mapInvoice = (r) => ({ id: r.id, no: r.no, loc: r.location_id, kind: r.kind, order: r.order_id, res: r.reservation_id,
+  billTo: { name: r.bill_name || '', company: r.bill_company || '', address: r.bill_address || '', phone: r.bill_phone || '', email: r.bill_email || '', npwp: r.bill_npwp || '' },
+  issuedOn: r.issued_on, dueOn: r.due_on || '', sub: N(r.sub), disc: N(r.disc), svc: N(r.svc), tax: N(r.tax), round: N(r.round),
+  total: N(r.total), paid: N(r.paid), status: r.status, paidOn: r.paid_on || '', voidReason: r.void_reason || '', note: r.note || '',
+  token: r.token, by: r.created_by || '', created: T(r.created_at),
+  lines: (r.invoice_lines || []).slice().sort((a, b) => a.sort - b.sort).map((l) => ({ id: l.id, n: l.name, q: N(l.qty), p: N(l.price), a: N(l.amount) })) });
 const mapFlag = (r) => ({ id: r.id, at: T(r.at), type: r.type, sev: r.severity, msg: r.message, user: r.staff_id, ref: r.ref || '', loc: r.location_id || '', status: r.status,
   checkedBy: r.checked_by, checkedAt: T(r.checked_at) });
 
@@ -192,7 +211,7 @@ function emptyDb() {
     version: 3, rev: 1, settings: { ...DEFAULT_SETTINGS, brand: { ...DEFAULT_SETTINGS.brand } },
     entities: [], locations: [], users: [], accounts: [], items: [], stock: {}, moves: [], menus: [], cats: [], promos: [], vouchers: [], discounts: [], areas: [], tables: [],
     orders: [], shifts: [], crew: [], flags: [], notices: [], members: [], tiers: [], missions: [], campaigns: [], deposits: [], depositTx: [], receivables: [], reservations: [],
-    suppliers: [], supplierPrices: [], itemSup: {}, pos: [], transfers: [], productions: [], opnames: [], b2b: [], journals: [], journalDetail: null, counters: {}, alerts: [],
+    suppliers: [], supplierPrices: [], itemSup: {}, pos: [], transfers: [], productions: [], opnames: [], b2b: [], invoices: [], journals: [], journalDetail: null, counters: {}, alerts: [],
     printers: [], printJobs: [],
   };
 }
@@ -406,6 +425,13 @@ const LOADERS = {
       paidOn: r.paid_on || '', paidMethod: r.paid_method || '', paidRef: r.paid_ref || '',
       paidBy: r.paid_by || '', created: T(r.created_at), by: r.created_by || '' }));
   } },
+  // 2.22 · Invoice: semua yang belum lunas, plus yang sudah selesai dalam 180 hari terakhir
+  invoices: { roles: ['owner', 'kasir'], fn: async () => {
+    const rows = await all(() => sb.from('invoices').select('*, invoice_lines(*)')
+      .or(`status.eq.terbit,issued_on.gte.${isoDay(Date.now() - 180 * DAY)}`)
+      .order('created_at', { ascending: false }));
+    db.invoices = rows.map(mapInvoice);
+  } },
   reservations: { roles: ALL, fn: async () => {
     const rows = await all(() => sb.from('reservations').select('*').gte('date', isoDay(Date.now() - 30 * DAY)).order('date').order('time'));
     db.reservations = rows.map(mapRes);
@@ -471,7 +497,7 @@ const TABLES = {
   orders: 'orders', order_lines: 'orders', order_payments: 'orders', order_refunds: 'orders', order_notices: 'notices', shifts: 'shifts', members: 'members', member_missions: 'memberMissions',
   deposit_cards: 'deposits', deposit_tx: 'deposits', receivables: 'receivables', reservations: 'reservations', suppliers: 'suppliers', supplier_prices: 'suppliers', item_suppliers: 'suppliers',
   purchase_orders: 'pos', purchase_order_lines: 'pos', transfers: 'transfers', transfer_lines: 'transfers', opnames: 'opnames', opname_lines: 'opnames',
-  b2b_invoices: 'b2b', b2b_lines: 'b2b', productions: 'productions', stock_moves: 'moves', fraud_flags: 'flags', journals: 'journals', journal_lines: 'journals',
+  b2b_invoices: 'b2b', b2b_lines: 'b2b', invoices: 'invoices', invoice_lines: 'invoices', productions: 'productions', stock_moves: 'moves', fraud_flags: 'flags', journals: 'journals', journal_lines: 'journals',
   staff_alerts: 'alerts', print_stations: 'printers', print_jobs: 'printJobs',
 };
 const running = {}, again = {};
@@ -584,7 +610,7 @@ async function loadAll() {
   // Data back office & riwayat dimuat di belakang layar
   setTimeout(async () => {
     try {
-      await Promise.all(['suppliers', 'pos', 'transfers', 'opnames', 'b2b', 'productions', 'moves', 'flags', 'journals', 'receivables'].map(runLoader));
+      await Promise.all(['suppliers', 'pos', 'transfers', 'opnames', 'b2b', 'productions', 'moves', 'flags', 'journals', 'receivables', 'invoices'].map(runLoader));
       touch(); emit('remote');
       const days = WINDOW[me?.role] || 2;
       if (days > orderDays) { await loadOrders({ full: true, days }); touch(); emit('remote'); }

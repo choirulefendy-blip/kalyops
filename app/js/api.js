@@ -45,9 +45,14 @@ export const discountSave = (id, f) => rpc('discount_save', { p_id: id || null, 
   p_active: f.active !== false, p_until: f.until ? new Date(f.until).toISOString() : null, p_sort: f.sort || 0 });
 export const discountDelete = (id) => rpc('discount_delete', { p_id: id });
 export const discountApply = (orderId, disc, reason, pin) => rpc('discount_apply', { p_order: orderId, p_disc: disc, p_reason: reason || null, p_pin: pin || null });
-// 2.20 · Diskon per item
+// 2.22 · Diskon per item
 export const lineDiscountApply = (lineId, disc, reason, pin) => rpc('line_discount_apply', { p_line: lineId, p_disc: disc, p_reason: reason || null, p_pin: pin || null });
 export const lineDiscountRemove = (lineId) => rpc('line_discount_remove', { p_line: lineId });
+// 2.22 · Invoice
+export const invoiceSave = (p) => rpc('invoice_save', { p });
+export const invoiceMarkPaid = (id, on, paid) => rpc('invoice_mark_paid', { p_id: id, p_on: on || null, p_paid: paid ?? null });
+export const invoiceVoid = (id, reason) => rpc('invoice_void', { p_id: id, p_reason: reason });
+export const publicInvoice = (token) => rpc('public_invoice', { p_token: token });
 export const sendToKitchen = (orderId) => rpc('pos_send', { p_order: orderId });
 export const voidLine = (lineId, reason) => rpc('void_line', { p_line: lineId, p_reason: reason });
 export const voidOrder = (orderId, reason, pin) => rpc('void_order', { p_order: orderId, p_reason: reason, p_pin: pin || null });

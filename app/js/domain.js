@@ -290,7 +290,7 @@ export function bill(db, o, ts) {
   const L = o.lines.filter((l) => l.s !== 'void' && !l.par);
   const sub = sum(L, (l) => l.q * l.p);
   const discs = [];
-  // 2.20 · Diskon per item dipotong paling awal, jadi promo, member, voucher dan diskon nota
+  // 2.22 · Diskon per item dipotong paling awal, jadi promo, member, voucher dan diskon nota
   // berpersen menghitung dari tagihan yang sudah dipotong. Sama urutannya dengan engine.compute_bill.
   const byName = new Map();
   for (const l of L) {

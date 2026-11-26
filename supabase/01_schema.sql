@@ -72,7 +72,7 @@ create table if not exists public.settings (
   birthday_pct     numeric(6,4) not null default 0.25,
   rounding         boolean      not null default false,
   rounding_to      numeric      not null default 100 check (rounding_to in (100, 500, 1000)),
-  -- 2.21: sisa sampai ambang ini dibulatkan ke bawah, di atasnya ke atas (gaya Moka POS)
+  -- 2.22: sisa sampai ambang ini dibulatkan ke bawah, di atasnya ke atas (gaya Moka POS)
   rounding_down_below numeric  not null default 51 check (rounding_down_below >= 0 and rounding_down_below < rounding_to),
   updated_at       timestamptz not null default now()
 );
@@ -662,7 +662,7 @@ create table if not exists public.order_lines (
   void_reason    text,
   void_by        text references public.staff(id),
   void_at        timestamptz,
-  disc           jsonb,            -- 2.20: diskon khusus baris ini {type,value,name,disc,max,reason,by,approved}
+  disc           jsonb,            -- 2.22: diskon khusus baris ini {type,value,name,disc,max,reason,by,approved}
   sort           bigint generated always as identity
 );
 comment on table public.order_lines is 'Item pesanan. status: draft (belum dikirim) → new → cook → ready → served, atau void. Komponen paket punya parent_line_id.';
