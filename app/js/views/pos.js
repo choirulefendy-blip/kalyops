@@ -7,7 +7,7 @@ import * as D from '../domain.js';
 import { stockSnap, stockAlert } from '../stock-alert.js';
 import { menuPic, qrisUrl } from '../media.js';
 import { ackOrder } from '../notify.js';
-import { rerender, ctxNow } from '../app.js';
+import { rerender, ctxNow, go } from '../app.js';
 import { moveDialog, heldDialog, heldListDialog, heldTables, clearTable } from './table-actions.js';
 import { doPrint, sendPrints, KIND_LABEL } from '../printing.js';
 import * as CR from '../crew.js';
@@ -708,8 +708,9 @@ export default {
         <button class="btn btn-block" data-m="split">${ic('split', 18)} Split bill per item</button>
         <button class="btn btn-block" data-m="print">${ic('printer', 18)} Cetak tagihan sementara (pelanggan saja)</button>
         <button class="btn btn-block" data-m="reslip">${ic('printer', 18)} Cetak ulang slip Bar & Dapur</button>
+        <button class="btn btn-block" data-m="invoice">${ic('file-text', 18)} Buat invoice untuk tamu</button>
         <button class="btn btn-block btn-danger-ghost" data-m="void">${ic('trash-2', 18)} Batalkan bill</button></div>`,
-        onMount(m, api) { m.addEventListener('click', (ev) => { const b = ev.target.closest('[data-m]'); if (!b) return; api.close(); ({ move: moveTable, merge: mergeTable, split: splitBill, print: printBill, reslip: (c) => printSet(curOrder(c.db).id, { reprint: true }).catch(failToast), void: voidBill })[b.dataset.m](ctxNow()); }); } });
+        onMount(m, api) { m.addEventListener('click', (ev) => { const b = ev.target.closest('[data-m]'); if (!b) return; api.close(); ({ move: moveTable, merge: mergeTable, split: splitBill, print: printBill, reslip: (c) => printSet(curOrder(c.db).id, { reprint: true }).catch(failToast), invoice: () => go('invoice'), void: voidBill })[b.dataset.m](ctxNow()); }); } });
     },
     pay(el, e, ctx) { payModal(ctx); },
     async served(el) { el.disabled = true; await serveOrder(el.dataset.id); },
