@@ -304,7 +304,7 @@ function billPanel(ctx) {
     <dl class="bill-tot"><dt>Subtotal</dt><dd>${rp(b.sub)}</dd>
       ${b.discs.map((d) => `<dt class="disc">${esc(d.label)} ${['voucher', 'points', 'manual'].includes(d.kind) ? `<button class="lnk" data-a="rmDisc" data-k="${d.kind}">hapus</button>` : ''}</dt><dd class="disc">-${rp(d.amt)}</dd>`).join('')}
       ${b.svc ? `<dt>Service</dt><dd>${rp(b.svc)}</dd>` : ''}<dt>PB1 ${Math.round(db.settings.taxRate * 100)}%</dt><dd>${rp(b.tax)}</dd>${b.deliv ? `<dt>Ongkir</dt><dd>${rp(b.deliv)}</dd>` : ''}
-      ${b.round ? `<dt class="disc">Pembulatan</dt><dd class="disc">-${rp(b.round)}</dd>` : ''}
+      ${b.round ? `<dt class="disc">Pembulatan</dt><dd class="disc">${b.round > 0 ? '-' : '+'}${rp(Math.abs(b.round))}</dd>` : ''}
       <dt class="grand">Total</dt><dd class="grand">${rp(b.total)}</dd></dl>
     <div class="bill-act">
       <button class="btn btn-lg" data-a="send" ${draftN ? '' : 'disabled'}>${ic('send', 18)} Kirim ke dapur${draftN ? ` (${draftN})` : ''}</button>
@@ -1013,7 +1013,7 @@ export function receiptHtml(db, o, cfg) {
       return `<div class="rl"><span>${l.q}× ${esc(l.n)}</span><span>${rp(l.q * l.p)}</span></div>${ld > 0 ? `<div class="rl sub"><span>&nbsp;&nbsp;${esc(l.disc.name || 'Diskon item')}</span><span>-${rp(ld)}</span></div>` : ''}`;
     }).join('')}<hr>
     <div class="rl"><span>Subtotal</span><span>${rp(b.sub)}</span></div>${b.discs.map((d) => `<div class="rl"><span>${esc(d.label)}</span><span>-${rp(d.amt)}</span></div>`).join('')}
-    <div class="rl"><span>PB1</span><span>${rp(b.tax)}</span></div>${b.deliv ? `<div class="rl"><span>Ongkir</span><span>${rp(b.deliv)}</span></div>` : ''}${b.round ? `<div class="rl"><span>Pembulatan</span><span>-${rp(b.round)}</span></div>` : ''}<div class="rl big"><span>Total</span><span>${rp(b.total)}</span></div>
+    <div class="rl"><span>PB1</span><span>${rp(b.tax)}</span></div>${b.deliv ? `<div class="rl"><span>Ongkir</span><span>${rp(b.deliv)}</span></div>` : ''}${b.round ? `<div class="rl"><span>Pembulatan</span><span>${b.round > 0 ? '-' : '+'}${rp(Math.abs(b.round))}</span></div>` : ''}<div class="rl big"><span>Total</span><span>${rp(b.total)}</span></div>
     ${settled ? o.pays.map((p) => `<div class="rl"><span>${D.PAY[p.m]?.label || p.m}${p.card ? ' ' + p.card : ''}${p.ref ? ' — ' + esc(p.ref) : ''}</span><span>${rp(p.a + (p.m === 'cash' ? o.change || 0 : 0))}</span></div>`).join('') + (o.change ? `<div class="rl"><span>Kembalian</span><span>${rp(o.change)}</span></div>` : '') : o.status === 'void' ? '' : '<p><b>TAGIHAN SEMENTARA</b></p>' + (qr ? `<img class="rc-qris" src="${qr}" alt="QRIS"><p>Scan QRIS untuk membayar</p>` : '')}
     ${(o.refunds || []).length ? `<hr><p><b>REFUND SEBAGIAN</b></p>${[...new Map(o.refunds.map((x) => [x.batch, x])).values()].map((x) => `<div class="rl"><span>${esc(o.refunds.filter((y) => y.batch === x.batch).map((y) => y.qty + '× ' + y.name).join(', '))}</span><span>-${rp(o.refunds.filter((y) => y.batch === x.batch).reduce((a, y) => a + y.amt, 0))}</span></div>`).join('')}` : ''}
     ${R.member && m ? `<hr><p>Member ${esc(m.name)}${o.earned ? `<br>+${o.earned} poin, total ${num(m.points)} poin` : ''}</p>` : ''}

@@ -95,7 +95,7 @@ export const SETTINGS_MAP = {
   poPriceTol: 'po_price_tol', poApproval: 'po_approval', transferFee: 'transfer_fee', delivBase: 'deliv_base', delivPerKm: 'deliv_per_km',
   maxKm: 'max_km', sameDayCutoff: 'same_day_cutoff', scheduleLead: 'schedule_lead', resDuration: 'res_duration', autoConfirmRes: 'auto_confirm_res',
   openHour: 'open_hour', closeHour: 'close_hour', qrAutoSend: 'qr_auto_send', demoOnlinePay: 'demo_online_pay', b2bMarkup: 'b2b_markup', birthdayPct: 'birthday_pct',
-  rounding: 'rounding', roundingTo: 'rounding_to',
+  rounding: 'rounding', roundingTo: 'rounding_to', roundingDownBelow: 'rounding_down_below',
 };
 const BOOL_SETTINGS = new Set(['autoProduce', 'stockGuard', 'autoConfirmRes', 'qrAutoSend', 'demoOnlinePay', 'rounding']);
 export function mapSettings(r) {
@@ -141,7 +141,7 @@ const DEFAULT_SETTINGS = mapSettings({ brand_name: 'Kaly Eatery', brand_tagline:
   tax_rate: 0.1, service_rate: 0, points_per: 10000, point_value: 100, welcome_points: 20, auto_produce: true, stock_guard: true, sla_min: 15, disc_approval: 0.15,
   cash_var_tol: 20000, po_price_tol: 0.1, po_approval: 3000000, transfer_fee: 2500, deliv_base: 8000, deliv_per_km: 3000, max_km: 10, same_day_cutoff: '15:00',
   schedule_lead: 30, res_duration: 120, auto_confirm_res: false, open_hour: 9, close_hour: 21, qr_auto_send: true, demo_online_pay: false, b2b_markup: 0.15, birthday_pct: 0.25,
-  rounding: false, rounding_to: 100 });
+  rounding: false, rounding_to: 100, rounding_down_below: 51 });
 
 export function mapLine(r) {
   const l = { id: r.id, m: r.menu_id, n: r.name, q: N(r.qty), p: N(r.price), s: r.status, st: r.station, note: r.note || '', sort: N(r.sort) };

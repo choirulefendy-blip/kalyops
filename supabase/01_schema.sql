@@ -72,6 +72,8 @@ create table if not exists public.settings (
   birthday_pct     numeric(6,4) not null default 0.25,
   rounding         boolean      not null default false,
   rounding_to      numeric      not null default 100 check (rounding_to in (100, 500, 1000)),
+  -- 2.21: sisa sampai ambang ini dibulatkan ke bawah, di atasnya ke atas (gaya Moka POS)
+  rounding_down_below numeric  not null default 51 check (rounding_down_below >= 0 and rounding_down_below < rounding_to),
   updated_at       timestamptz not null default now()
 );
 comment on table public.settings is 'Aturan operasional Kaly Ops: pajak, poin, anti-fraud, pengantaran, reservasi. Satu baris (id = 1).';

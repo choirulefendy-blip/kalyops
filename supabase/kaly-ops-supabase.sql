@@ -79,6 +79,8 @@ create table if not exists public.settings (
   birthday_pct     numeric(6,4) not null default 0.25,
   rounding         boolean      not null default false,
   rounding_to      numeric      not null default 100 check (rounding_to in (100, 500, 1000)),
+  -- 2.21: sisa sampai ambang ini dibulatkan ke bawah, di atasnya ke atas (gaya Moka POS)
+  rounding_down_below numeric  not null default 51 check (rounding_down_below >= 0 and rounding_down_below < rounding_to),
   updated_at       timestamptz not null default now()
 );
 comment on table public.settings is 'Aturan operasional Kaly Ops: pajak, poin, anti-fraud, pengantaran, reservasi. Satu baris (id = 1).';
@@ -1534,9 +1536,15 @@ begin
   v_svc := engine.jsround(v_run * s.service_rate);
   v_tax := engine.jsround((v_run + v_svc) * s.tax_rate);
   v_gross := v_run + v_svc + v_tax + o.delivery_fee;
+  -- 2.21: pembulatan dua arah. v_round positif = tagihan dipotong, negatif = tagihan ditambah.
+  -- Tagihan yang belum mencapai satu kelipatan tidak pernah dibulatkan menjadi nol.
   v_round := 0;
   if s.rounding and s.rounding_to > 0 and v_gross >= s.rounding_to then
-    v_round := v_gross - (floor(v_gross / s.rounding_to) * s.rounding_to);
+    v_a := v_gross - (floor(v_gross / s.rounding_to) * s.rounding_to);
+    if v_a > 0 then
+      if v_a <= coalesce(s.rounding_down_below, 0) then v_round := v_a;
+      else v_round := v_a - s.rounding_to; end if;
+    end if;
   end if;
   return jsonb_build_object('sub', v_sub, 'discs', v_discs, 'disc', v_disc, 'base', v_run, 'svc', v_svc, 'tax', v_tax, 'deliv', o.delivery_fee,
                             'round', v_round, 'total', v_gross - v_round);
@@ -1632,7 +1640,8 @@ begin
     v_lines := v_lines || jsonb_build_array(jsonb_build_array(r.acc, r.amt, 0));
   end loop;
   if (b->>'disc')::numeric > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_array('4201', (b->>'disc')::numeric, 0)); end if;
-  if coalesce((b->>'round')::numeric, 0) > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_array('4202', (b->>'round')::numeric, 0)); end if;
+  if coalesce((b->>'round')::numeric, 0) > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_array('4202', (b->>'round')::numeric, 0));
+  elsif coalesce((b->>'round')::numeric, 0) < 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_array('4202', 0, -(b->>'round')::numeric)); end if;
   v_lines := v_lines || jsonb_build_array(jsonb_build_array('4101', 0, (b->>'sub')::numeric));
   if (b->>'tax')::numeric > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_array('2104', 0, (b->>'tax')::numeric)); end if;
   if (b->>'svc')::numeric + (b->>'deliv')::numeric > 0 then v_lines := v_lines || jsonb_build_array(jsonb_build_array('4103', 0, (b->>'svc')::numeric + (b->>'deliv')::numeric)); end if;

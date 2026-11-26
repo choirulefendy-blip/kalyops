@@ -344,10 +344,16 @@ export function bill(db, o, ts) {
   const tax = Math.round((run + svc) * db.settings.taxRate);
   const deliv = o.delivFee || 0;
   const gross = run + svc + tax + deliv;
-  // Pembulatan ke bawah (Backoffice › Aturan operasional). round = rupiah yang dipotong.
+  // Pembulatan dua arah (Backoffice › Aturan operasional). round = rupiah yang dipotong;
+  // negatif berarti tagihan justru dinaikkan. Sisa sampai ambang turun, di atas ambang naik.
+  // Harus sama persis dengan engine.compute_bill.
   const step = db.settings.roundingTo || 0;
+  let round = 0;
   // Jangan pernah membulatkan tagihan menjadi nol: butuh minimal satu kelipatan.
-  const round = db.settings.rounding && step > 0 && gross >= step ? gross - Math.floor(gross / step) * step : 0;
+  if (db.settings.rounding && step > 0 && gross >= step) {
+    const sisa = gross - Math.floor(gross / step) * step;
+    if (sisa > 0) round = sisa <= (Number(db.settings.roundingDownBelow) || 0) ? sisa : sisa - step;
+  }
   return { sub, discs, disc, base: run, svc, tax, deliv, round, total: gross - round };
 }
 

@@ -38,7 +38,7 @@ export default {
         ${s.member ? `<div class="cd-mem">${ic('award', 20)} ${esc(s.member.name)}, member ${esc(s.member.tier)}. ${num(s.member.points)} poin</div>` : `<div class="cd-mem muted">${ic('award', 20)} Belum member? Sebutkan nomor HP ke kasir untuk dapat poin.</div>`}
       </section>
       <section class="cd-tot">
-        <dl><dt>Subtotal</dt><dd>${rp(b.sub)}</dd>${b.discs.map((d) => `<dt>${esc(d.label)}</dt><dd>-${rp(d.amt)}</dd>`).join('')}<dt>PB1</dt><dd>${rp(b.tax)}</dd>${b.deliv ? `<dt>Ongkir</dt><dd>${rp(b.deliv)}</dd>` : ''}${b.round ? `<dt>Pembulatan</dt><dd>-${rp(b.round)}</dd>` : ''}</dl>
+        <dl><dt>Subtotal</dt><dd>${rp(b.sub)}</dd>${b.discs.map((d) => `<dt>${esc(d.label)}</dt><dd>-${rp(d.amt)}</dd>`).join('')}<dt>PB1</dt><dd>${rp(b.tax)}</dd>${b.deliv ? `<dt>Ongkir</dt><dd>${rp(b.deliv)}</dd>` : ''}${b.round ? `<dt>Pembulatan</dt><dd>${b.round > 0 ? '-' : '+'}${rp(Math.abs(b.round))}</dd>` : ''}</dl>
         <div class="cd-grand"><small>Total</small><b>${rp(b.total)}</b></div>
         ${s.status === 'pay' && s.qris && /^https?:/.test(s.qris) ? `<div class="cd-qr"><img src="${esc(s.qris)}" alt="QRIS"><p>Scan QRIS untuk membayar</p></div>` : ''}
       </section></div>`;

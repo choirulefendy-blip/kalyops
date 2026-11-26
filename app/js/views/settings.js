@@ -54,11 +54,12 @@ export default {
           ${n('pointsPer', 'Belanja per 1 poin', s.pointsPer, 1000, 'Rp')}${n('pointValue', 'Nilai 1 poin saat ditukar', s.pointValue, 10, 'Rp')}
           ${n('welcomePoints', 'Bonus poin member baru', s.welcomePoints)}${n('slaMin', 'Target serving time dapur', s.slaMin, 1, 'menit')}</div>
         <label class="switch"><input type="checkbox" name="stockGuard" ${s.stockGuard !== false ? 'checked' : ''}><span>Menu otomatis habis saat bahan resepnya tidak cukup untuk satu porsi (outlet yang terhubung Kaly Core)</span></label>
-        <label class="switch"><input type="checkbox" name="rounding" ${s.rounding ? 'checked' : ''}><span>Pembulatan total tagihan ke bawah</span></label>
-        <label class="fld"><span>Kelipatan pembulatan</span><select name="roundingTo" class="inp">
+        <label class="switch"><input type="checkbox" name="rounding" ${s.rounding ? 'checked' : ''}><span>Pembulatan total tagihan</span></label>
+        <div class="grid2"><label class="fld"><span>Kelipatan pembulatan</span><select name="roundingTo" class="inp">
           ${[100, 500, 1000].map((v) => `<option value="${v}" ${Number(s.roundingTo) === v ? 'selected' : ''}>Rp ${v.toLocaleString('id-ID')}</option>`).join('')}
         </select></label>
-        <p class="hint">Total tagihan dibulatkan <b>ke bawah</b> ke kelipatan terdekat, jadi tamu selalu membayar lebih sedikit, tidak pernah lebih. Contoh kelipatan Rp 100: total Rp 47.350 menjadi <b>Rp 47.300</b>. Selisihnya dicatat di akun <b>4202 Pembulatan penjualan</b> supaya laporan keuangan tetap seimbang. Subtotal, diskon, service charge, dan PB1 tidak ikut dibulatkan.</p>
+        <label class="fld"><span>Bulatkan ke bawah bila sisanya sampai</span><input name="roundingDownBelow" type="number" min="0" step="1" class="inp" value="${Number(s.roundingDownBelow ?? 51)}"><small class="muted" id="round-eg"></small></label></div>
+        <p class="hint">Sisa di bawah atau sama dengan ambang dibulatkan <b>ke bawah</b>, di atas ambang dibulatkan <b>ke atas</b>. Ambang harus lebih kecil dari kelipatannya. Tagihan yang belum mencapai satu kelipatan tidak dibulatkan. Selisihnya dicatat di akun <b>4202 Pembulatan penjualan</b> supaya laporan keuangan tetap seimbang. Subtotal, diskon, service charge, dan PB1 tidak ikut dibulatkan.</p>
         <div class="card-h"><h3>Kontrol anti-fraud</h3></div>
         <div class="grid2"><label class="fld"><span>Ganti PIN manajer</span><input name="managerPin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" placeholder="Kosongkan bila tidak diganti"></label>
           ${n('discApproval', 'Diskon manual tanpa PIN maksimal', Math.round(s.discApproval * 100), 1, '%')}${n('cashVarTol', 'Toleransi selisih kas', s.cashVarTol, 1000, 'Rp')}
@@ -97,6 +98,17 @@ export default {
     if (!first) return;
     PS.startStatus(true);   // pantau status printer tanpa menggambar ulang formulir pengaturan
     DN.refreshInfo().then(repaintPush);
+    // Contoh hidup untuk setelan pembulatan, supaya aturannya terbaca tanpa perlu menghitung.
+    const eg = root.querySelector('#round-eg'), st = root.querySelector('[name=roundingTo]'), th = root.querySelector('[name=roundingDownBelow]');
+    if (eg && st && th) {
+      const draw = () => {
+        const step = Number(st.value) || 100, amb = Math.min(Math.max(Math.round(Number(th.value) || 0), 0), step - 1);
+        const f = (g) => { const sisa = g - Math.floor(g / step) * step; return (sisa === 0 ? g : sisa <= amb ? g - sisa : g - sisa + step).toLocaleString('id-ID'); };
+        const a = 10000 + amb, b = a + 1;
+        eg.textContent = `Rp ${a.toLocaleString('id-ID')} jadi Rp ${f(a)}; Rp ${b.toLocaleString('id-ID')} jadi Rp ${f(b)}`;
+      };
+      st.addEventListener('change', draw); th.addEventListener('input', draw); draw();
+    }
   },
   unmount() { PS.stopStatus(); },
   actions: {
@@ -106,6 +118,11 @@ export default {
       const patch = { taxRate: (Number(f.taxRate) || 0) / 100, serviceRate: (Number(f.serviceRate) || 0) / 100, discApproval: (Number(f.discApproval) || 0) / 100,
         poPriceTol: (Number(f.poPriceTol) || 0) / 100, b2bMarkup: (Number(f.b2bMarkup) || 0) / 100, stockGuard: !!f.stockGuard,
         rounding: !!f.rounding, roundingTo: [100, 500, 1000].includes(Number(f.roundingTo)) ? Number(f.roundingTo) : 100 };
+      // Ambang harus di dalam satu kelipatan; kalau tidak, database menolaknya dengan pesan teknis.
+      patch.roundingDownBelow = Math.min(Math.max(Math.round(Number(f.roundingDownBelow) || 0), 0), patch.roundingTo - 1);
+      if (patch.rounding && Number(f.roundingDownBelow) >= patch.roundingTo) {
+        return toast(`Ambang harus lebih kecil dari kelipatan Rp ${patch.roundingTo.toLocaleString('id-ID')}. Isi antara 0 dan ${patch.roundingTo - 1}.`, 'warn', 6000);
+      }
       ['pointsPer', 'pointValue', 'welcomePoints', 'slaMin', 'cashVarTol', 'poApproval', 'transferFee'].forEach((k) => (patch[k] = Number(f[k]) || 0));
       const btn = form.querySelector('#set-save'); btn.disabled = true;
       try {
