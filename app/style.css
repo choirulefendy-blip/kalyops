@@ -1690,3 +1690,10 @@ dl.sum .disc { color: var(--cabai); }
   body.inv-print .inv-p-t { page-break-inside: auto; }
   body.inv-print .inv-p-t tr { page-break-inside: avoid; }
 }
+
+/* 2.22 · Pita penanda versi coba */
+.preview-pita { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9999; pointer-events: none;
+  background: var(--cabai, #CC5E44); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .06em;
+  text-align: center; padding: 3px 8px; text-transform: uppercase; }
+body.preview { border-top: 3px solid var(--cabai, #CC5E44); }
+@media print { .preview-pita { display: none !important; } }

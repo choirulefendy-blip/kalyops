@@ -1,10 +1,17 @@
-# Terbitkan aplikasi Kaly Ops (folder app/) ke GitHub Pages setiap ada perubahan di branch main.
+# Terbitkan Kaly Ops ke GitHub Pages.
+#
+# Satu alamat, dua versi:
+#   /kalyops/        <- branch main  = aplikasi yang dipakai jualan
+#   /kalyops/coba/   <- branch coba  = versi coba, untuk dicoba dulu sebelum naik
+#
+# Keduanya selalu dibangun bersama dalam satu artefak, jadi mendorong perubahan ke salah satu
+# branch tidak pernah menghapus versi yang satunya.
 # Sekali saja: Settings › Pages › Build and deployment › Source: GitHub Actions.
 name: Terbitkan Kaly Ops ke GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, coba]
     paths: ['app/**', '.github/workflows/pages.yml']
   workflow_dispatch:
 
@@ -24,31 +31,73 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Ambil versi jualan (main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+
+      - name: Ambil versi coba (coba, boleh belum ada)
+        id: coba
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: coba
+          path: coba
+
       - name: Periksa config.js memakai kunci publik (bukan service_role)
         run: |
           python3 - <<'PY'
-          import re, base64, json, sys
-          s = open('app/js/config.js').read()
-          m = re.search(r"SUPABASE_ANON_KEY\s*=\s*'([^']*)'", s)
-          key = m.group(1) if m else ''
-          bad = key.startswith('sb_secret_')
-          if key.count('.') == 2:
-              p = key.split('.')[1]; p += '=' * (-len(p) % 4)
-              bad = bad or json.loads(base64.urlsafe_b64decode(p)).get('role') == 'service_role'
-          if bad:
-              print('::error::app/js/config.js berisi kunci rahasia (service_role / secret). Pakai anon / publishable key.'); sys.exit(1)
-          print('config.js aman: kunci publik')
+          import re, base64, json, sys, os
+          gagal = False
+          for d in ('main', 'coba'):
+              f = os.path.join(d, 'app/js/config.js')
+              if not os.path.exists(f):
+                  continue
+              s = open(f).read()
+              m = re.search(r"SUPABASE_ANON_KEY\s*=\s*'([^']*)'", s)
+              key = m.group(1) if m else ''
+              bad = key.startswith('sb_secret_')
+              if key.count('.') == 2:
+                  p = key.split('.')[1]; p += '=' * (-len(p) % 4)
+                  bad = bad or json.loads(base64.urlsafe_b64decode(p)).get('role') == 'service_role'
+              if bad:
+                  print(f'::error::{f} berisi kunci rahasia (service_role / secret). Pakai anon / publishable key.')
+                  gagal = True
+              else:
+                  print(f'{f} aman: kunci publik')
+          sys.exit(1 if gagal else 0)
           PY
-      - name: Nomor build baru (perangkat yang terbuka mendapat pemberitahuan versi baru)
+
+      - name: Versi coba wajib menyalakan penanda PREVIEW
+        if: hashFiles('coba/app/js/config.js') != ''
         run: |
-          V=$(sed -n "s/.*APP_VERSION = '\([^']*\)'.*/\1/p" app/js/store.js)
-          echo "{ \"build\": \"${V}-$(date -u +%Y%m%d%H%M)-${GITHUB_SHA::7}\" }" > app/version.json
-          cat app/version.json
+          grep -q "PREVIEW = true" coba/app/js/config.js || {
+            echo "::error::coba/app/js/config.js harus memuat 'export const PREVIEW = true;' supaya pita VERSI COBA tampil."
+            exit 1
+          }
+
+      - name: Susun folder terbit
+        run: |
+          set -e
+          V=$(sed -n "s/.*APP_VERSION = '\([^']*\)'.*/\1/p" main/app/js/store.js)
+          STAMP="$(date -u +%Y%m%d%H%M)-${GITHUB_SHA::7}"
+          cp -r main/app site
+          echo "{ \"build\": \"${V}-${STAMP}\" }" > site/version.json
+          if [ -d coba/app ]; then
+            cp -r coba/app site/coba
+            VC=$(sed -n "s/.*APP_VERSION = '\([^']*\)'.*/\1/p" coba/app/js/store.js)
+            echo "{ \"build\": \"${VC}-coba-${STAMP}\" }" > site/coba/version.json
+            echo "versi coba ikut terbit di /coba/"
+          else
+            echo "branch coba belum ada, hanya versi jualan yang terbit"
+          fi
+          cat site/version.json
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: app
+          path: site
       # Artefak kadang belum terdaftar di katalog GitHub saat langkah terbit menanyakannya,
       # dan terbitnya gagal dengan "No artifacts named github-pages". Beri jeda sebentar.
       - run: sleep 10

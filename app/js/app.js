@@ -55,6 +55,16 @@ export const HOME = { owner: '', kasir: 'pos', dapur: 'kitchen', gudang: 'goods'
 export const isBO = (u = currentUser()) => u?.role === 'owner';
 // 2.16 · Alamat & aplikasi terpisah: APP_MODE 'ops' (kasir, dapur, service, gudang) atau 'backoffice' (Owner/Manajer).
 // Kosong (cadangan GitHub Pages, uji lokal) = semua akun boleh masuk seperti sebelumnya.
+// 2.22 · Versi coba: alamat terpisah untuk mencoba perubahan sebelum naik ke aplikasi yang
+// dipakai jualan. Pita merah dipasang sekali di <body> supaya ikut terlihat di semua halaman,
+// termasuk layar penuh seperti Kaly POS dan layar dapur.
+export const PREVIEW = !!CFG.PREVIEW;
+if (PREVIEW) document.addEventListener('DOMContentLoaded', () => {
+  document.body.classList.add('preview');
+  const r = document.createElement('div'); r.className = 'preview-pita';
+  r.textContent = 'VERSI COBA — bukan aplikasi yang dipakai jualan';
+  document.body.appendChild(r);
+}, { once: true });
 export const MODE = CFG.APP_MODE || '';
 export const OPS_URL = CFG.OPS_URL || '';
 export const BO_URL = CFG.BO_URL || '';
