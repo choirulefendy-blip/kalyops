@@ -228,6 +228,8 @@ function editor(ctx, kind, { inv = null, src = '' } = {}) {
 
   // Baris awal untuk invoice manual / reservasi
   let lines = inv && !fromBill ? inv.lines.map((l) => ({ n: l.n, q: l.q, p: l.p }))
+    // 2.23 · Reservasi dengan menu pesanan: rincian menu jadi baris tagihan (harga saat dipesan)
+    : r && (r.items || []).length ? r.items.map((it) => ({ n: (db.menus.find((m) => m.id === it.m)?.name || it.m) + (it.note ? ` (${it.note})` : ''), q: it.q, p: it.p }))
     : r ? [{ n: `Reservasi ${r.code} · ${fmtDate(r.date)} ${r.time} · ${r.pax} orang`, q: 1, p: 0 }]
       : [{ n: '', q: 1, p: 0 }];
 
