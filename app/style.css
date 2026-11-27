@@ -1711,3 +1711,4 @@ body.preview { border-top: 3px solid var(--cabai, #CC5E44); }
 .ri-view { margin-top: 12px; }
 .ri-sum .ri-row { font-size: 14px; }
 .res-pre { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 6px 0; padding: 8px 10px; border-radius: 8px; background: #fff6e5; font-size: 14px; }
+.tx-inv { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 8px; }

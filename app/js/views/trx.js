@@ -157,6 +157,7 @@ export function trxPanel(ctx) {
   if (S.key !== JSON.stringify(f) && !S.loading) setTimeout(() => load(ctxFresh(ctx)));
   const owner = isOwner(ctx);
   return `<div class="tx">
+    <div class="tx-inv"><a class="btn btn-sm" href="#/invoice">${ic('file-text', 14)} Invoice</a><a class="btn btn-sm btn-pri" href="#/invoice?new=1">${ic('plus', 14)} Buat invoice</a></div>
     <div class="tx-f">
       ${S.shift ? `<span class="chip on tx-shift">${ic('clock', 14)} Shift ${esc(S.shiftLabel || '')}<button class="lnk" data-a="txShiftX" title="Tampilkan semua">${ic('trash-2', 13)}</button></span>` : `<div class="chips">${ranges(ctx).map(([k, l]) => `<button class="chip ${S.range === k ? 'on' : ''}" data-a="txRange" data-v="${k}">${l}</button>`).join('')}
         ${S.range === 'custom' ? `<input type="date" class="inp inp-sm" data-a-change="txFrom" value="${esc(S.from || dayKey())}" aria-label="Dari tanggal"><span class="muted sm">s/d</span><input type="date" class="inp inp-sm" data-a-change="txTo" value="${esc(S.to || dayKey())}" aria-label="Sampai tanggal">` : ''}</div>`}

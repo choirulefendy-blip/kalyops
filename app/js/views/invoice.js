@@ -41,6 +41,8 @@ function rows(db) {
 // ---------- Tampilan ----------
 export default {
   title: () => 'Invoice',
+  // 2.23 · Dibuka dari tombol "Buat invoice" di Kaly POS › Transaksi: langsung tampilkan pilihan sumber
+  after(root, ctx, first) { if (first && ctx.q?.new) { history.replaceState(null, '', '#/invoice'); setTimeout(() => pickSource(ctx)); } },
   render(ctx) {
     const db = ctx.db;
     const locs = locIds(db);
