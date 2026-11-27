@@ -67,6 +67,58 @@ function resForm(db, r = {}) {
     <label class="fld"><span>Catatan</span><input name="note" value="${esc(r.note || '')}" placeholder="Contoh: ulang tahun, kursi bayi"></label>`;
 }
 
+// 2.23 · Menu pesanan reservasi (pre-order untuk dapur dan invoice)
+function menuPickerHtml(db) {
+  const opts = db.menus.filter((x) => x.active).slice().sort((a, b) => a.name.localeCompare(b.name))
+    .map((x) => `<option value="${esc(x.id)}">${esc(x.name)} · ${rp(x.price)}</option>`).join('');
+  return `<div class="ri"><div class="ri-h"><b>Menu pesanan</b><small class="muted">dikirim ke dapur saat tamu datang</small></div>
+    <div class="ri-add"><select id="ri-menu"><option value="">Pilih menu…</option>${opts}</select><input id="ri-qty" type="number" min="1" value="1" class="ri-q" aria-label="Jumlah"><button class="btn btn-sm" type="button" data-ri-add>${ic('plus', 14)} Tambah</button></div>
+    <div id="ri-list"></div></div>`;
+}
+
+// Ringkasan menu untuk detail reservasi (memakai harga yang tersimpan saat dipesan)
+function menuSummary(db, r) {
+  const it = r.items || [];
+  if (!it.length) return '<p class="muted sm">Belum ada menu pesanan.</p>';
+  const name = (id) => db.menus.find((x) => x.id === id)?.name || id;
+  return `<div class="ri-sum">${it.map((x) => `<div class="ri-row"><span>${x.q}× ${esc(name(x.m))}</span><span class="r">${rp(x.p * x.q)}</span></div>`).join('')}
+    <div class="ri-tot"><span>Total menu</span><b>${rp(it.reduce((a, x) => a + x.p * x.q, 0))}</b></div></div>`;
+}
+
+// Pasang perilaku daftar menu di dalam modal. Mengembalikan fungsi yang memberi daftar item saat ini.
+function menuPicker(m, initial = []) {
+  const db = getDb();
+  let items = initial.map((x) => ({ menu_id: x.m, qty: x.q, note: x.note || '' }));
+  const priceOf = (id) => db.menus.find((x) => x.id === id)?.price || 0;
+  const nameOf = (id) => db.menus.find((x) => x.id === id)?.name || id;
+  const draw = () => {
+    const list = m.querySelector('#ri-list');
+    if (!list) return;
+    if (!items.length) { list.innerHTML = '<p class="muted sm">Belum ada menu.</p>'; return; }
+    const total = items.reduce((a, x) => a + priceOf(x.menu_id) * x.qty, 0);
+    list.innerHTML = items.map((x, i) => `<div class="ri-row"><span>${esc(nameOf(x.menu_id))}</span>
+      <span class="ri-qty"><button type="button" class="btn-icon sm" data-ri-dec="${i}" aria-label="Kurangi">−</button><b>${x.qty}</b><button type="button" class="btn-icon sm" data-ri-inc="${i}" aria-label="Tambah">+</button></span>
+      <span class="r">${rp(priceOf(x.menu_id) * x.qty)}</span><button type="button" class="btn-icon sm" data-ri-rm="${i}" aria-label="Hapus">${ic('x', 14)}</button></div>`).join('')
+      + `<div class="ri-tot"><span>Total menu</span><b>${rp(total)}</b></div>`;
+  };
+  m.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-ri-add],[data-ri-inc],[data-ri-dec],[data-ri-rm]');
+    if (!t) return;
+    if (t.hasAttribute('data-ri-add')) {
+      const id = m.querySelector('#ri-menu')?.value;
+      const q = Math.max(1, Number(m.querySelector('#ri-qty')?.value) || 1);
+      if (!id) return toast('Pilih menu dulu', 'warn');
+      const ex = items.find((x) => x.menu_id === id);
+      if (ex) ex.qty += q; else items.push({ menu_id: id, qty: q, note: '' });
+    } else if (t.hasAttribute('data-ri-inc')) items[+t.dataset.riInc].qty += 1;
+    else if (t.hasAttribute('data-ri-dec')) { const x = items[+t.dataset.riDec]; x.qty -= 1; if (x.qty < 1) items.splice(+t.dataset.riDec, 1); }
+    else items.splice(+t.dataset.riRm, 1);
+    draw();
+  });
+  draw();
+  return () => items.filter((x) => x.qty > 0);
+}
+
 export default {
   render(ctx) {
     // 2.10: service mencatat & mengelola reservasi; pengaturan channel hanya Owner/kasir
@@ -84,15 +136,20 @@ export default {
     copy(el) { copyText(el.dataset.v); },
     async saveSet(form) { const f = formData(form); await API.saveSettings({ autoConfirmRes: !!f.auto, resDuration: Number(f.dur) || 120 }); await C.refresh('settings'); toast('Aturan reservasi disimpan'); rerender(); },
     resNew(el, e, ctx) {
-      openModal({ title: 'Reservasi baru', size: 'md', body: resForm(getDb(), { src: 'telepon' }), footer: `<button class="btn" data-close>Batal</button><button class="btn btn-pri" data-ok>Simpan</button>`,
-        onMount(m, api) { m.querySelector('[data-ok]').onclick = async () => {
+      openModal({ title: 'Reservasi baru', size: 'md', body: resForm(getDb(), { src: 'telepon' }) + menuPickerHtml(getDb()), footer: `<button class="btn" data-close>Batal</button><button class="btn btn-pri" data-ok>Simpan</button>`,
+        onMount(m, api) { const getItems = menuPicker(m, []); m.querySelector('[data-ok]').onclick = async () => {
           const f = formData(m); f.pax = Number(f.pax) || 1;
           if (!f.name.trim()) return toast('Isi nama tamu', 'warn');
           const db = getDb();
           const t = f.table ? db.tables.find((x) => x.id === f.table) : D.suggestTable(db, f) || D.suggestTable(db, { ...f, area: '' });
           if (!t) return toast('Tidak ada meja kosong untuk jam dan jumlah tamu itu', 'err');
           if (f.table && !D.tableFree(db, t.id, D.resStart(f), db.settings.resDuration)) return toast(`Meja ${t.id} sudah terisi di jam itu`, 'err');
-          try { await API.reservationCreate({ name: f.name.trim(), phone: f.phone || '', date: f.date, time: f.time, pax: f.pax, area: f.area || '', table: t.id, join: t.join || [], note: f.note || '', status: 'dikonfirmasi', source: f.src }); await C.refresh('reservations'); }
+          try {
+            const created = await API.reservationCreate({ name: f.name.trim(), phone: f.phone || '', date: f.date, time: f.time, pax: f.pax, area: f.area || '', table: t.id, join: t.join || [], note: f.note || '', status: 'dikonfirmasi', source: f.src });
+            const its = getItems();
+            if (its.length) await API.reservationItemsSet(created.id, its.map((x) => ({ menu_id: x.menu_id, qty: x.qty, note: x.note })));
+            await C.refresh('reservations');
+          }
           catch (err) { return toast(err.message, 'err'); }
           api.close(); toast(`Reservasi tersimpan di meja ${[t.id, ...(t.join || [])].join(' + ')}`); ui.date = f.date; rerender();
         }; } });
@@ -102,8 +159,11 @@ export default {
       const msg = `Halo ${r.name.split(' ')[0]}, reservasi kamu di ${db.settings.brand.name} sudah kami konfirmasi: ${fmtDate(fromKey(r.date), true)} pukul ${r.time}, ${r.pax} orang, meja ${D.resTableLabel(r)} (${db.tables.find((t) => t.id === r.table)?.area || ''}). Kode ${r.code}. Mau pesan menu duluan? ${location.href.split('#')[0]}#/order?res=${r.code}`;
       const btn = (s, l, cls = '') => `<button class="btn ${cls}" data-st="${s}">${l}</button>`;
       const canEditDp = ['owner', 'manajer', 'kasir'].includes(ctx.user.role) && ['menunggu', 'dikonfirmasi', 'datang'].includes(r.status);
+      const canEditRes = ['owner', 'kasir', 'service'].includes(ctx.user.role) && ['menunggu', 'dikonfirmasi', 'datang'].includes(r.status);
       const DP_METHODS = { cash: 'Tunai', transfer: 'Transfer bank', qris: 'QRIS' };
       openModal({ title: `${r.name} (${r.code})`, size: 'md', body: `<dl class="kv"><dt>Tanggal</dt><dd>${fmtDate(fromKey(r.date), true)}, ${esc(r.time)}</dd><dt>Tamu</dt><dd>${r.pax} orang</dd><dt>Meja</dt><dd>${esc(D.resTableLabel(r))} ${r.area ? `(minta ${esc(r.area)})` : ''}</dd><dt>Sumber</dt><dd>${SRC[r.src] || esc(r.src)}</dd><dt>No. HP</dt><dd>${esc(r.phone)}</dd><dt>Catatan</dt><dd>${esc(r.note || '—')}</dd><dt>Status</dt><dd><span class="badge ${RES_ST[r.status]}">${esc(r.status)}</span></dd>${r.order ? `<dt>Pre-order</dt><dd>${esc(D.order(db, r.order)?.no || '')}</dd>` : ''}</dl>
+        <div class="ri-view">${menuSummary(db, r)}${canEditRes ? `<div class="row"><button class="btn btn-sm" id="ri-edit">${ic('edit-2', 14)} Ubah menu</button></div>
+        <div id="ri-box" hidden>${menuPickerHtml(db)}<div class="row"><button class="btn btn-pri btn-sm" id="ri-save">${ic('check', 14)} Simpan menu</button></div></div>` : ''}</div>
         <div class="dp-box"><div class="dp-info${r.dp > 0 ? '' : ' hidden'}" id="dp-info">${r.dp > 0 ? `<div class="row sb"><div><b class="dp-amt">${rp(r.dp)}</b> <span class="badge b-ok">DP lunas</span><br><small class="muted">${esc(DP_METHODS[r.dpMethod] || r.dpMethod)}${r.dpNote ? ' · ' + esc(r.dpNote) : ''}</small></div>${canEditDp ? `<button class="btn btn-sm" id="dp-toggle">${ic('edit-2', 14)} Ubah DP</button>` : ''}</div>` : ''}</div>
         ${canEditDp && r.dp === 0 ? `<button class="btn btn-sm" id="dp-toggle">${ic('plus', 14)} Catat DP</button>` : ''}
         <div class="dp-form" id="dp-form" style="display:none">
@@ -116,6 +176,15 @@ export default {
         <a class="btn" href="https://wa.me/${D.waPhone(r.phone)}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">${ic('send', 15)} Kirim konfirmasi WA</a></div>
         ${r.status === 'datang' ? `<p class="hint">${ctx.user.role === 'kasir' ? 'Buka Kaly POS, ketuk meja ini untuk mulai mencatat pesanan.' : 'Pesanan tamu dicatat kasir di Kaly POS.'}</p>` : ''}`,
         onMount(m, api) {
+          // 2.23 · Ubah menu pesanan reservasi
+          const getItems = menuPicker(m, r.items || []);
+          m.querySelector('#ri-edit')?.addEventListener('click', () => { const b = m.querySelector('#ri-box'); b.hidden = !b.hidden; });
+          m.querySelector('#ri-save')?.addEventListener('click', async (ev) => {
+            ev.currentTarget.disabled = true;
+            try { await API.reservationItemsSet(r.id, getItems().map((x) => ({ menu_id: x.menu_id, qty: x.qty, note: x.note }))); await C.refresh('reservations'); }
+            catch (err) { ev.currentTarget.disabled = false; return toast(err.message, 'err'); }
+            api.close(); toast('Menu pesanan disimpan'); rerender();
+          });
           // Tombol ubah/tambah DP
           m.querySelector('#dp-toggle')?.addEventListener('click', () => {
             const form = m.querySelector('#dp-form');

@@ -1697,3 +1697,16 @@ dl.sum .disc { color: var(--cabai); }
   text-align: center; padding: 3px 8px; text-transform: uppercase; }
 body.preview { border-top: 3px solid var(--cabai, #CC5E44); }
 @media print { .preview-pita { display: none !important; } }
+
+/* 2.23 · Menu pesanan di Kaly Book */
+.ri { margin-top: 14px; padding: 12px; border: 1px solid var(--line, #e5e0d6); border-radius: 10px; }
+.ri-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.ri-add { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.ri-add select { flex: 1 1 180px; min-width: 0; }
+.ri-q { width: 64px; }
+.ri-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--line, #e5e0d6); font-size: 14px; }
+.ri-row > span:first-child { flex: 1; min-width: 0; }
+.ri-qty { display: inline-flex; align-items: center; gap: 6px; }
+.ri-tot { display: flex; justify-content: space-between; padding-top: 8px; font-size: 14px; }
+.ri-view { margin-top: 12px; }
+.ri-sum .ri-row { font-size: 14px; }

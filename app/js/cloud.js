@@ -194,7 +194,8 @@ export const mapMember = (r) => ({ id: r.id, name: r.name, phone: r.phone, email
   joined: T(r.joined_at), last: T(r.last_visit_at) || 0, src: r.source, missions: {}, updated: T(r.updated_at) });
 const mapRes = (r) => ({ id: r.id, code: r.code, name: r.name, phone: r.phone, date: r.date, time: hm(r.time), pax: N(r.pax), area: r.area || '', table: r.table_id,
   join: r.join_tables || [], status: r.status, src: r.source, note: r.note || '', created: T(r.created_at), mem: r.member_id, order: r.order_id,
-  dp: N(r.dp_amount), dpMethod: r.dp_method || '', dpNote: r.dp_note || '', dpAt: T(r.dp_paid_at), dpBy: r.dp_by || '' });
+  dp: N(r.dp_amount), dpMethod: r.dp_method || '', dpNote: r.dp_note || '', dpAt: T(r.dp_paid_at), dpBy: r.dp_by || '',
+  items: (r.reservation_items || []).map((x) => ({ m: x.menu_id, q: N(x.qty), p: N(x.price), note: x.note || '' })) });
 // 2.22 · Invoice
 const mapInvoice = (r) => ({ id: r.id, no: r.no, loc: r.location_id, kind: r.kind, order: r.order_id, res: r.reservation_id,
   billTo: { name: r.bill_name || '', company: r.bill_company || '', address: r.bill_address || '', phone: r.bill_phone || '', email: r.bill_email || '', npwp: r.bill_npwp || '' },
@@ -433,7 +434,7 @@ const LOADERS = {
     db.invoices = rows.map(mapInvoice);
   } },
   reservations: { roles: ALL, fn: async () => {
-    const rows = await all(() => sb.from('reservations').select('*').gte('date', isoDay(Date.now() - 30 * DAY)).order('date').order('time'));
+    const rows = await all(() => sb.from('reservations').select('*, reservation_items(menu_id, qty, price, note)').gte('date', isoDay(Date.now() - 30 * DAY)).order('date').order('time'));
     db.reservations = rows.map(mapRes);
   } },
   suppliers: { roles: ['owner', 'gudang'], fn: async () => {
