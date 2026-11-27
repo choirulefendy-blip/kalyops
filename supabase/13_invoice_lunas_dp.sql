@@ -51,3 +51,18 @@ drop trigger if exists invoice_follow_order on public.orders;
 -- Ditunda sampai akhir transaksi: status bill diubah sebelum baris pembayarannya ditulis
 create constraint trigger invoice_follow_order after update of status on public.orders deferrable initially deferred
   for each row execute function engine.tg_invoice_follow_order();
+
+-- Bill reservasi dibayar (lunas / refund) -> reservasinya selesai, supaya meja tidak lagi tampil "reservasi"
+create or replace function engine.tg_res_close_on_order() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.status in ('paid', 'refund') and coalesce(old.status, '') = 'open' then
+    update reservations set status = 'selesai' where order_id = new.id and status in ('menunggu', 'dikonfirmasi', 'datang');
+  end if;
+  return null;
+end $$;
+drop trigger if exists res_close_on_order on public.orders;
+create trigger res_close_on_order after update of status on public.orders for each row execute function engine.tg_res_close_on_order();
+
+-- Bereskan reservasi lama yang bill-nya sudah ditutup tapi statusnya masih aktif
+update reservations r set status = 'selesai'
+  from orders o where o.id = r.order_id and o.status in ('paid', 'refund') and r.status in ('menunggu', 'dikonfirmasi', 'datang');

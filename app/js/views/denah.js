@@ -27,7 +27,7 @@ function tableOrders(db, L) {
   return db.orders.filter((o) => o.loc === L && o.table && o.released !== false && (o.status === 'open' || (o.status === 'paid' && o.created >= t0 && ['new', 'cook', 'ready'].includes(D.kitchenState(o)))));
 }
 function upcomingRes(db, tableId, now) {
-  return db.reservations.find((r) => D.resTables(r).includes(tableId) && D.RES_ACTIVE.includes(r.status) && D.resStart(r) - now < 120 * 60000 && D.resStart(r) - now > -(r.status === 'datang' ? 180 : 45) * 60000);
+  return db.reservations.find((r) => D.resTables(r).includes(tableId) && !D.resClosed(db, r) && D.RES_ACTIVE.includes(r.status) && D.resStart(r) - now < 120 * 60000 && D.resStart(r) - now > -(r.status === 'datang' ? 180 : 45) * 60000);
 }
 function states(db, L) {
   const now = Date.now();

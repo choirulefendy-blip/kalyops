@@ -34,7 +34,7 @@ export function openFromDenah({ orderId, table, merged, res, cust, mem }) {
 
 function upcomingRes(db, tableId) {
   const now = Date.now();
-  return db.reservations.find((r) => D.resTables(r).includes(tableId) && ['menunggu', 'dikonfirmasi', 'datang'].includes(r.status) && D.resStart(r) - now < 120 * 60000 && D.resStart(r) - now > -(r.status === 'datang' ? 180 : 45) * 60000);
+  return db.reservations.find((r) => D.resTables(r).includes(tableId) && !D.resClosed(db, r) && ['menunggu', 'dikonfirmasi', 'datang'].includes(r.status) && D.resStart(r) - now < 120 * 60000 && D.resStart(r) - now > -(r.status === 'datang' ? 180 : 45) * 60000);
 }
 
 // 2.10 · Tamu yang dibooking service (sudah duduk): bill langsung dibuka dengan nama & reservasinya

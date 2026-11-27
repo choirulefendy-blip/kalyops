@@ -782,3 +782,11 @@ export const PERIODS = [['today', 'Hari ini'], ['yesterday', 'Kemarin'], ['7d', 
 // 2.15: jumlah lembar sekali cetak untuk outlet (diatur kasir); bila belum diatur ikut pengaturan umum
 export const copiesFor = (db, L) => D_copies(db, L);
 function D_copies(db, L) { return db.locations.find((l) => l.id === L)?.copies || db.settings.printCopies || { cust: 1, copy: 1, bar: 1, dapur: 1 }; }
+
+// 2.23 · Reservasi yang bill-nya sudah dibayar (lunas atau refund) dianggap selesai, walau statusnya belum diperbarui.
+// Contoh: tamu reservasi jam 16.00 datang 15.30, bill dibuka lalu dibayar; meja tidak boleh lagi tampil "reservasi".
+export function resClosed(db, r) {
+  if (!r.order) return false;
+  const o = db.orders.find((x) => x.id === r.order);
+  return !!o && ['paid', 'refund'].includes(o.status);
+}
