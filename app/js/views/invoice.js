@@ -219,10 +219,13 @@ function pickSource(ctx) {
 }
 
 // ---------- Penyunting invoice ----------
-function editor(ctx, kind, { inv = null, src = '' } = {}) {
+// 2.23 · Dipanggil dari Kaly POS › Transaksi: bill lama yang tidak ada di data harian dikirim langsung
+export function invoiceFromOrder(ctx, order) { editor(ctx, 'order', { src: order.id, order }); }
+
+function editor(ctx, kind, { inv = null, src = '', order = null } = {}) {
   const db = ctx.db;
   const fromBill = kind === 'order';
-  const o = fromBill ? D.order(db, inv ? inv.order : src) : null;
+  const o = fromBill ? (order || D.order(db, inv ? inv.order : src)) : null;
   const r = kind === 'reservation' ? (db.reservations || []).find((x) => x.id === (inv ? inv.res : src)) : null;
   const dueDays = Number(db.settings.invoice?.dueDays) || 14;
   const b = inv?.billTo || {};

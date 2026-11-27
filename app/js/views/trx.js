@@ -228,8 +228,11 @@ export async function openTrx(ctx, id) {
     body: detailBody(db, o, r),
     footer: `${owner && o.status === 'paid' ? `${(o.refunds || []).length ? '' : `<button class="btn btn-danger-ghost" data-refund>${ic('rotate-ccw', 16)} Refund</button>`}<button class="btn btn-danger-ghost" data-refund-item>${ic('rotate-ccw', 16)} Refund per item</button>` : ''}<span class="grow"></span>
       ${canPrint && owner ? `<button class="btn btn-ghost" data-here title="Cetak lewat jendela cetak perangkat ini">${ic('printer', 16)} Cetak di perangkat ini</button>` : ''}
+      ${['paid', 'refund'].includes(o.status) && ['owner', 'kasir'].includes(ctx.user.role) ? `<button class="btn" data-inv>${ic('file-text', 16)} Buat invoice</button>` : ''}
       ${canPrint ? `<button class="btn btn-pri" data-print>${ic('printer', 16)} Cetak ulang nota</button>` : ''}<button class="btn" data-close>Tutup</button>`,
     onMount(m, api) {
+      // 2.23 · Invoice dari transaksi yang sudah dibayar
+      m.querySelector('[data-inv]')?.addEventListener('click', () => { api.close(); import('./invoice.js').then((mod) => mod.invoiceFromOrder(ctx, o)); });
       const pr = async (local, btn) => {
         btn.disabled = true;
         try {
