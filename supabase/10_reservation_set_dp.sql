@@ -1,4 +1,11 @@
 -- 2.23 · Perbaikan: ID reservasi bertipe text, bukan uuid. Versi lama menolak setiap penyimpanan DP.
+-- Kolom DP (sudah ada di database cloud, belum pernah tercatat di file SQL repo)
+alter table public.reservations add column if not exists dp_amount numeric(12,0) not null default 0;
+alter table public.reservations add column if not exists dp_method text not null default '';
+alter table public.reservations add column if not exists dp_note text not null default '';
+alter table public.reservations add column if not exists dp_paid_at timestamptz;
+alter table public.reservations add column if not exists dp_by text;
+
 drop function if exists public.reservation_set_dp(uuid, numeric, text, text);
 create or replace function public.reservation_set_dp(p_id text, p_amount numeric, p_method text, p_note text)
 returns void language plpgsql security definer set search_path = public, engine as $$
