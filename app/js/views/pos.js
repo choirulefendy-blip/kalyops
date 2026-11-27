@@ -34,7 +34,7 @@ export function openFromDenah({ orderId, table, merged, res, cust, mem }) {
 
 function upcomingRes(db, tableId) {
   const now = Date.now();
-  return db.reservations.find((r) => D.resTables(r).includes(tableId) && ['menunggu', 'dikonfirmasi', 'datang'].includes(r.status) && D.resStart(r) - now < 120 * 60000 && D.resStart(r) - now > -(r.status === 'datang' ? 180 : 45) * 60000);
+  return db.reservations.find((r) => D.resTables(r).includes(tableId) && !D.resClosed(db, r) && ['menunggu', 'dikonfirmasi', 'datang'].includes(r.status) && D.resStart(r) - now < 120 * 60000 && D.resStart(r) - now > -(r.status === 'datang' ? 180 : 45) * 60000);
 }
 
 // 2.10 · Tamu yang dibooking service (sudah duduk): bill langsung dibuka dengan nama & reservasinya
@@ -1045,7 +1045,7 @@ export function receiptHtml(db, o, cfg) {
   return `<div ${rcAttr(R)}>
     ${R.logo ? '<img class="logo" src="assets/kaly-logo-dark.svg" alt="kaly">' : ''}<p class="rc-name">${esc(R.name || db.settings.brand.name)}</p>${R.outlet ? `<p>${esc(D.loc(db, o.loc)?.name || '')}</p>` : ''}${R.header ? `<p class="rc-head">${rcLines(R.header)}</p>` : ''}${(R.contacts || []).length ? `<p class="rc-ct">${R.contacts.map((c) => `<span><img src="assets/ic-ct-${c.k}.svg" alt="">${esc(c.v)}</span>`).join('')}</p>` : ''}
     <p>${fmtDate(t)} ${fmtTime(t)}</p>
-    <p>No. ${esc(o.no)} ${o.table ? 'Meja ' + esc([o.table, ...(o.merged || [])].join('+')) : esc(D.TYPE_LABEL[o.type])}${R.cashier ? `<br>Kasir: ${esc(D.cashierName(db, o))}` : ''}</p>${(() => { const rv = o.res && db.reservations.find((x) => x.id === o.res); return rv ? `<p>Reservasi ${esc(rv.name)}, ${rv.pax} orang${rv.code ? ' · ' + esc(rv.code) : ''}</p>` : ''; })()}<hr>
+    <p>No. ${esc(o.no)} ${o.table ? 'Meja ' + esc([o.table, ...(o.merged || [])].join('+')) : esc(D.TYPE_LABEL[o.type])}${R.cashier ? `<br>Kasir: ${esc(D.cashierName(db, o))}` : ''}</p>${(() => { const rv = o.res && db.reservations.find((x) => x.id === o.res); return rv ? `<p>Reservasi ${esc(rv.name)}, ${rv.pax} orang${rv.code ? ' · ' + esc(rv.code) : ''}${rv.dp > 0 && rv.dpAt ? `<br>DP ${rp(rv.dp)} dibayar ${fmtDT(rv.dpAt)}` : ''}${settled && o.paidAt ? `<br>Pelunasan ${fmtDT(o.paidAt)}` : ''}</p>` : ''; })()}<hr>
     ${o.lines.filter((l) => !l.par && (l.s !== 'void' || (o.status === 'refund' && /^Refund:/.test(l.vr || '')))).map((l) => {
       const ld = l.s === 'void' ? 0 : D.lineDisc(l);   // 2.22 · potongan item tampil tepat di bawah itemnya
       return `<div class="rl"><span>${l.q}× ${esc(l.n)}</span><span>${rp(l.q * l.p)}</span></div>${ld > 0 ? `<div class="rl sub"><span>&nbsp;&nbsp;${esc(l.disc.name || 'Diskon item')}</span><span>-${rp(ld)}</span></div>` : ''}`;
