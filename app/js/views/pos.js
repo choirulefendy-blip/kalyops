@@ -52,10 +52,30 @@ function ensureOrder(d, ctx) {
   o = D.newOrder(d, { loc: ctx.outlet, ch: 'pos', type: p.table ? 'dine' : 'take', table: p.table || null, by: ctx.user.id, term: ctx.terminal, cust: p.cust || {}, mem: p.mem || null });
   if (p.merged?.length) o.merged = [...p.merged];
   o.no = 'Bill baru';
-  if (p.res) { o.res = p.res; const r = d.reservations.find((x) => x.id === p.res); if (r) { r.status = 'datang'; r.order = o.id; } }
+  if (p.res) {
+    o.res = p.res;
+    const r = d.reservations.find((x) => x.id === p.res);
+    if (r) {
+      r.status = 'datang'; r.order = o.id;
+      // 2.23 · Menu pre-order dari reservasi masuk ke bill sebagai pesanan draft (belum dikirim ke dapur)
+      for (const it of (r.items || [])) { const ln = D.addLine(d, o, it.m, it.q, it.note || ''); if (ln) ln.pre = true; }
+    }
+  }
   ui.orderId = o.id; ui.pending = null;
   o.isNew = true;
   return o;
+}
+// 2.23 · Tamu reservasi yang sudah duduk: bill langsung dibuat bila ada menu pre-order, supaya menunya terlihat
+function openSeatedBill(ctx, r, id) {
+  seatBill(ctx.db, r, id);
+  if (!(r.items || []).length) return;
+  const made = local((d) => { const o = ensureOrder(d, ctx); if (!o) return null; const isNew = !!o.isNew; delete o.isNew; return { o, isNew }; });
+  if (!made) return;
+  if (made.isNew) {
+    op(made.o.id, () => API.createOrder(made.o)).catch(failToast);
+    made.o.lines.filter((l) => l.pre).forEach((l) => op(made.o.id, () => API.insertLine(made.o.id, l)).catch(failToast));
+  }
+  ui.orderId = made.o.id;
 }
 
 // ---------- Navigasi kasir (2.9 · tablet landscape) ----------
@@ -506,7 +526,7 @@ export default {
       const tb = db.tables.find((x) => x.id === id);
       if (tb?.hold) return heldDialog(ctx, id, { newBill: () => { ui.orderId = null; ui.pending = { table: id }; rerender(); }, done: () => rerender() });
       const r = upcomingRes(db, id);
-      if (r && r.status === 'datang') { seatBill(db, r, id); return rerender(); }
+      if (r && r.status === 'datang') { openSeatedBill(ctx, r, id); return rerender(); }
       if (r) {
         return openModal({
           title: `Meja ${id} sudah direservasi`, size: 'sm',
@@ -565,7 +585,10 @@ export default {
         return { o, ln, isNew, merged: ln && had.has(ln.id) };
       });
       if (!r.o) return rerender();
-      if (r.isNew) op(r.o.id, () => API.createOrder(r.o)).catch(failToast);
+      if (r.isNew) {
+        op(r.o.id, () => API.createOrder(r.o)).catch(failToast);
+        r.o.lines.filter((l) => l.pre).forEach((l) => op(r.o.id, () => API.insertLine(r.o.id, l)).catch(failToast));
+      }
       if (!r.ln) { toast(`Bahan ${m.name} hanya cukup untuk ${D.menuPortions(ctx.db, m, ctx.outlet).n} porsi`, 'warn'); return rerender(); }
       const ln = r.ln, oid = r.o.id;
       op(oid, () => (r.merged ? API.setLineQty(ln.id, ln.q) : API.insertLine(oid, ln))).catch(failToast);
