@@ -229,7 +229,10 @@ function editor(ctx, kind, { inv = null, src = '', order = null } = {}) {
   const r = kind === 'reservation' ? (db.reservations || []).find((x) => x.id === (inv ? inv.res : src)) : null;
   const dueDays = Number(db.settings.invoice?.dueDays) || 14;
   const b = inv?.billTo || {};
-  const defName = b.name || r?.name || (fromBill ? (db.receivables.find((x) => x.order === o?.id)?.debtor || '') : '');
+  // 2.23 · Nama & telepon terisi otomatis dari reservasi atau dari bill (nama tamu yang dicatat kasir)
+  const oRes = o?.res ? (db.reservations || []).find((x) => x.id === o.res) : null;
+  const defName = b.name || r?.name || oRes?.name || (fromBill ? (db.receivables.find((x) => x.order === o?.id)?.debtor || o?.cust?.name || '') : '');
+  const defPhone = b.phone || r?.phone || oRes?.phone || o?.cust?.phone || '';
 
   // Baris awal untuk invoice manual / reservasi
   let lines = inv && !fromBill ? inv.lines.map((l) => ({ n: l.n, q: l.q, p: l.p }))
@@ -275,7 +278,7 @@ function editor(ctx, kind, { inv = null, src = '', order = null } = {}) {
       </div>
       <label class="fld"><span>Alamat</span><input name="address" value="${esc(b.address || '')}" placeholder="Alamat penagihan"></label>
       <div class="grid2">
-        <label class="fld"><span>No. HP / telepon</span><input name="phone" value="${esc(b.phone || r?.phone || '')}"></label>
+        <label class="fld"><span>No. HP / telepon</span><input name="phone" value="${esc(defPhone)}"></label>
         <label class="fld"><span>Email</span><input name="email" type="email" value="${esc(b.email || '')}"></label>
       </div>
       <div class="grid2">

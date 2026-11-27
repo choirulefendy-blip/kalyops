@@ -2,7 +2,7 @@
 // dan tombol Unduh PDF memakai dialog cetak peramban (Simpan sebagai PDF) supaya tidak perlu
 // memuat pustaka PDF apa pun ke aplikasi kasir.
 import * as API from '../api.js';
-import { esc, rp, num, ic, fmtDate, copyText, logo } from '../lib.js';
+import { esc, rp, num, ic, fmtDate, fmtDT, copyText, logo } from '../lib.js';
 
 const ui = { state: 'load', inv: null, err: '' };
 
@@ -69,6 +69,7 @@ function view() {
         ${Number(v.paid) ? `<dt>Sudah dibayar</dt><dd>-${rp(v.paid)}</dd><dt class="big">Sisa tagihan</dt><dd class="big">${rp(v.due)}</dd>` : ''}
       </dl></div>
 
+      ${v.dpAt || v.settledAt ? `<p class="inv-p-note">${[v.dpAt ? `DP ${rp(v.dpAmount)} dibayar ${esc(fmtDT(new Date(v.dpAt).getTime()))}` : '', v.settledAt ? `Pelunasan ${esc(fmtDT(new Date(v.settledAt).getTime()))}` : ''].filter(Boolean).join('<br>')}</p>` : ''}
       ${v.note ? `<p class="inv-p-note">${esc(v.note)}</p>` : ''}
       ${bank.length ? `<div class="inv-p-bank"><small>Pembayaran transfer ke</small>
         ${bank.map((x) => `<p><b>${esc(x.bank || '')}</b> ${esc(x.no || '')}${x.an ? ` · a.n. ${esc(x.an)}` : ''}</p>`).join('')}</div>` : ''}
