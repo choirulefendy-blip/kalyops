@@ -302,6 +302,7 @@ function billPanel(ctx) {
     </div>
     ${o.status === 'open' ? `<input class="inp inp-sm bill-note" data-a-change="orderNote" maxlength="300" placeholder="Catatan pesanan (umum), mis. tanpa es, dibungkus" value="${esc(o.note || '')}" aria-label="Catatan pesanan umum">` : (o.note ? `<p class="res-note">Catatan: ${esc(o.note)}</p>` : '')}
     ${res ? `<p class="res-note">${ic('calendar-check', 15)} Reservasi ${esc(res.code)}: ${esc(res.name)}, ${res.pax} orang${res.note ? '. ' + esc(res.note) : ''}${res.dp > 0 ? `<br><span class="dp-badge">${ic('check-circle', 13)} DP sudah dibayar ${rp(res.dp)}</span>` : ''}</p>` : ''}
+    ${res && o.status === 'open' && (res.items || []).length && !(res.items || []).every((it) => o.lines.some((l) => l.m === it.m && l.s !== 'void')) ? `<div class="res-pre"><span>${ic('list', 15)} Menu pre-order: ${res.items.map((it) => `${it.q}× ${esc(D.menu(db, it.m)?.name || it.m)}`).join(', ')}</span><button class="btn btn-sm btn-pri" data-a="resImport">Masukkan ke bill</button></div>` : ''}
     <div class="bill-lines" data-keep-scroll="bill">${top.map((l) => {
       const comps = o.lines.filter((c) => c.par === l.id);
       const [sl, sc] = ST[l.s];
@@ -593,6 +594,19 @@ export default {
       const ln = r.ln, oid = r.o.id;
       op(oid, () => (r.merged ? API.setLineQty(ln.id, ln.q) : API.insertLine(oid, ln))).catch(failToast);
       rerender();
+    },
+    // 2.23 · Masukkan menu pre-order reservasi ke bill yang sudah terbuka
+    resImport() {
+      const oid = ui.orderId; if (!oid) return;
+      const added = local((d) => {
+        const o = D.order(d, oid); const r = o?.res && d.reservations.find((x) => x.id === o.res);
+        if (!r) return [];
+        return (r.items || []).filter((it) => !o.lines.some((l) => l.m === it.m && l.s !== 'void'))
+          .map((it) => { const had = new Set(o.lines.map((l) => l.id)); const ln = D.addLine(d, o, it.m, it.q, it.note || ''); return ln ? { ln, merged: had.has(ln.id) } : null; }).filter(Boolean);
+      });
+      if (!added.length) { toast('Menu pre-order tidak bisa dimasukkan. Cek ketersediaan menu.', 'warn'); return rerender(); }
+      added.forEach(({ ln, merged }) => op(oid, () => (merged ? API.setLineQty(ln.id, ln.q) : API.insertLine(oid, ln))).catch(failToast));
+      toast(`${added.length} menu pre-order masuk ke bill`); rerender();
     },
     qty(el, e, ctx) {
       const oid = ui.orderId;
