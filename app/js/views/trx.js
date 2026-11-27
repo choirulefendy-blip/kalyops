@@ -157,6 +157,7 @@ export function trxPanel(ctx) {
   if (S.key !== JSON.stringify(f) && !S.loading) setTimeout(() => load(ctxFresh(ctx)));
   const owner = isOwner(ctx);
   return `<div class="tx">
+    <div class="tx-inv"><a class="btn btn-sm" href="#/invoice">${ic('file-text', 14)} Invoice</a><a class="btn btn-sm btn-pri" href="#/invoice?new=1">${ic('plus', 14)} Buat invoice</a></div>
     <div class="tx-f">
       ${S.shift ? `<span class="chip on tx-shift">${ic('clock', 14)} Shift ${esc(S.shiftLabel || '')}<button class="lnk" data-a="txShiftX" title="Tampilkan semua">${ic('trash-2', 13)}</button></span>` : `<div class="chips">${ranges(ctx).map(([k, l]) => `<button class="chip ${S.range === k ? 'on' : ''}" data-a="txRange" data-v="${k}">${l}</button>`).join('')}
         ${S.range === 'custom' ? `<input type="date" class="inp inp-sm" data-a-change="txFrom" value="${esc(S.from || dayKey())}" aria-label="Dari tanggal"><span class="muted sm">s/d</span><input type="date" class="inp inp-sm" data-a-change="txTo" value="${esc(S.to || dayKey())}" aria-label="Sampai tanggal">` : ''}</div>`}
@@ -227,8 +228,11 @@ export async function openTrx(ctx, id) {
     body: detailBody(db, o, r),
     footer: `${owner && o.status === 'paid' ? `${(o.refunds || []).length ? '' : `<button class="btn btn-danger-ghost" data-refund>${ic('rotate-ccw', 16)} Refund</button>`}<button class="btn btn-danger-ghost" data-refund-item>${ic('rotate-ccw', 16)} Refund per item</button>` : ''}<span class="grow"></span>
       ${canPrint && owner ? `<button class="btn btn-ghost" data-here title="Cetak lewat jendela cetak perangkat ini">${ic('printer', 16)} Cetak di perangkat ini</button>` : ''}
+      ${['paid', 'refund'].includes(o.status) && ['owner', 'kasir'].includes(ctx.user.role) ? `<button class="btn" data-inv>${ic('file-text', 16)} Buat invoice</button>` : ''}
       ${canPrint ? `<button class="btn btn-pri" data-print>${ic('printer', 16)} Cetak ulang nota</button>` : ''}<button class="btn" data-close>Tutup</button>`,
     onMount(m, api) {
+      // 2.23 · Invoice dari transaksi yang sudah dibayar
+      m.querySelector('[data-inv]')?.addEventListener('click', () => { api.close(); import('./invoice.js').then((mod) => mod.invoiceFromOrder(ctx, o)); });
       const pr = async (local, btn) => {
         btn.disabled = true;
         try {

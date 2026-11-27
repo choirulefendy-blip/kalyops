@@ -52,10 +52,30 @@ function ensureOrder(d, ctx) {
   o = D.newOrder(d, { loc: ctx.outlet, ch: 'pos', type: p.table ? 'dine' : 'take', table: p.table || null, by: ctx.user.id, term: ctx.terminal, cust: p.cust || {}, mem: p.mem || null });
   if (p.merged?.length) o.merged = [...p.merged];
   o.no = 'Bill baru';
-  if (p.res) { o.res = p.res; const r = d.reservations.find((x) => x.id === p.res); if (r) { r.status = 'datang'; r.order = o.id; } }
+  if (p.res) {
+    o.res = p.res;
+    const r = d.reservations.find((x) => x.id === p.res);
+    if (r) {
+      r.status = 'datang'; r.order = o.id;
+      // 2.23 · Menu pre-order dari reservasi masuk ke bill sebagai pesanan draft (belum dikirim ke dapur)
+      for (const it of (r.items || [])) { const ln = D.addLine(d, o, it.m, it.q, it.note || ''); if (ln) ln.pre = true; }
+    }
+  }
   ui.orderId = o.id; ui.pending = null;
   o.isNew = true;
   return o;
+}
+// 2.23 · Tamu reservasi yang sudah duduk: bill langsung dibuat bila ada menu pre-order, supaya menunya terlihat
+function openSeatedBill(ctx, r, id) {
+  seatBill(ctx.db, r, id);
+  if (!(r.items || []).length) return;
+  const made = local((d) => { const o = ensureOrder(d, ctx); if (!o) return null; const isNew = !!o.isNew; delete o.isNew; return { o, isNew }; });
+  if (!made) return;
+  if (made.isNew) {
+    op(made.o.id, () => API.createOrder(made.o)).catch(failToast);
+    made.o.lines.filter((l) => l.pre).forEach((l) => op(made.o.id, () => API.insertLine(made.o.id, l)).catch(failToast));
+  }
+  ui.orderId = made.o.id;
 }
 
 // ---------- Navigasi kasir (2.9 · tablet landscape) ----------
@@ -282,6 +302,7 @@ function billPanel(ctx) {
     </div>
     ${o.status === 'open' ? `<input class="inp inp-sm bill-note" data-a-change="orderNote" maxlength="300" placeholder="Catatan pesanan (umum), mis. tanpa es, dibungkus" value="${esc(o.note || '')}" aria-label="Catatan pesanan umum">` : (o.note ? `<p class="res-note">Catatan: ${esc(o.note)}</p>` : '')}
     ${res ? `<p class="res-note">${ic('calendar-check', 15)} Reservasi ${esc(res.code)}: ${esc(res.name)}, ${res.pax} orang${res.note ? '. ' + esc(res.note) : ''}${res.dp > 0 ? `<br><span class="dp-badge">${ic('check-circle', 13)} DP sudah dibayar ${rp(res.dp)}</span>` : ''}</p>` : ''}
+    ${res && o.status === 'open' && (res.items || []).length && !(res.items || []).every((it) => o.lines.some((l) => l.m === it.m && l.s !== 'void')) ? `<div class="res-pre"><span>${ic('list', 15)} Menu pre-order: ${res.items.map((it) => `${it.q}× ${esc(D.menu(db, it.m)?.name || it.m)}`).join(', ')}</span><button class="btn btn-sm btn-pri" data-a="resImport">Masukkan ke bill</button></div>` : ''}
     <div class="bill-lines" data-keep-scroll="bill">${top.map((l) => {
       const comps = o.lines.filter((c) => c.par === l.id);
       const [sl, sc] = ST[l.s];
@@ -506,7 +527,7 @@ export default {
       const tb = db.tables.find((x) => x.id === id);
       if (tb?.hold) return heldDialog(ctx, id, { newBill: () => { ui.orderId = null; ui.pending = { table: id }; rerender(); }, done: () => rerender() });
       const r = upcomingRes(db, id);
-      if (r && r.status === 'datang') { seatBill(db, r, id); return rerender(); }
+      if (r && r.status === 'datang') { openSeatedBill(ctx, r, id); return rerender(); }
       if (r) {
         return openModal({
           title: `Meja ${id} sudah direservasi`, size: 'sm',
@@ -565,11 +586,27 @@ export default {
         return { o, ln, isNew, merged: ln && had.has(ln.id) };
       });
       if (!r.o) return rerender();
-      if (r.isNew) op(r.o.id, () => API.createOrder(r.o)).catch(failToast);
+      if (r.isNew) {
+        op(r.o.id, () => API.createOrder(r.o)).catch(failToast);
+        r.o.lines.filter((l) => l.pre).forEach((l) => op(r.o.id, () => API.insertLine(r.o.id, l)).catch(failToast));
+      }
       if (!r.ln) { toast(`Bahan ${m.name} hanya cukup untuk ${D.menuPortions(ctx.db, m, ctx.outlet).n} porsi`, 'warn'); return rerender(); }
       const ln = r.ln, oid = r.o.id;
       op(oid, () => (r.merged ? API.setLineQty(ln.id, ln.q) : API.insertLine(oid, ln))).catch(failToast);
       rerender();
+    },
+    // 2.23 · Masukkan menu pre-order reservasi ke bill yang sudah terbuka
+    resImport() {
+      const oid = ui.orderId; if (!oid) return;
+      const added = local((d) => {
+        const o = D.order(d, oid); const r = o?.res && d.reservations.find((x) => x.id === o.res);
+        if (!r) return [];
+        return (r.items || []).filter((it) => !o.lines.some((l) => l.m === it.m && l.s !== 'void'))
+          .map((it) => { const had = new Set(o.lines.map((l) => l.id)); const ln = D.addLine(d, o, it.m, it.q, it.note || ''); return ln ? { ln, merged: had.has(ln.id) } : null; }).filter(Boolean);
+      });
+      if (!added.length) { toast('Menu pre-order tidak bisa dimasukkan. Cek ketersediaan menu.', 'warn'); return rerender(); }
+      added.forEach(({ ln, merged }) => op(oid, () => (merged ? API.setLineQty(ln.id, ln.q) : API.insertLine(oid, ln))).catch(failToast));
+      toast(`${added.length} menu pre-order masuk ke bill`); rerender();
     },
     qty(el, e, ctx) {
       const oid = ui.orderId;
@@ -1008,7 +1045,7 @@ export function receiptHtml(db, o, cfg) {
   return `<div ${rcAttr(R)}>
     ${R.logo ? '<img class="logo" src="assets/kaly-logo-dark.svg" alt="kaly">' : ''}<p class="rc-name">${esc(R.name || db.settings.brand.name)}</p>${R.outlet ? `<p>${esc(D.loc(db, o.loc)?.name || '')}</p>` : ''}${R.header ? `<p class="rc-head">${rcLines(R.header)}</p>` : ''}${(R.contacts || []).length ? `<p class="rc-ct">${R.contacts.map((c) => `<span><img src="assets/ic-ct-${c.k}.svg" alt="">${esc(c.v)}</span>`).join('')}</p>` : ''}
     <p>${fmtDate(t)} ${fmtTime(t)}</p>
-    <p>No. ${esc(o.no)} ${o.table ? 'Meja ' + esc([o.table, ...(o.merged || [])].join('+')) : esc(D.TYPE_LABEL[o.type])}${R.cashier ? `<br>Kasir: ${esc(D.cashierName(db, o))}` : ''}</p><hr>
+    <p>No. ${esc(o.no)} ${o.table ? 'Meja ' + esc([o.table, ...(o.merged || [])].join('+')) : esc(D.TYPE_LABEL[o.type])}${R.cashier ? `<br>Kasir: ${esc(D.cashierName(db, o))}` : ''}</p>${(() => { const rv = o.res && db.reservations.find((x) => x.id === o.res); return rv ? `<p>Reservasi ${esc(rv.name)}, ${rv.pax} orang${rv.code ? ' · ' + esc(rv.code) : ''}</p>` : ''; })()}<hr>
     ${o.lines.filter((l) => !l.par && (l.s !== 'void' || (o.status === 'refund' && /^Refund:/.test(l.vr || '')))).map((l) => {
       const ld = l.s === 'void' ? 0 : D.lineDisc(l);   // 2.22 · potongan item tampil tepat di bawah itemnya
       return `<div class="rl"><span>${l.q}× ${esc(l.n)}</span><span>${rp(l.q * l.p)}</span></div>${ld > 0 ? `<div class="rl sub"><span>&nbsp;&nbsp;${esc(l.disc.name || 'Diskon item')}</span><span>-${rp(ld)}</span></div>` : ''}`;

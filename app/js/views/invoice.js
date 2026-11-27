@@ -41,6 +41,8 @@ function rows(db) {
 // ---------- Tampilan ----------
 export default {
   title: () => 'Invoice',
+  // 2.23 · Dibuka dari tombol "Buat invoice" di Kaly POS › Transaksi: langsung tampilkan pilihan sumber
+  after(root, ctx, first) { if (first && ctx.q?.new) { history.replaceState(null, '', '#/invoice'); setTimeout(() => pickSource(ctx)); } },
   render(ctx) {
     const db = ctx.db;
     const locs = locIds(db);
@@ -217,10 +219,13 @@ function pickSource(ctx) {
 }
 
 // ---------- Penyunting invoice ----------
-function editor(ctx, kind, { inv = null, src = '' } = {}) {
+// 2.23 · Dipanggil dari Kaly POS › Transaksi: bill lama yang tidak ada di data harian dikirim langsung
+export function invoiceFromOrder(ctx, order) { editor(ctx, 'order', { src: order.id, order }); }
+
+function editor(ctx, kind, { inv = null, src = '', order = null } = {}) {
   const db = ctx.db;
   const fromBill = kind === 'order';
-  const o = fromBill ? D.order(db, inv ? inv.order : src) : null;
+  const o = fromBill ? (order || D.order(db, inv ? inv.order : src)) : null;
   const r = kind === 'reservation' ? (db.reservations || []).find((x) => x.id === (inv ? inv.res : src)) : null;
   const dueDays = Number(db.settings.invoice?.dueDays) || 14;
   const b = inv?.billTo || {};
@@ -228,6 +233,8 @@ function editor(ctx, kind, { inv = null, src = '' } = {}) {
 
   // Baris awal untuk invoice manual / reservasi
   let lines = inv && !fromBill ? inv.lines.map((l) => ({ n: l.n, q: l.q, p: l.p }))
+    // 2.23 · Reservasi dengan menu pesanan: rincian menu jadi baris tagihan (harga saat dipesan)
+    : r && (r.items || []).length ? r.items.map((it) => ({ n: (db.menus.find((m) => m.id === it.m)?.name || it.m) + (it.note ? ` (${it.note})` : ''), q: it.q, p: it.p }))
     : r ? [{ n: `Reservasi ${r.code} · ${fmtDate(r.date)} ${r.time} · ${r.pax} orang`, q: 1, p: 0 }]
       : [{ n: '', q: 1, p: 0 }];
 

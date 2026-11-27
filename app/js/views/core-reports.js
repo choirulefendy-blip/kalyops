@@ -475,7 +475,7 @@ export function bayar(db, f) {
     <p class="hint">Yang dihitung adalah uang yang benar-benar diterima, jadi kembalian tunai tidak ikut.</p>`;
 
     const top = d.methods[0];
-    return `<div class="kpis">${kpi('Total diterima', rp(amt), `${num(T.orders)} nota`)}
+    return `<p class="hint">Laporan ini memakai <b>jam pembayaran</b>. Bill yang dibuka kemarin tapi dibayar hari ini masuk ke hari ini, sedangkan laporan Penjualan memakai hari bisnis saat bill dibuka.</p><div class="kpis">${kpi('Total diterima', rp(amt), `${num(T.orders)} nota`)}
         ${kpi('Metode terbanyak', esc(top.label), `${pct(Number(top.amount) / (amt || 1), 1)} dari uang masuk`)}
         ${kpi('Rata-rata per nota', rp(amt / (Number(T.orders) || 1)))}
         ${kpi('Jenis metode dipakai', num(T.methods))}
