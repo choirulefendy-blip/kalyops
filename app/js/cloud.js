@@ -496,7 +496,7 @@ const TABLES = {
   menu_categories: 'menus', menus: 'menus', menu_outlets: 'menus', menu_bom: 'menus', menu_package_items: 'menus', items: 'items', item_bom: 'items',
   stock: 'stock', tiers: 'loyalty', missions: 'loyalty', promos: 'loyalty', vouchers: 'loyalty', campaigns: 'loyalty',
   orders: 'orders', order_lines: 'orders', order_payments: 'orders', order_refunds: 'orders', order_notices: 'notices', shifts: 'shifts', members: 'members', member_missions: 'memberMissions',
-  deposit_cards: 'deposits', deposit_tx: 'deposits', receivables: 'receivables', reservations: 'reservations', suppliers: 'suppliers', supplier_prices: 'suppliers', item_suppliers: 'suppliers',
+  deposit_cards: 'deposits', deposit_tx: 'deposits', receivables: 'receivables', reservations: 'reservations', reservation_items: 'reservations', suppliers: 'suppliers', supplier_prices: 'suppliers', item_suppliers: 'suppliers',
   purchase_orders: 'pos', purchase_order_lines: 'pos', transfers: 'transfers', transfer_lines: 'transfers', opnames: 'opnames', opname_lines: 'opnames',
   b2b_invoices: 'b2b', b2b_lines: 'b2b', invoices: 'invoices', invoice_lines: 'invoices', productions: 'productions', stock_moves: 'moves', fraud_flags: 'flags', journals: 'journals', journal_lines: 'journals',
   staff_alerts: 'alerts', print_stations: 'printers', print_jobs: 'printJobs',

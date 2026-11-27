@@ -56,3 +56,7 @@ end $$;
 
 revoke all on function public.reservation_items_set(text, jsonb) from public, anon;
 grant execute on function public.reservation_items_set(text, jsonb) to authenticated;
+
+-- Perangkat lain (tablet kasir) ikut memuat ulang reservasi saat menu pesanan berubah
+drop trigger if exists sync_log on public.reservation_items;
+create trigger sync_log after insert or update or delete on public.reservation_items for each statement execute function engine.tg_sync_log();
