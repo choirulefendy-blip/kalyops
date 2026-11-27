@@ -11,7 +11,7 @@ name: Terbitkan Kaly Ops ke GitHub Pages
 
 on:
   push:
-    branches: [main, coba]
+    branches: [main]
     paths: ['app/**', '.github/workflows/pages.yml']
   workflow_dispatch:
 
